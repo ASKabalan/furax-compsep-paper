@@ -158,7 +158,12 @@ def main():
         return {"value": value , "beta_dust": final_params["beta_dust"] , "temp_dust": final_params["temp_dust"] , "beta_pl": final_params["beta_pl"]}
 
 
-    max_centroids = 40
+    max_centroids = 500
+    search_space = {
+        "T_d_patches": jnp.arange(10, 500, 50),
+        "B_d_patches": jnp.arange(10, 500, 50),
+        "B_s_patches": jnp.arange(10, 500, 50),
+    }
 
 
     @jax.jit
@@ -174,11 +179,6 @@ def main():
 
 
     # Put the good values for the grid search
-    search_space = {
-        "T_d_patches": jnp.arange(10, 40, 20),
-        "B_d_patches": jnp.arange(10, 40, 20),
-        "B_s_patches": jnp.arange(10, 40, 20),
-    }
 
     grid_search = DistributedGridSearch(
         objective_function, search_space, batch_size=2, progress_bar=True, log_every=0.1
