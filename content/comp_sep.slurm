@@ -2,12 +2,12 @@
 ##############################################################################################################################
 # USAGE:sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100  
 ##############################################################################################################################
-#SBATCH --job-name=MultiPatch   # nom du job
+#SBATCH --job-name=Likelihoods   # nom du job
 #SBATCH --cpus-per-task=8           # nombre de CPU par tache pour gpu_p5 (1/8 du noeud 8-GPU)
 #SBATCH --hint=nomultithread         # hyperthreading desactive
 #SBATCH --time=05:00:00              # temps d'execution maximum demande (HH:MM:SS)
-#SBATCH --output=%x_%N_a100.out # nom du fichier de sortie
-#SBATCH --error=%x_%N_a100.err  # nom du fichier d'erreur (ici commun avec la sortie)
+#SBATCH --output=%x_%N.out # nom du fichier de sortie
+#SBATCH --error=%x_%N.err  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --exclusive                  # ressources dediees
 ##SBATCH --qos=qos_gpu-dev
 # Nettoyage des modules charges en interactif et herites par defaut
@@ -27,6 +27,10 @@ if [[ "$SLURM_JOB_PARTITION" == "gpu_p5" ]]; then
     module load arch/a100
     source /gpfsdswork/projects/rech/tkc/commun/venv/a100/bin/activate
     gpu_name=a100
+elif [[ "$SLURM_JOB_PARTITION" == "gpu_p6" ]]; then
+    module arch/h100
+    source /gpfsdswork/projects/rech/tkc/commun/venv/h100/bin/activate
+    gpu_name=h100
 else
     source /gpfsdswork/projects/rech/tkc/commun/venv/v100/bin/activate
     gpu_name=v100
@@ -101,5 +105,5 @@ function plaunch() {
 # Echo des commandes lancees
 set -x
 
-slaunch bench.py -n 4 8 16 32 64 128 256 512 1024 2048 -s -l
+slaunch bench_bcp.py -n 4 8 16 32 64 128 256 512 1024 2048 -s -l
 
