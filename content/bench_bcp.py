@@ -1,4 +1,7 @@
 # Necessary imports
+import os
+
+os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -32,6 +35,7 @@ from functools import partial
 from generate_maps import load_from_cache
 import seaborn as sns
 from jax_hpc_profiler.plotting import plot_weak_scaling
+import jax
 
 
 def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
@@ -101,9 +105,16 @@ def run_jax_lbfgs(
 
     solver = optax.lbfgs()
 
-    def basic_comp(best_params):
+    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    guess_params = jax.tree.map_with_path(
+        lambda path, x: x
+        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        best_params,
+    )
+
+    def basic_comp(guess_params):
         final_params, _ = optimize(
-            best_params,
+            guess_params,
             nll,
             solver,
             max_iter=100,
@@ -111,9 +122,9 @@ def run_jax_lbfgs(
         )
         return final_params["beta_pl"], final_params
 
-    jax_timer.chrono_jit(basic_comp, best_params, ndarray_arg=0)
+    jax_timer.chrono_jit(basic_comp, guess_params, ndarray_arg=0)
     for _ in range(10):
-        jax_timer.chrono_fun(basic_comp, best_params, ndarray_arg=0)
+        jax_timer.chrono_fun(basic_comp, guess_params, ndarray_arg=0)
 
 
 def run_jax_tnc(
@@ -137,14 +148,21 @@ def run_jax_tnc(
         synchrotron_nu0=synchrotron_nu0,
     )
 
-    def basic_comp(best_params):
+    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    guess_params = jax.tree.map_with_path(
+        lambda path, x: x
+        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        best_params,
+    )
+
+    def basic_comp(guess_params):
         scipy_solver = jaxopt.ScipyMinimize(fun=nll, method="TNC", jit=True, tol=1e-6)
-        result = scipy_solver.run(best_params)
+        result = scipy_solver.run(guess_params)
         return result.params
 
-    numpy_timer.chrono_jit(basic_comp, best_params)
+    numpy_timer.chrono_jit(basic_comp, guess_params)
     for _ in range(10):
-        numpy_timer.chrono_fun(basic_comp, best_params)
+        numpy_timer.chrono_fun(basic_comp, guess_params)
 
 
 def run_fgbuster_comp_sep(
@@ -153,10 +171,17 @@ def run_fgbuster_comp_sep(
     """Run FGBuster log-likelihood."""
     print(f"Running FGBuster Comp sep nside={nside} ...")
 
-    components[1]._set_default_of_free_symbols(
-        beta_d=best_params["beta_dust"], temp=best_params["temp_dust"]
+    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    guess_params = jax.tree.map_with_path(
+        lambda path, x: x
+        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        best_params,
     )
-    components[2]._set_default_of_free_symbols(beta_pl=best_params["beta_pl"])
+
+    components[1]._set_default_of_free_symbols(
+        beta_d=guess_params["beta_dust"], temp=guess_params["temp_dust"]
+    )
+    components[2]._set_default_of_free_symbols(beta_pl=guess_params["beta_pl"])
 
     numpy_timer.chrono_jit(basic_comp_sep, components, instrument, freq_maps)
 
@@ -209,6 +234,12 @@ def parse_args():
         action="store_true",
         help="Benchmark solvers: FGBuster, JAX LBFGS, and JAX TNC",
     )
+    parser.add_argument(
+        "-c"
+        "--cache-run",
+        action="store_true",
+        help="Run the cache generation step",
+    )
     return parser.parse_args()
 
 
@@ -227,6 +258,10 @@ def main():
     if args.likelihood and not args.plot_only:
         for nside in args.nsides:
             save_to_cache(nside, sky="c1d0s0")
+
+            if args.cache_run:
+                continue
+
             nu, freq_maps = load_from_cache(nside, sky="c1d0s0")
 
             # Likelihood mode benchmarking
@@ -243,8 +278,13 @@ def main():
 
     if args.solvers and not args.plot_only:
         for nside in args.nsides:
-            save_to_cache(nside, sky="c1d0s0")
-            nu, freq_maps = load_from_cache(nside, sky="c1d0s0")
+            save_to_cache(nside, sky="c1d1s1")
+
+            if args.cache_run:
+                continue
+
+
+            nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
 
             # Solver mode benchmarking
             print(f"Running solver benchmarking for nside={nside}...")
@@ -255,11 +295,11 @@ def main():
             numpy_timer.report("runs/FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
-            # run_jax_lbfgs(
-            #    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0 , jax_timer
-            # )
-            # kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
-            # jax_timer.report("runs/FURAX.csv", **kwargs)
+            run_jax_lbfgs(
+                nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
+            )
+            kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
+            jax_timer.report("runs/FURAX.csv", **kwargs)
 
             # Run TNC from SciPy
             run_jax_tnc(
@@ -275,7 +315,7 @@ def main():
             numpy_timer.report("runs/FURAX.csv", **kwargs)
 
     # Plot log-likelihood results
-    if args.likelihood:
+    if args.likelihood and not args.cache_run:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 
@@ -287,11 +327,11 @@ def main():
             functions=FWs,
             figure_size=(12, 8),
             label_text="%f%",
-            output="runs/nll.png",
+            # output="runs/nll.png",
         )
 
     # Plot solver results
-    if args.solvers:
+    if args.solvers and not args.cache_run :
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 
