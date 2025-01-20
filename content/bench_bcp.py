@@ -235,7 +235,7 @@ def parse_args():
         help="Benchmark solvers: FGBuster, JAX LBFGS, and JAX TNC",
     )
     parser.add_argument(
-        "-c"
+        "-c",
         "--cache-run",
         action="store_true",
         help="Run the cache generation step",
@@ -252,8 +252,8 @@ def main():
     components = [CMB(), Dust(dust_nu0), Synchrotron(synchrotron_nu0)]
     best_params = {"temp_dust": 20.0, "beta_dust": 1.54, "beta_pl": -3.0}
 
-    jax_timer = Timer(save_jaxpr=True, jax_fn=True)
-    numpy_timer = Timer(save_jaxpr=False, jax_fn=False)
+    jax_timer = Timer(save_jaxpr=True, jax_fn=True, compile_info=False)
+    numpy_timer = Timer(save_jaxpr=False, jax_fn=False, compile_info=False)
 
     if args.likelihood and not args.plot_only:
         for nside in args.nsides:

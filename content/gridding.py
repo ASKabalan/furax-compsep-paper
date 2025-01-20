@@ -66,6 +66,7 @@ def main():
     # Check the shape of freq_maps
     print("freq_maps shape:", freq_maps.shape)
 
+    GAL020 = jnp.ones(npixel)
     (indices,) = jnp.where(GAL020 == 1)
     freq_maps_m = np.zeros((freq_maps.shape[0] , freq_maps.shape[1] , len(indices)))
     for i , _ in enumerate(freq_maps):
@@ -158,11 +159,11 @@ def main():
         return {"value": value , "beta_dust": final_params["beta_dust"] , "temp_dust": final_params["temp_dust"] , "beta_pl": final_params["beta_pl"]}
 
 
-    max_centroids = 500
+    max_centroids = 1000
     search_space = {
-        "T_d_patches": jnp.arange(10, 500, 50),
-        "B_d_patches": jnp.arange(10, 500, 50),
-        "B_s_patches": jnp.arange(10, 500, 50),
+        "T_d_patches": jnp.array([10 , 500 , 1000]),
+        "B_d_patches": jnp.array([10 , 250 , 500 , 750 , 1000]),
+        "B_s_patches": jnp.array([10 , 500 , 1000]),
     }
 
 
@@ -181,7 +182,7 @@ def main():
     # Put the good values for the grid search
 
     grid_search = DistributedGridSearch(
-        objective_function, search_space, batch_size=2, progress_bar=True, log_every=0.1
+        objective_function, search_space, batch_size=1, progress_bar=True, log_every=0.1
     )
 
     results = grid_search.run()
