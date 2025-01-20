@@ -45,7 +45,7 @@ def run_fg_buster(
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 50
+    max_centroids = 1000
 
     temp_dust_patch_indices = get_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -117,7 +117,7 @@ def run_jax_lbfgs(
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 50
+    max_centroids = 1000
 
     temp_dust_patch_indices = get_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -204,7 +204,7 @@ def run_jax_tnc(
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 50
+    max_centroids = 1000
 
     temp_dust_patch_indices = get_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -332,10 +332,10 @@ def main():
             kwargs = {
                 "function": f"FGBuster n={nside}",
                 "precision": "float64",
-                "x": 3 * cluster_count,
+                "x": cluster_count,
                 "npz_data": data,
             }
-            np_timer.report("runs/FGBUSTER.csv", **kwargs)
+            np_timer.report("runs/CLUSTERS_FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
             final_params, cmb_variance, last_L = run_jax_lbfgs(
@@ -355,10 +355,10 @@ def main():
             kwargs = {
                 "function": f"LBFGS n={nside}",
                 "precision": "float64",
-                "x": 3 * cluster_count,
+                "x":  cluster_count,
                 "npz_data": data,
             }
-            jax_timer.report("runs/FURAX.csv", **kwargs)
+            jax_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
 
             # Run TNC from SciPy
             final_params, cmb_variance, last_L = run_jax_tnc(
@@ -372,13 +372,14 @@ def main():
             kwargs = {
                 "function": f"TNC n={nside}",
                 "precision": "float64",
-                "x": 3 * cluster_count,
+                "x": cluster_count,
                 "npz_data": data,
             }
-            np_timer.report("runs/FURAX.csv", **kwargs)
+            np_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
 
+    return
     # Plot solver results
-    if not args.cache_run:
+    if not args.cache_run and False:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 

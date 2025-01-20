@@ -53,7 +53,7 @@ def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
     x0 = np.array([x for c in components for x in c.defaults])
 
     numpy_timer.chrono_jit(logL, x0)
-    for _ in range(10):
+    for _ in range(2):
         numpy_timer.chrono_fun(logL, x0)
 
 
@@ -78,7 +78,7 @@ def run_jax_negative_log_prob(
 
     jax_timer.chrono_jit(nll, best_params)
 
-    for _ in range(10):
+    for _ in range(2):
         jax_timer.chrono_fun(nll, best_params)
 
 
@@ -105,7 +105,7 @@ def run_jax_lbfgs(
 
     solver = optax.lbfgs()
 
-    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
         lambda path, x: x
         + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
@@ -123,7 +123,7 @@ def run_jax_lbfgs(
         return final_params["beta_pl"], final_params
 
     jax_timer.chrono_jit(basic_comp, guess_params, ndarray_arg=0)
-    for _ in range(10):
+    for _ in range(2):
         jax_timer.chrono_fun(basic_comp, guess_params, ndarray_arg=0)
 
 
@@ -148,7 +148,7 @@ def run_jax_tnc(
         synchrotron_nu0=synchrotron_nu0,
     )
 
-    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
         lambda path, x: x
         + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
@@ -161,7 +161,7 @@ def run_jax_tnc(
         return result.params
 
     numpy_timer.chrono_jit(basic_comp, guess_params)
-    for _ in range(10):
+    for _ in range(2):
         numpy_timer.chrono_fun(basic_comp, guess_params)
 
 
@@ -171,12 +171,13 @@ def run_fgbuster_comp_sep(
     """Run FGBuster log-likelihood."""
     print(f"Running FGBuster Comp sep nside={nside} ...")
 
-    best_params = jax.tree_map(lambda x: jnp.array(x), best_params)
+    best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
         lambda path, x: x
         + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
+    guess_params = jax.tree.map(lambda x: jnp.array(x), guess_params)
 
     components[1]._set_default_of_free_symbols(
         beta_d=guess_params["beta_dust"], temp=guess_params["temp_dust"]
@@ -185,7 +186,7 @@ def run_fgbuster_comp_sep(
 
     numpy_timer.chrono_jit(basic_comp_sep, components, instrument, freq_maps)
 
-    for _ in range(10):
+    for _ in range(2):
         numpy_timer.chrono_fun(basic_comp_sep, components, instrument, freq_maps)
 
 
@@ -252,8 +253,8 @@ def main():
     components = [CMB(), Dust(dust_nu0), Synchrotron(synchrotron_nu0)]
     best_params = {"temp_dust": 20.0, "beta_dust": 1.54, "beta_pl": -3.0}
 
-    jax_timer = Timer(save_jaxpr=True, jax_fn=True, compile_info=False)
-    numpy_timer = Timer(save_jaxpr=False, jax_fn=False, compile_info=False)
+    jax_timer = Timer(save_jaxpr=False, jax_fn=True)
+    numpy_timer = Timer(save_jaxpr=False, jax_fn=False)
 
     if args.likelihood and not args.plot_only:
         for nside in args.nsides:
@@ -271,10 +272,10 @@ def main():
                 nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
             )
 
-            kwargs = {"function": "Furax", "precision": "float64", "x": nside}
-            jax_timer.report("runs/FURAX.csv", **kwargs)
-            kwargs = {"function": "FGBuster", "precision": "float64", "x": nside}
-            numpy_timer.report("runs/FGBUSTER.csv", **kwargs)
+            kwargs = {"function": "Furax LL", "precision": "float64", "x": nside}
+            jax_timer.report("runs/LL_FURAX.csv", **kwargs)
+            kwargs = {"function": "FGBuster LL", "precision": "float64", "x": nside}
+            numpy_timer.report("runs/LL_FGBUSTER.csv", **kwargs)
 
     if args.solvers and not args.plot_only:
         for nside in args.nsides:
@@ -292,14 +293,14 @@ def main():
                 nside, instrument, best_params, freq_maps, components, numpy_timer
             )
             kwargs = {"function": "FGBuster - TNC", "precision": "float64", "x": nside}
-            numpy_timer.report("runs/FGBUSTER.csv", **kwargs)
+            numpy_timer.report("runs/BCP_FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
             run_jax_lbfgs(
                 nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
             )
             kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
-            jax_timer.report("runs/FURAX.csv", **kwargs)
+            jax_timer.report("runs/BCP_FURAX.csv", **kwargs)
 
             # Run TNC from SciPy
             run_jax_tnc(
@@ -312,8 +313,9 @@ def main():
                 numpy_timer,
             )
             kwargs = {"function": "Furax - TNC", "precision": "float64", "x": nside}
-            numpy_timer.report("runs/FURAX.csv", **kwargs)
+            numpy_timer.report("runs/BCP_FURAX.csv", **kwargs)
 
+    return
     # Plot log-likelihood results
     if args.likelihood and not args.cache_run:
         plt.rcParams.update({"font.size": 15})
