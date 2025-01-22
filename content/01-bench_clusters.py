@@ -308,7 +308,7 @@ def main():
     np_timer = Timer(save_jaxpr=False, jax_fn=False)
 
     for nside in args.nsides:
-        save_to_cache(nside, sky="c1d1s1")
+        save_to_cache(nside, sky="c1d1s1" , noise=True)
 
 
         if args.cache_run:

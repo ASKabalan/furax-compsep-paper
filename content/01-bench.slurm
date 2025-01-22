@@ -36,15 +36,11 @@ else
     gpu_name=v100
 fi
 
-# Chargement des modules
-module load nvidia-compilers/23.9 cuda/12.2.0 cudnn/8.9.7.29-cuda  openmpi/4.1.5-cuda nccl/2.18.5-1-cuda cmake
-module load nvidia-nsight-systems/2024.1.1.59
-
-
 echo "The number of nodes allocated for this job is: $num_nodes"
 echo "The number of GPUs allocated for this job is: $nb_gpus"
 
 export EQX_ON_ERROR=nan
+export OUTPUT_FOLDER_ARGS=1
 
 function profile_python() {
     if [ $# -lt 1 ]; then
@@ -105,5 +101,6 @@ function plaunch() {
 # Echo des commandes lancees
 set -x
 
-slaunch bench_bcp.py -n 4 8 16 32 64 128 256 512 1024 2048 -s -l
+slaunch 01-bench_bcp.py -n 4 8 16 32 64 128 256 512 1024 -s -l
+slaunch 01-bench_clusters.py -n 32 64 128 256 512 -cl 10 20 50 100 200 500 1000 
 

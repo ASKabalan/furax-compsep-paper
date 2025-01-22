@@ -59,10 +59,10 @@ def main():
     npixel = 12 * nside**2
 
     if args.cache_run:
-        save_to_cache(nside, sky="c1d1s1")
+        save_to_cache(nside, sky="c1d1s1", noise=True)
         return
 
-    nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
+    nu, freq_maps = load_from_cache(nside, sky="c1d1s1" , noise=True)
     # Check the shape of freq_maps
     print("freq_maps shape:", freq_maps.shape)
 
