@@ -3,34 +3,32 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
+import operator
 from functools import partial
 
-import seaborn as sns
-
-from fgbuster import get_instrument
-from furax._base.core import HomothetyOperator
-from furax.comp_sep import optimize
-from furax.comp_sep import negative_log_likelihood, spectral_cmb_variance
-from furax.landscapes import StokesPyTree
-from generate_maps import save_to_cache
-from generate_maps import load_from_cache
+import jax
 import jax.numpy as jnp
-from jax_hpc_profiler import Timer
-from jax_hpc_profiler.plotting import plot_weak_scaling
 import jaxopt
 import matplotlib.pyplot as plt
-import optax
-from furax.comp_sep import get_clusters
-import jax
-
-from fgbuster import adaptive_comp_sep
 import numpy as np
+import optax
+import seaborn as sns
 from fgbuster import (
     CMB,
     Dust,
     Synchrotron,
+    adaptive_comp_sep,
+    get_instrument,
 )
-import operator
+from furax import HomothetyOperator
+from furax.comp_sep import negative_log_likelihood, spectral_cmb_variance
+from furax.obs.stokes import Stokes
+from jax_grid_search import optimize
+from jax_healpy import get_clusters
+from jax_hpc_profiler import Timer
+from jax_hpc_profiler.plotting import plot_weak_scaling
+
+from generate_maps import load_from_cache, save_to_cache
 
 
 def run_fg_buster(
@@ -40,7 +38,7 @@ def run_fg_buster(
         f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}..."
     )
 
-    d = StokesPyTree.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
+    d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
 
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
@@ -112,7 +110,7 @@ def run_jax_lbfgs(
         best_params,
     )
 
-    d = StokesPyTree.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
+    d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
@@ -198,7 +196,7 @@ def run_jax_tnc(
         best_params,
     )
 
-    d = StokesPyTree.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
+    d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
 
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)

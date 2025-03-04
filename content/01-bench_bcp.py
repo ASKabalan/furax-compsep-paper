@@ -3,39 +3,37 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
-import numpy as np
+from functools import partial
+
+import jax
+import jax.numpy as jnp
+
+# Furax imports
+import jaxopt
 import matplotlib.pyplot as plt
+import numpy as np
+import optax
+import seaborn as sns
 
 # Healpy and PySM3 imports
-
 # FGBuster imports
 from fgbuster import (
     CMB,
     Dust,
-    Synchrotron,
     MixingMatrix,
+    Synchrotron,
+    basic_comp_sep,
     get_instrument,
 )
 from fgbuster.algebra import _build_bound_inv_logL_and_logL_dB
-from fgbuster import (
-    basic_comp_sep,
-)
-
-# Furax imports
-import jaxopt
-import jax.numpy as jnp
-from furax._base.core import HomothetyOperator
-from furax.landscapes import StokesPyTree
-import optax
-from furax.comp_sep import optimize
-from generate_maps import save_to_cache
-from jax_hpc_profiler import Timer
+from furax import HomothetyOperator
 from furax.comp_sep import negative_log_likelihood
-from functools import partial
-from generate_maps import load_from_cache
-import seaborn as sns
+from furax.obs.landscapes import Stokes
+from jax_grid_search import optimize
+from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
-import jax
+
+from generate_maps import load_from_cache, save_to_cache
 
 
 def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
@@ -62,7 +60,7 @@ def run_jax_negative_log_prob(
 ):
     """Run JAX-based negative log-likelihood."""
     print(f"Running Furax Log Likelihood nside={nside} ...")
-    d = StokesPyTree.from_stokes(
+    d = Stokes.from_stokes(
         I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
     )
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
@@ -89,7 +87,7 @@ def run_jax_lbfgs(
 
     print(f"Running Furax LBGS Comp sep nside={nside} ...")
 
-    d = StokesPyTree.from_stokes(
+    d = Stokes.from_stokes(
         I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
     )
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
@@ -134,7 +132,7 @@ def run_jax_tnc(
 
     print(f"Running Furax TNC From SciPy Comp sep nside={nside} ...")
 
-    d = StokesPyTree.from_stokes(
+    d = Stokes.from_stokes(
         I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
     )
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)

@@ -1,31 +1,25 @@
 import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
-import jax
-import numpy as np
-from jax_grid_search import DistributedGridSearch
-
-from furax.comp_sep import (
-    spectral_cmb_variance,
-    get_clusters,
-    optimize,
-    negative_log_likelihood,
-    get_cutout_from_mask,
-)
-
-import jax.numpy as jnp
-
-from furax._base.core import HomothetyOperator
-from furax.landscapes import StokesPyTree
+import argparse
 from functools import partial
+
+import jax
+import jax.numpy as jnp
+import lineax as lx
+import numpy as np
+import optax
+from furax import Config, HomothetyOperator
+from furax.comp_sep import (
+    negative_log_likelihood,
+    spectral_cmb_variance,
+)
+from furax.obs.landscapes import Stokes
+from jax_grid_search import DistributedGridSearch, optimize
+from jax_healpy import get_clusters, get_cutout_from_mask
+
 from generate_maps import load_from_cache, save_to_cache
 
-
-import optax
-import lineax as lx
-from furax._base.core import Config
-
-import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -36,7 +30,7 @@ def parse_args():
         "-n",
         "--nside",
         type=int,
-        default=16,
+        default=64,
         help="The nside of the map",
     )
     parser.add_argument(
@@ -51,9 +45,9 @@ def parse_args():
 def main():
 
     args = parse_args()
-    GAL020 = np.load("../notebooks/masks/GAL_PlanckMasks_64.npz")["GAL020"]
-    GAL040 = np.load("../notebooks/masks/GAL_PlanckMasks_64.npz")["GAL040"]
-    GAL060 = np.load("../notebooks/masks/GAL_PlanckMasks_64.npz")["GAL060"]
+    GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
+    GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
+    GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
 
     nside = args.nside
     npixel = 12 * nside**2
@@ -73,7 +67,7 @@ def main():
         freq_maps_m[i , 1] = get_cutout_from_mask(freq_maps[i , 1]  , indices)
 
 
-    d = StokesPyTree.from_stokes(Q=freq_maps_m[:, 1, :], U=freq_maps_m[:, 2, :])
+    d = Stokes.from_stokes(Q=freq_maps_m[:, 1, :], U=freq_maps_m[:, 2, :])
 
     dust_nu0 = 150.0
     synchrotron_nu0 = 20.0
@@ -165,6 +159,11 @@ def main():
         "B_d_patches": jnp.array([10 , 250 , 500 , 750 , 1000]),
         "B_s_patches": jnp.array([10 , 500 , 1000]),
     }
+    search_space = {
+        "T_d_patches": jnp.array([10 , 1000]),
+        "B_d_patches": jnp.array([10 , 250 , 1000]),
+        "B_s_patches": jnp.array([10 , 1000]),
+    }
 
 
     @jax.jit
@@ -182,15 +181,14 @@ def main():
     # Put the good values for the grid search
 
     grid_search = DistributedGridSearch(
-        objective_function, search_space, batch_size=1, progress_bar=True, log_every=0.1
+        objective_function, search_space, batch_size=1, progress_bar=True, log_every=0.1,result_dir='c1d1s1_search'
     )
 
-    results = grid_search.run()
+    grid_search.run()
 
+    results = grid_search.stack_results(result_folder='c1d1s1_search')
     # Save results
     np.savez("results.npz", **results)
-
-
 
 
 if __name__ == "__main__":

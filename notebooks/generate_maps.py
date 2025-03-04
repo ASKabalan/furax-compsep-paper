@@ -1,20 +1,18 @@
 # FGBUSTER IMPORTS
 
-from fgbuster import (
-    get_observation,
-    get_instrument,
-)
-
-
 import os
 import pickle
 
-from furax.landscapes import StokesPyTree
-from furax.operators.seds import (
+from fgbuster import (
+    get_instrument,
+    get_observation,
+)
+from furax.obs.landscapes import Stokes
+from furax.obs.operators import (
     CMBOperator,
     DustOperator,
-    SynchrotronOperator,
     MixingMatrixOperator,
+    SynchrotronOperator,
 )
 
 
@@ -70,7 +68,7 @@ def simulate_D_from_params(
     params, patch_indices, nu, sky, stokes, dust_nu0, synchrotron_nu0
 ):
     size = next(iter(sky.values())).shape
-    in_structure = StokesPyTree.class_for(stokes).structure_for(size)
+    in_structure = Stokes.class_for(stokes).structure_for(size)
 
     cmb = CMBOperator(nu, in_structure=in_structure)
     dust = DustOperator(
