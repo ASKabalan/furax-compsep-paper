@@ -64,11 +64,10 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
-def simulate_D_from_params(
-    params, patch_indices, nu, sky, stokes, dust_nu0, synchrotron_nu0
-):
-    size = next(iter(sky.values())).shape
-    in_structure = Stokes.class_for(stokes).structure_for(size)
+def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+    first_element = next(iter(sky.values()))
+    size = first_element.shape[-1]
+    in_structure = first_element.structure_for((size,))
 
     cmb = CMBOperator(nu, in_structure=in_structure)
     dust = DustOperator(
@@ -88,7 +87,12 @@ def simulate_D_from_params(
         in_structure=in_structure,
     )
 
-    A = MixingMatrixOperator(cmb=cmb, dust=dust, synchrotron=synchrotron)
+    return MixingMatrixOperator(cmb=cmb, dust=dust, synchrotron=synchrotron)
+
+def simulate_D_from_params(
+    params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
+):
+    A = get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0)
     d = A(sky)
 
     return d
