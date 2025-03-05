@@ -4,25 +4,22 @@ os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 from functools import partial
 
-import healpy as hp
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import matplotlib.pyplot as plt
 import numpy as np
 import optax
 from furax import Config, HomothetyOperator
-from furax._instruments.sky import FGBusterInstrument
+from furax._instruments.sky import FGBusterInstrument, get_noise_from_instrument
 from furax.comp_sep import (
     negative_log_likelihood,
     spectral_cmb_variance,
-    spectral_log_likelihood,
 )
-from furax.obs.landscapes import FrequencyLandscape, Stokes
-from furax.obs.stokes import Stokes
-from generate_maps import simulate_D_from_params
+from furax.obs.landscapes import FrequencyLandscape
 from jax_grid_search import DistributedGridSearch, optimize
-from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from jax_healpy import get_clusters, get_cutout_from_mask
+
+from generate_maps import simulate_D_from_params
 
 
 def parse_args():
@@ -44,11 +41,11 @@ def main():
     args = parse_args()
 
     GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
-    GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
-    GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
+    # GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
+    # GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
 
     nside = args.nside
-    npixel = 12 * nside**2
+    # npixel = 12 * nside**2
     patch_counts = {
         "temp_dust_patches": 1,
         "beta_dust_patches": 100,
@@ -122,6 +119,11 @@ def main():
         "solver_throw": False,
     }
 
+    instrument = FGBusterInstrument.default_instrument()
+    noise = get_noise_from_instrument(instrument, nside, stokes_type="QU")
+    masked_noise = get_cutout_from_mask(noise, indices, axis=1)
+    noised_d = masked_d + masked_noise * 0.2
+
     @partial(jax.jit, static_argnums=(5))
     def compute_minimum_variance(
         T_d_patches, B_d_patches, B_s_patches, planck_mask, indices, max_patches=25
@@ -158,22 +160,26 @@ def main():
                 params,
                 negative_log_likelihood_fn,
                 solver,
-                max_iter=100,
-                tol=1e-8,
-                verbose=True,
+                max_iter=1000,
+                tol=1e-15,
+                verbose=False,
                 log_interval=0.05,
                 nu=nu,
                 N=N,
-                d=masked_d,
+                d=noised_d,
                 patch_indices=masked_clusters,
             )
 
-        value = spectral_cmb_variance_fn(
-            final_params, nu=nu, d=masked_d, N=N, patch_indices=masked_clusters
+        cmb_var = spectral_cmb_variance_fn(
+            final_params, nu=nu, d=noised_d, N=N, patch_indices=masked_clusters
+        )
+        nll = negative_log_likelihood_fn(
+            final_params, nu=nu, d=noised_d, N=N, patch_indices=masked_clusters
         )
 
         return {
-            "value": value,
+            "value": cmb_var,
+            "NLL": nll,
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],
             "beta_pl": final_params["beta_pl"],

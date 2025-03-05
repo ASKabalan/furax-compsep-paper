@@ -282,7 +282,6 @@ def main():
             if args.cache_run:
                 continue
 
-
             nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
 
             # Solver mode benchmarking
@@ -331,7 +330,7 @@ def main():
         )
 
     # Plot solver results
-    if args.solvers and not args.cache_run :
+    if args.solvers and not args.cache_run:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 

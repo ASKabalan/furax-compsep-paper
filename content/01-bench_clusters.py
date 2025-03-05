@@ -180,9 +180,8 @@ def run_jax_tnc(
 ):
     """Run JAX-based negative log-likelihood."""
 
-    print(
-        f"Running Furax TNC From SciPy Comp sep nside={nside} cluster_count={cluster_count} ..."
-    )
+    print("Running Furax TNC From SciPy Comp sep ")
+    print(f"nside={nside} cluster_count={cluster_count} ...")
 
     best_params = {
         "beta_pl": jnp.full((cluster_count,), (-3.0)),
@@ -306,8 +305,7 @@ def main():
     np_timer = Timer(save_jaxpr=False, jax_fn=False)
 
     for nside in args.nsides:
-        save_to_cache(nside, sky="c1d1s1" , noise=True)
-
+        save_to_cache(nside, sky="c1d1s1", noise=True)
 
         if args.cache_run:
             continue
@@ -353,7 +351,7 @@ def main():
             kwargs = {
                 "function": f"LBFGS n={nside}",
                 "precision": "float64",
-                "x":  cluster_count,
+                "x": cluster_count,
                 "npz_data": data,
             }
             jax_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
