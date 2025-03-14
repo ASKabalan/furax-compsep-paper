@@ -7,7 +7,6 @@ from fgbuster import (
     get_instrument,
     get_observation,
 )
-from furax.obs.landscapes import Stokes
 from furax.obs.operators import (
     CMBOperator,
     DustOperator,
@@ -39,6 +38,7 @@ def save_to_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
         with open(cache_file, "wb") as f:
             pickle.dump(freq_maps, f)
         print(f"Generated and saved freq_maps for nside {nside}.")
+    return instrument["frequency"].values, freq_maps
 
 
 def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
@@ -64,7 +64,9 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
-def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+def get_mixin_matrix_operator(
+    params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
+):
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
     in_structure = first_element.structure_for((size,))
@@ -89,10 +91,11 @@ def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrot
 
     return MixingMatrixOperator(cmb=cmb, dust=dust, synchrotron=synchrotron)
 
-def simulate_D_from_params(
-    params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
-):
-    A = get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0)
+
+def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+    A = get_mixin_matrix_operator(
+        params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
+    )
     d = A(sky)
 
     return d

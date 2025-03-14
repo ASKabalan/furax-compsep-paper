@@ -45,26 +45,23 @@ def parse_args():
 def main():
     args = parse_args()
     GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
-    #GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
-    #GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
+    # GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
+    # GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
 
     nside = args.nside
-    #npixel = 12 * nside**2
+    # npixel = 12 * nside**2
 
     if args.cache_run:
-        save_to_cache(nside, sky="c1d1s1", noise=True)
+        save_to_cache(nside, sky="c1d1s1", noise=False)
         return
 
-    nu, freq_maps = load_from_cache(nside, sky="c1d1s1", noise=True)
+    nu, freq_maps = load_from_cache(nside, sky="c1d1s1", noise=False)
     # Check the shape of freq_maps
     print("freq_maps shape:", freq_maps.shape)
 
     (indices,) = jnp.where(GAL020 == 1)
-    freq_maps_m = np.zeros((freq_maps.shape[0], freq_maps.shape[1], len(indices)))
-    for i, _ in enumerate(freq_maps):
-        freq_maps_m[i, 1] = get_cutout_from_mask(freq_maps[i, 1], indices)
-
-    d = Stokes.from_stokes(Q=freq_maps_m[:, 1, :], U=freq_maps_m[:, 2, :])
+    d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
+    d = get_cutout_from_mask(d, indices , axis=1)
 
     dust_nu0 = 150.0
     synchrotron_nu0 = 20.0
@@ -128,19 +125,19 @@ def main():
             patch_indices,
         )
 
-        with Config(**inverser_options):
-            final_params, final_state = optimize(
-                params,
-                negative_log_likelihood_fn,
-                solver,
-                max_iter=500,
-                tol=1e-8,
-                verbose=False,
-                nu=nu,
-                N=N,
-                d=d,
-                patch_indices=masked_clusters,
-            )
+        solver = optax.lbfgs()
+        final_params, final_state = optimize(
+            params,
+            negative_log_likelihood_fn,
+            solver,
+            max_iter=1000,
+            tol=1e-10,
+            verbose=False,
+            nu=nu,
+            N=N,
+            d=d,
+            patch_indices=masked_clusters,
+        )
 
         value = spectral_cmb_variance_fn(
             final_params, nu=nu, d=d, N=N, patch_indices=masked_clusters
@@ -153,17 +150,18 @@ def main():
             "beta_pl": final_params["beta_pl"],
         }
 
-    max_centroids = 1000
+    max_centroids = 1500
     search_space = {
-        "T_d_patches": jnp.array([10, 500, 1000]),
-        "B_d_patches": jnp.array([10, 250, 500, 750, 1000]),
-        "B_s_patches": jnp.array([10, 500, 1000]),
+        "T_d_patches": jnp.array([10, 400, 1000, 1500]),
+        "B_d_patches": jnp.array([10, 250, 500, 1000, 1250, 1500]),
+        "B_s_patches": jnp.array([10, 400, 1000, 1500]),
     }
     search_space = {
-        "T_d_patches": jnp.array([10, 1000]),
-        "B_d_patches": jnp.array([10, 250, 1000]),
-        "B_s_patches": jnp.array([10, 1000]),
+        "T_d_patches": jnp.array([400]),
+        "B_d_patches": jnp.array([1250, 1500]),
+        "B_s_patches": jnp.array([400]),
     }
+
 
     @jax.jit
     def objective_function(T_d_patches, B_d_patches, B_s_patches):
@@ -178,13 +176,24 @@ def main():
 
     # Put the good values for the grid search
 
+    # if result folder exists, load it
+    if os.path.exists("c1d1s1_search"):
+        old_results = DistributedGridSearch.stack_results(result_folder="c1d1s1_search")
+        print(f"Found results in c1d1s1_search")
+    else:
+        old_results = None
+        print(f"No results found in c1d1s1_search")
+    
+
+
     grid_search = DistributedGridSearch(
         objective_function,
         search_space,
-        batch_size=1,
+        batch_size=4,
         progress_bar=True,
         log_every=0.1,
         result_dir="c1d1s1_search",
+        old_results=old_results,
     )
 
     grid_search.run()

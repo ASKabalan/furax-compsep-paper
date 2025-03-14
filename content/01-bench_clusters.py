@@ -1,5 +1,6 @@
 # Necessary imports
 import os
+import sys
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
@@ -28,6 +29,7 @@ from jax_healpy import get_clusters
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
+sys.path.append("../data")
 from generate_maps import load_from_cache, save_to_cache
 
 
@@ -304,89 +306,96 @@ def main():
     jax_timer = Timer(save_jaxpr=True, jax_fn=True)
     np_timer = Timer(save_jaxpr=False, jax_fn=False)
 
-    for nside in args.nsides:
-        save_to_cache(nside, sky="c1d1s1", noise=True)
+    if not args.plot_only:
+        for nside in args.nsides:
+            save_to_cache(nside, sky="c1d1s1", noise=True)
 
-        if args.cache_run:
-            continue
+            if args.cache_run:
+                continue
 
-        nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
+            nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
 
-        for cluster_count in args.clusters:
-            # Solver mode benchmarking
-            print(f"Running solver benchmarking for nside={nside}...")
+            for cluster_count in args.clusters:
+                # Solver mode benchmarking
+                print(f"Running solver benchmarking for nside={nside}...")
 
-            # Run Furax TNC from FGBuster
-            final_params, cmb_variance, last_L = run_fg_buster(
-                nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, np_timer
-            )
-            data = {
-                "final_params": final_params,
-                "cmb_variance": cmb_variance,
-                "last_L": last_L,
-            }
-            kwargs = {
-                "function": f"FGBuster n={nside}",
-                "precision": "float64",
-                "x": cluster_count,
-                "npz_data": data,
-            }
-            np_timer.report("runs/CLUSTERS_FGBUSTER.csv", **kwargs)
+                # Run Furax TNC from FGBuster
+                final_params, cmb_variance, last_L = run_fg_buster(
+                    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, np_timer
+                )
+                data = {
+                    "final_params": final_params,
+                    "cmb_variance": cmb_variance,
+                    "last_L": last_L,
+                }
+                kwargs = {
+                    "function": f"FGBuster n={nside}",
+                    "precision": "float64",
+                    "x": cluster_count,
+                    "npz_data": data,
+                }
+                np_timer.report("runs/CLUSTERS_FGBUSTER.csv", **kwargs)
 
-            # Run JAX LBFGS from Optax
-            final_params, cmb_variance, last_L = run_jax_lbfgs(
-                nside,
-                cluster_count,
-                freq_maps,
-                nu,
-                dust_nu0,
-                synchrotron_nu0,
-                jax_timer,
-            )
-            data = {
-                "final_params": final_params,
-                "cmb_variance": cmb_variance,
-                "last_L": last_L,
-            }
-            kwargs = {
-                "function": f"LBFGS n={nside}",
-                "precision": "float64",
-                "x": cluster_count,
-                "npz_data": data,
-            }
-            jax_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
+                # Run JAX LBFGS from Optax
+                final_params, cmb_variance, last_L = run_jax_lbfgs(
+                    nside,
+                    cluster_count,
+                    freq_maps,
+                    nu,
+                    dust_nu0,
+                    synchrotron_nu0,
+                    jax_timer,
+                )
+                data = {
+                    "final_params": final_params,
+                    "cmb_variance": cmb_variance,
+                    "last_L": last_L,
+                }
+                kwargs = {
+                    "function": f"LBFGS n={nside}",
+                    "precision": "float64",
+                    "x": cluster_count,
+                    "npz_data": data,
+                }
+                jax_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
 
-            # Run TNC from SciPy
-            final_params, cmb_variance, last_L = run_jax_tnc(
-                nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, np_timer
-            )
-            data = {
-                "final_params": final_params,
-                "cmb_variance": cmb_variance,
-                "last_L": last_L,
-            }
-            kwargs = {
-                "function": f"TNC n={nside}",
-                "precision": "float64",
-                "x": cluster_count,
-                "npz_data": data,
-            }
-            np_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
+                # Run TNC from SciPy
+                final_params, cmb_variance, last_L = run_jax_tnc(
+                    nside,
+                    cluster_count,
+                    freq_maps,
+                    nu,
+                    dust_nu0,
+                    synchrotron_nu0,
+                    np_timer,
+                )
+                data = {
+                    "final_params": final_params,
+                    "cmb_variance": cmb_variance,
+                    "last_L": last_L,
+                }
+                kwargs = {
+                    "function": f"TNC n={nside}",
+                    "precision": "float64",
+                    "x": cluster_count,
+                    "npz_data": data,
+                }
+                np_timer.report("runs/CLUSTERS_FURAX.csv", **kwargs)
 
-    return
     # Plot solver results
-    if not args.cache_run and False:
+    if not args.cache_run and args.plot_only:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 
-        csv_file = ["runs/FGBUSTER.csv"]
-        solvers = ["TNC n=8", "LBFGS n=8", "FGBuster n=8"]
+        csv_file = ["runs/CLUSTERS_FGBUSTER.csv", "runs/CLUSTERS_FURAX.csv"]
+        solvers = ["TNC n=32", "LBFGS n=32", "FGBuster n=32"]
 
         plot_weak_scaling(
             csv_files=csv_file,
             functions=solvers,
             figure_size=(12, 8),
             label_text="%f%",
+            output="runs/CLUSTERS_FGBUSTER_FURAX.png",
         )
 
 
