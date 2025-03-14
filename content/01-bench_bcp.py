@@ -3,6 +3,8 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
+import os
+import sys
 from functools import partial
 
 import jax
@@ -33,6 +35,7 @@ from jax_grid_search import optimize
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
+sys.path.append("../data")
 from generate_maps import load_from_cache, save_to_cache
 
 
@@ -312,29 +315,28 @@ def main():
             kwargs = {"function": "Furax - TNC", "precision": "float64", "x": nside}
             numpy_timer.report("runs/BCP_FURAX.csv", **kwargs)
 
-    return
     # Plot log-likelihood results
-    if args.likelihood and not args.cache_run:
+    if args.likelihood and not args.cache_run and args.plot_only:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 
-        csv_file = ["runs/FURAX.csv", "runs/FGBUSTER.csv"]
-        FWs = ["Furax", "FGBuster"]
+        csv_file = ["runs/LL_FURAX.csv", "runs/LL_FGBUSTER.csv"]
+        FWs = ["Furax LL", "FGBuster LL"]
 
         plot_weak_scaling(
             csv_files=csv_file,
             functions=FWs,
             figure_size=(12, 8),
             label_text="%f%",
-            # output="runs/nll.png",
+            output="runs/nll.png",
         )
 
     # Plot solver results
-    if args.solvers and not args.cache_run:
+    if args.solvers and not args.cache_run and args.plot_only:
         plt.rcParams.update({"font.size": 15})
         sns.set_context("paper")
 
-        csv_file = ["runs/FURAX.csv", "runs/FGBUSTER.csv"]
+        csv_file = ["runs/BCP_FGBUSTER.csv", "runs/BCP_FURAX.csv"]
         solvers = ["Furax - TNC", "Furax - LBFGS", "FGBuster - TNC"]
 
         plot_weak_scaling(

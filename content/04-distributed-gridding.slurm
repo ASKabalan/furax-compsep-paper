@@ -101,5 +101,6 @@ function plaunch() {
 # Echo des commandes lancees
 set -x
 
-slaunch 03-validation-model.py -n 64
+slaunch 02-validation-model.py -n 64 
+slaunch 03-noise-model.py -n 64 -ns 10
 
