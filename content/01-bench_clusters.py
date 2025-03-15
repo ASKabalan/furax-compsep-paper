@@ -158,10 +158,9 @@ def run_jax_lbfgs(
         return final_params["beta_pl"], final_params
 
     _, final_params = jax_timer.chrono_jit(
-        furax_adaptative_comp_sep, guess_params, ndarray_arg=0
-    )
+        furax_adaptative_comp_sep, guess_params)
     for _ in range(2):
-        jax_timer.chrono_fun(furax_adaptative_comp_sep, guess_params, ndarray_arg=0)
+        jax_timer.chrono_fun(furax_adaptative_comp_sep, guess_params)
 
     last_L = nll(final_params)
     cmb_variance = spectral_cmb_variance(

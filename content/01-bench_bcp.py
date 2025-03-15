@@ -123,9 +123,9 @@ def run_jax_lbfgs(
         )
         return final_params["beta_pl"], final_params
 
-    jax_timer.chrono_jit(basic_comp, guess_params, ndarray_arg=0)
+    jax_timer.chrono_jit(basic_comp, guess_params)
     for _ in range(2):
-        jax_timer.chrono_fun(basic_comp, guess_params, ndarray_arg=0)
+        jax_timer.chrono_fun(basic_comp, guess_params)
 
 
 def run_jax_tnc(

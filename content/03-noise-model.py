@@ -385,29 +385,29 @@ def main():
         TimeRemainingColumn(),
     ]
 
-    #with ProgressBar(*progress_columns) as p:
-    @jax.jit
-    def objective_function(T_d_patches, B_d_patches, B_s_patches):
-        return compute_minimum_variance(
-            T_d_patches,
-            B_d_patches,
-            B_s_patches,
-            mask,
-            indices,
-            max_patches=max_centroids,
-            progress_bar=None
+    with ProgressBar(*progress_columns) as p:
+        @jax.jit
+        def objective_function(T_d_patches, B_d_patches, B_s_patches):
+            return compute_minimum_variance(
+                T_d_patches,
+                B_d_patches,
+                B_s_patches,
+                mask,
+                indices,
+                max_patches=max_centroids,
+                progress_bar=None
+            )
+
+        grid_search = DistributedGridSearch(
+            objective_function,
+            search_space,
+            batch_size=4,
+            progress_bar=True,
+            result_dir="noise_validation_model",
+            old_results=old_results,
         )
 
-    grid_search = DistributedGridSearch(
-        objective_function,
-        search_space,
-        batch_size=4,
-        progress_bar=True,
-        result_dir="noise_validation_model",
-        old_results=old_results,
-    )
-
-    grid_search.run()
+        grid_search.run()
 
     results = grid_search.stack_results(result_folder="noise_validation_model")
 
