@@ -2,23 +2,32 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
+import os
+import sys
 from functools import partial
 
 import jax
 import jax.numpy as jnp
-import lineax as lx
+import jax.random
 import numpy as np
 import optax
-from furax import Config, HomothetyOperator
+from furax._instruments.sky import (
+    get_noise_sigma_from_instrument,
+    get_observation,
+)
 from furax.comp_sep import (
     negative_log_likelihood,
     spectral_cmb_variance,
 )
-from furax.obs.landscapes import Stokes
-from jax_grid_search import DistributedGridSearch, optimize
+from furax.obs.landscapes import FrequencyLandscape
+from furax.obs.operators import NoiseDiagonalOperator
+from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy import get_clusters, get_cutout_from_mask
+from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-from generate_maps import load_from_cache, save_to_cache
+sys.path.append("../data")
+from generate_maps import MASK_CHOICES, get_mask
+from instruments import get_instrument
 
 
 def parse_args():
@@ -34,37 +43,90 @@ def parse_args():
         help="The nside of the map",
     )
     parser.add_argument(
-        "-c",
-        "--cache-run",
+        "-ns",
+        "--noise-sim",
+        type=int,
+        default=50,
+        help="Number of noise simulations",
+    )
+    parser.add_argument(
+        "-p",
+        "--plot",
         action="store_true",
-        help="Run the cache generation step",
+        help="Plot the results",
+    )
+    parser.add_argument(
+        "-nr",
+        "--noise-ratio",
+        type=float,
+        default=0.2,
+        help="Noise ratio",
+    )
+    parser.add_argument(
+        "-tag",
+        "--tag",
+        type=str,
+        default="c1d1s1",
+        help="Tag for the observation",
+    )
+    parser.add_argument(
+        "-m",
+        "--mask",
+        type=str,
+        default="GAL020_U",
+        choices=MASK_CHOICES,
+        help="Mask to use",
+    )
+    parser.add_argument(
+        "-i",
+        "--instrument",
+        type=str,
+        default="LiteBIRD",
+        choices=["LiteBIRD", "Planck"],
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
-    # GAL040 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL040"]
-    # GAL060 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL060"]
+
+    mask = get_mask(args.mask)
+
+    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}"
+    if args.plot:
+        assert os.path.exists(out_folder), (
+            "output not found, please run the model first"
+        )
+        pass
 
     nside = args.nside
-    # npixel = 12 * nside**2
-
-    if args.cache_run:
-        save_to_cache(nside, sky="c1d1s1", noise=False)
-        return
-
-    nu, freq_maps = load_from_cache(nside, sky="c1d1s1", noise=False)
-    # Check the shape of freq_maps
-    print("freq_maps shape:", freq_maps.shape)
-
-    (indices,) = jnp.where(GAL020 == 1)
-    d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
-    d = get_cutout_from_mask(d, indices , axis=1)
-
-    dust_nu0 = 150.0
+    nb_noise_sim = args.noise_sim
+    noise_ratio = args.noise_ratio
+    dust_nu0 = 160.0
     synchrotron_nu0 = 20.0
+    max_centroids = 200
+
+    (indices,) = jnp.where(mask == 1)
+
+    base_params = {
+        "beta_dust": 1.54,
+        "temp_dust": 20.0,
+        "beta_pl": -3.0,
+    }
+    lower_bound = {
+        "beta_dust": 1.0,
+        "temp_dust": 10.0,
+        "beta_pl": -5.0,
+    }
+    upper_bound = {
+        "beta_dust": 3.0,
+        "temp_dust": 30.0,
+        "beta_pl": 0.0,
+    }
+
+    instrument = get_instrument(args.instrument)
+    nu = instrument.frequency
+    f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
 
     spectral_cmb_variance_fn = partial(
         spectral_cmb_variance, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
@@ -73,134 +135,149 @@ def main():
         negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
 
-    N = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
+    d = get_observation(
+        instrument,
+        nside,
+        tag=args.tag,
+        stokes_type="QU",
+    )
+    masked_d = get_cutout_from_mask(d, indices, axis=1)
 
-    solver = optax.lbfgs()
-
-    inverser_options = {
-        "solver": lx.CG(rtol=1e-6, atol=1e-6, max_steps=1000),
-        "solver_throw": False,
+    search_space = {
+        "T_d_patches": jnp.array([1]),
+        "B_d_patches": jnp.arange(10, 301, 10),
+        "B_s_patches": jnp.array([1]),
+    }
+    search_space = {
+        "T_d_patches": jnp.array([1]),
+        "B_d_patches": jnp.array([160]),
+        "B_s_patches": jnp.array([1]),
     }
 
-    @partial(jax.jit, static_argnums=(5))
+    max_count = {
+        "beta_dust": jnp.max(search_space["B_d_patches"]),
+        "temp_dust": jnp.max(search_space["T_d_patches"]),
+        "beta_pl": jnp.max(search_space["B_s_patches"]),
+    }
+
+    @partial(jax.jit, static_argnums=(5, 6))
     def compute_minimum_variance(
-        T_d_patches, B_d_patches, B_s_patches, planck_mask, indices, max_patches=25
+        T_d_patches,
+        B_d_patches,
+        B_s_patches,
+        planck_mask,
+        indices,
+        max_patches=25,
+        progress_bar=None,
     ):
-        temp_dust_patch_indices = get_clusters(
-            planck_mask,
-            indices,
-            T_d_patches,
-            jax.random.PRNGKey(0),
-            max_centroids=max_patches,
-        )
-        beta_dust_patch_indices = get_clusters(
-            planck_mask,
-            indices,
-            B_d_patches,
-            jax.random.PRNGKey(0),
-            max_centroids=max_patches,
-        )
-        beta_pl_patch_indices = get_clusters(
-            planck_mask,
-            indices,
-            B_s_patches,
-            jax.random.PRNGKey(0),
-            max_centroids=max_patches,
-        )
+        def single_run(noise_id):
+            key = jax.random.PRNGKey(noise_id)
+            white_noise = f_landscapes.normal(key) * noise_ratio
+            white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
+            sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
+            noise = white_noise * sigma
+            noised_d = masked_d + noise
 
-        params = {
-            "beta_dust": jnp.full((max_patches,), 1.54),
-            "temp_dust": jnp.full((max_patches,), 20.0),
-            "beta_pl": jnp.full((max_patches,), (-3.0)),
-        }
+            N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+            patch_indices = {
+                "temp_dust_patches": T_d_patches,
+                "beta_dust_patches": B_d_patches,
+                "beta_pl_patches": B_s_patches,
+            }
+            patch_indices = jax.tree.map(
+                lambda c: get_clusters(
+                    mask, indices, c, jax.random.key(0), max_centroids=max_centroids
+                ),
+                patch_indices,
+            )
+            guess_clusters = get_cutout_from_mask(patch_indices, indices)
+            guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
-        patch_indices = {
-            "temp_dust_patches": temp_dust_patch_indices,
-            "beta_dust_patches": beta_dust_patch_indices,
-            "beta_pl_patches": beta_pl_patch_indices,
-        }
+            guess_params = jax.tree.map(
+                lambda v, c: jnp.full((c,), v), base_params, max_count
+            )
+            lower_bound_tree = jax.tree.map(
+                lambda v, c: jnp.full((c,), v), lower_bound, max_count
+            )
+            upper_bound_tree = jax.tree.map(
+                lambda v, c: jnp.full((c,), v), upper_bound, max_count
+            )
 
-        masked_clusters = jax.tree.map(
-            lambda full_map: get_cutout_from_mask(full_map, indices).astype(jnp.int32),
-            patch_indices,
-        )
+            solver = optax.lbfgs()
+            final_params, final_state = optimize(
+                guess_params,
+                negative_log_likelihood_fn,
+                solver,
+                max_iter=200,
+                tol=1e-10,
+                progress=progress_bar,
+                progress_id=noise_id,
+                lower_bound=lower_bound_tree,
+                upper_bound=upper_bound_tree,
+                nu=nu,
+                N=N,
+                d=noised_d,
+                patch_indices=guess_clusters,
+            )
 
-        solver = optax.lbfgs()
-        final_params, final_state = optimize(
-            params,
-            negative_log_likelihood_fn,
-            solver,
-            max_iter=1000,
-            tol=1e-10,
-            verbose=False,
-            nu=nu,
-            N=N,
-            d=d,
-            patch_indices=masked_clusters,
-        )
+            cmb_var = spectral_cmb_variance_fn(
+                final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
+            )
+            nll = negative_log_likelihood_fn(
+                final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
+            )
 
-        value = spectral_cmb_variance_fn(
-            final_params, nu=nu, d=d, N=N, patch_indices=masked_clusters
-        )
+            return {
+                "value": cmb_var,
+                "NLL": nll,
+                "beta_dust": final_params["beta_dust"],
+                "temp_dust": final_params["temp_dust"],
+                "beta_pl": final_params["beta_pl"],
+            }
 
-        return {
-            "value": value,
-            "beta_dust": final_params["beta_dust"],
-            "temp_dust": final_params["temp_dust"],
-            "beta_pl": final_params["beta_pl"],
-        }
-
-    max_centroids = 1500
-    search_space = {
-        "T_d_patches": jnp.array([10, 400, 1000, 1500]),
-        "B_d_patches": jnp.array([10, 250, 500, 1000, 1250, 1500]),
-        "B_s_patches": jnp.array([10, 400, 1000, 1500]),
-    }
-    search_space = {
-        "T_d_patches": jnp.array([400]),
-        "B_d_patches": jnp.array([1250, 1500]),
-        "B_s_patches": jnp.array([400]),
-    }
-
-
-    @jax.jit
-    def objective_function(T_d_patches, B_d_patches, B_s_patches):
-        return compute_minimum_variance(
-            T_d_patches,
-            B_d_patches,
-            B_s_patches,
-            GAL020,
-            indices,
-            max_patches=max_centroids,
-        )
+        return jax.vmap(single_run)(jnp.arange(nb_noise_sim))
 
     # Put the good values for the grid search
-
-    # if result folder exists, load it
-    if os.path.exists("c1d1s1_search"):
-        old_results = DistributedGridSearch.stack_results(result_folder="c1d1s1_search")
-        print(f"Found results in c1d1s1_search")
+    if os.path.exists(out_folder):
+        old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
     else:
         old_results = None
-        print(f"No results found in c1d1s1_search")
-    
 
+    progress_columns = [
+        "[progress.description]{task.description}",
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ]
 
-    grid_search = DistributedGridSearch(
-        objective_function,
-        search_space,
-        batch_size=4,
-        progress_bar=True,
-        log_every=0.1,
-        result_dir="c1d1s1_search",
-        old_results=old_results,
-    )
+    with ProgressBar(*progress_columns) as p:
 
-    grid_search.run()
+        @jax.jit
+        def objective_function(T_d_patches, B_d_patches, B_s_patches):
+            return compute_minimum_variance(
+                T_d_patches,
+                B_d_patches,
+                B_s_patches,
+                mask,
+                indices,
+                max_patches=max_centroids,
+                progress_bar=p,
+            )
 
-    results = grid_search.stack_results(result_folder="c1d1s1_search")
-    # Save results
-    np.savez("results.npz", **results)
+        grid_search = DistributedGridSearch(
+            objective_function,
+            search_space,
+            batch_size=1,
+            progress_bar=True,
+            result_dir=out_folder,
+            old_results=old_results,
+        )
+
+        grid_search.run()
+
+    results = grid_search.stack_results(result_folder=out_folder)
+    np.savez(f"{out_folder}/results.npz", **results)
 
 
 if __name__ == "__main__":

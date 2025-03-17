@@ -2,7 +2,10 @@
 
 import os
 import pickle
+from pathlib import Path
 
+import healpy as hp
+import numpy as np
 from fgbuster import (
     get_instrument,
     get_observation,
@@ -99,3 +102,65 @@ def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron
     d = A(sky)
 
     return d
+
+
+MASK_CHOICES = [
+    "GAL020_U",
+    "GAL020_L",
+    "GAL020",
+    "GAL040_U",
+    "GAL040_U",
+    "GAL040",
+    "GAL060_U",
+    "GAL060_L",
+    "GAL060",
+]
+
+
+def get_mask(mask_name="GAL020"):
+    current_dir = Path(__file__).parent
+    masks_file = f"{current_dir}/masks/GAL_PlanckMasks_64.npz"
+    masks = np.load(masks_file)
+
+    if mask_name not in MASK_CHOICES:
+        raise ValueError(f"Invalid mask name: {mask_name}. Choose from: {MASK_CHOICES}")
+
+    # Extract the masks (keys: "GAL020", "GAL040", "GAL060").
+    mask_GAL020 = masks["GAL020"]
+    mask_GAL040 = masks["GAL040"]
+    mask_GAL060 = masks["GAL060"]
+
+    mask_GAL060 = np.logical_and(mask_GAL060, np.logical_not(mask_GAL040))
+    mask_GAL040 = np.logical_and(mask_GAL040, np.logical_not(mask_GAL020))
+
+    # Determine the HEALPix resolution (nside) from one of the masks.
+    nside = hp.get_nside(mask_GAL020)
+
+    # Get pixel indices and corresponding angular coordinates (theta, phi) in radians.
+    npix = hp.nside2npix(nside)
+    pix = np.arange(npix)
+    theta, phi = hp.pix2ang(nside, pix)
+
+    # Define upper and lower hemispheres based on theta.
+    # (Assuming theta < pi/2 corresponds to b > 0, i.e. the "upper" hemisphere.)
+    upper = theta < np.pi / 2
+    lower = theta >= np.pi / 2
+
+    zones = {}
+
+    # --- Define Zones ---
+    zones["GAL020_U"] = np.logical_and(mask_GAL020, upper)
+    zones["GAL020_L"] = np.logical_and(mask_GAL020, lower)
+    zones["GAL020"] = mask_GAL020
+    # For annular zones we define the outer region minus the inner (GAL020) part.
+    # Zone 3: Upper zone between GAL040 and GAL020.
+    zones["GAL040_U"] = np.logical_and(mask_GAL040, upper)
+    zones["GAL040_L"] = np.logical_and(mask_GAL040, lower)
+    zones["GAL040"] = mask_GAL040
+    # Zone 5: Upper zone between GAL060 and GAL040.
+    zones["GAL060_U"] = np.logical_and(mask_GAL060, upper)
+    zones["GAL060_L"] = np.logical_and(mask_GAL060, lower)
+    zones["GAL060"] = mask_GAL060
+
+    # Return the requested zone.
+    return zones[mask_name]

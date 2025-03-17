@@ -6,14 +6,11 @@ import os
 import sys
 from functools import partial
 
-import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
-import matplotlib.pyplot as plt
 import numpy as np
 import optax
-import seaborn as sns
 from furax._instruments.sky import FGBusterInstrument, get_noise_sigma_from_instrument
 from furax.comp_sep import (
     negative_log_likelihood,
@@ -22,138 +19,15 @@ from furax.comp_sep import (
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from generate_maps import simulate_D_from_params
-
-
-def filter_constant_param(input_dict, indx):
-    out_dict = {}
-    out_dict["B_d_patches"] = input_dict["B_d_patches"][indx]
-    out_dict["T_d_patches"] = input_dict["T_d_patches"][indx]
-    out_dict["B_s_patches"] = input_dict["B_s_patches"][indx]
-    out_dict["value"] = input_dict["value"][indx]
-    out_dict["NLL"] = input_dict["NLL"][indx]
-
-    out_dict["beta_dust"] = input_dict["beta_dust"][indx][: out_dict["B_d_patches"]]
-    out_dict["temp_dust"] = input_dict["temp_dust"][indx][: out_dict["T_d_patches"]]
-    out_dict["beta_pl"] = input_dict["beta_pl"][indx][: out_dict["B_s_patches"]]
-    return out_dict
-
-
-def plot_cmb_nll_vs_B_d_patches(results, best_params):
-    sns.set_context("paper")
-    validation_model_folder = "noise_validation_model"
-
-    B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
-    cmb_variance_mean = np.mean(results["value"], axis=1)  # Mean CMB variance
-    cmb_variance_std = np.std(
-        results["value"], axis=1
-    )  # Variance (std) of CMB variance
-    nll_mean = np.mean(results["NLL"], axis=1)  # Mean Negative log-likelihood
-    nll_std = np.std(results["NLL"], axis=1)  # Variance (std) of NLL
-
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Plot CMB variance vs. B_d_patches with error bars
-    axs[0].errorbar(
-        B_d_patches,
-        cmb_variance_mean,
-        yerr=cmb_variance_std,
-        fmt="o",
-        color="blue",
-        label="Grid Search",
-    )
-    axs[0].axhline(
-        y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance"
-    )
-    axs[0].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[0].set_xlabel("B_d_patches (dust patch count)")
-    axs[0].set_ylabel("CMB Variance")
-    axs[0].set_title("CMB Variance vs. B_d_patches")
-    axs[0].legend()
-
-    # Plot NLL vs. B_d_patches with error bars
-    axs[1].errorbar(
-        B_d_patches, nll_mean, yerr=nll_std, fmt="o", color="green", label="Grid Search"
-    )
-    axs[1].axhline(y=best_params["NLL"], color="red", linestyle="--", label="Best NLL")
-    axs[1].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[1].set_xlabel("B_d_patches (dust patch count)")
-    axs[1].set_ylabel("Negative Log Likelihood")
-    axs[1].set_title("NLL vs. B_d_patches")
-    axs[1].legend()
-
-    plt.tight_layout()
-    plt.savefig(
-        f"{validation_model_folder}/cmb_nll_vs_B_d_patches_with_errorbars.png",
-        dpi=600,
-        transparent=True,
-    )
-    plt.show()
-
-
-def plot_healpix_projection(mask, nside, results, best_params):
-    validation_model_folder = "noise_validation_model"
-    sns.set_context("paper")
-
-    (indices,) = jnp.where(mask == 1)
-
-    # Get best run
-    best_run = filter_constant_param(results, 0)
-    patches = get_clusters(
-        mask,
-        indices,
-        best_run["B_d_patches"],
-        jax.random.key(0),
-        max_centroids=best_run["B_d_patches"],
-    ).astype(jnp.int32)
-    patches = get_cutout_from_mask(patches, indices)
-
-    best_spectral_params = best_params["beta_dust"][patches]
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
-
-    # Process all runs to compute mean & std deviation
-    beta_dust_values = best_run["beta_dust"]
-
-    mean_spectral_params = jnp.mean(beta_dust_values, axis=0)[patches]
-    std_spectral_params = jnp.std(beta_dust_values, axis=0)[patches]
-
-    mean_healpix_map = from_cutout_to_fullmap(mean_spectral_params, indices, nside)
-    std_dev_map = from_cutout_to_fullmap(std_spectral_params, indices, nside)
-
-    # Plot results
-    plt.figure(figsize=(6, 12))
-    hp.mollview(
-        best_healpix_map, title="Best Beta Dust Map", sub=(3, 1, 1), bgcolor=(0.0,) * 4
-    )
-    hp.mollview(
-        mean_healpix_map, title="Mean Beta Dust Map", sub=(3, 1, 2), bgcolor=(0.0,) * 4
-    )
-    hp.mollview(
-        std_dev_map,
-        title="Standard Deviation (Uncertainty)",
-        sub=(3, 1, 3),
-        bgcolor=(0.0,) * 4,
-    )
-
-    plt.tight_layout()
-    plt.savefig(
-        f"{validation_model_folder}/beta_dust_projection.png", dpi=600, transparent=True
-    )
-    plt.show()
+from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from plotting import (
+    plot_cmb_nll_vs_B_d_patches_with_noise,
+    plot_healpix_projection_with_noise,
+)
 
 
 def parse_args():
@@ -188,26 +62,43 @@ def parse_args():
         default=0.2,
         help="Noise ratio",
     )
+    parser.add_argument(
+        "-av",
+        "--average",
+        action="store_true",
+        help="Average across noise simulations before minimizing",
+    )
+    parser.add_argument(
+        "-m",
+        "--mask",
+        type=str,
+        default="GAL020",
+        choices=MASK_CHOICES,
+        help="Mask to use",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
 
-    GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
+    # GAL020 or GAL040 or GAL060
+    GAL020 = get_mask(args.mask)
 
+    out_folder = f"noise_validation_model{args.mask}_{int(args.noise_ratio * 100)}"
     if args.plot:
-        validation_model_folder = "noise_validation_model"
-        assert os.path.exists(validation_model_folder), (
+        assert os.path.exists(out_folder), (
             "noise model not found, please run the model first"
         )
 
-        results = np.load(f"{validation_model_folder}/results.npz")
-        best_params = np.load(f"{validation_model_folder}/best_params.npz")
+        results = np.load(f"{out_folder}/results.npz")
+        best_params = np.load(f"{out_folder}/best_params.npz")
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches(results, best_params)
-        plot_healpix_projection(GAL020, args.nside, results, best_params)
+        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder)
+        plot_healpix_projection_with_noise(
+            GAL020, args.nside, results, best_params, out_folder
+        )
         return
 
     nside = args.nside
@@ -321,12 +212,106 @@ def main():
         "B_d_patches": jnp.arange(10, 301, 10),
         "B_s_patches": jnp.array([1]),
     }
+    search_space = {
+        "T_d_patches": jnp.array([1]),
+        "B_d_patches": jnp.array([160]),
+        "B_s_patches": jnp.array([1]),
+    }
 
     max_count = {
         "beta_dust": jnp.max(search_space["B_d_patches"]),
         "temp_dust": jnp.max(search_space["T_d_patches"]),
         "beta_pl": jnp.max(search_space["B_s_patches"]),
     }
+
+    @partial(jax.jit, static_argnums=(5, 6))
+    def compute_minimum_variance_with_averaging(
+        T_d_patches,
+        B_d_patches,
+        B_s_patches,
+        planck_mask,
+        indices,
+        max_patches=25,
+        progress_bar=None,
+    ):
+        patch_indices = {
+            "temp_dust_patches": T_d_patches,
+            "beta_dust_patches": B_d_patches,
+            "beta_pl_patches": B_s_patches,
+        }
+        patch_indices = jax.tree.map(
+            lambda c: get_clusters(
+                mask, indices, c, jax.random.key(0), max_centroids=max_centroids
+            ),
+            patch_indices,
+        )
+        guess_clusters = get_cutout_from_mask(patch_indices, indices)
+        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
+
+        guess_params = jax.tree.map(
+            lambda v, c: jnp.full((c,), v), base_params, max_count
+        )
+
+        def objective_fn(guess_params, nu, d, guess_clusters):
+            def single_run(guess_params, nu, masked_d, guess_clusters, noise_id):
+                key = jax.random.PRNGKey(noise_id)
+                white_noise = f_landscapes.normal(key) * noise_ratio
+                white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
+                instrument = FGBusterInstrument.default_instrument()
+                sigma = get_noise_sigma_from_instrument(
+                    instrument, nside, stokes_type="QU"
+                )
+                noise = white_noise * sigma
+                noised_d = masked_d + noise
+
+                N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+
+                return negative_log_likelihood_fn(
+                    guess_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
+                )
+
+            nll = jax.vmap(single_run, in_axes=(None, None, None, None, None, 0))(
+                guess_params, nu, d, N, guess_clusters, jnp.arange(nb_noise_sim)
+            )
+            return jnp.mean(nll)
+
+        lower_bound_tree = jax.tree.map(
+            lambda v, c: jnp.full((c,), v), lower_bound, max_count
+        )
+        upper_bound_tree = jax.tree.map(
+            lambda v, c: jnp.full((c,), v), upper_bound, max_count
+        )
+
+        solver = optax.lbfgs()
+        final_params, final_state = optimize(
+            guess_params,
+            objective_fn,
+            solver,
+            max_iter=200,
+            tol=1e-10,
+            progress=progress_bar,
+            progress_id=0,
+            lower_bound=lower_bound_tree,
+            upper_bound=upper_bound_tree,
+            nu=nu,
+            d=masked_d,
+            guess_clusters=guess_clusters,
+        )
+
+        cmb_var = spectral_cmb_variance_fn(
+            final_params, nu=nu, d=masked_d, N=N, patch_indices=guess_clusters
+        )
+        nll = negative_log_likelihood_fn(
+            final_params, nu=nu, d=masked_d, N=N, patch_indices=guess_clusters
+        )
+
+        return {
+            "value": cmb_var,
+            "NLL": nll,
+            "beta_dust": final_params["beta_dust"],
+            "temp_dust": final_params["temp_dust"],
+            "beta_pl": final_params["beta_pl"],
+        }
 
     @partial(jax.jit, static_argnums=(5, 6))
     def compute_minimum_variance(
@@ -347,7 +332,6 @@ def main():
             noised_d = masked_d + noise
 
             N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
-
             patch_indices = {
                 "temp_dust_patches": T_d_patches,
                 "beta_dust_patches": B_d_patches,
@@ -407,10 +391,8 @@ def main():
         return jax.vmap(single_run)(jnp.arange(nb_noise_sim))
 
     # Put the good values for the grid search
-    if os.path.exists("noise_validation_model"):
-        old_results = DistributedGridSearch.stack_results(
-            result_folder="noise_validation_model"
-        )
+    if os.path.exists(out_folder):
+        old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
     else:
         old_results = None
 
@@ -422,11 +404,17 @@ def main():
         TimeRemainingColumn(),
     ]
 
+    objective_gridding_fn = (
+        compute_minimum_variance_with_averaging
+        if args.average
+        else compute_minimum_variance
+    )
+
     with ProgressBar(*progress_columns) as p:
 
         @jax.jit
         def objective_function(T_d_patches, B_d_patches, B_s_patches):
-            return compute_minimum_variance(
+            return objective_gridding_fn(
                 T_d_patches,
                 B_d_patches,
                 B_s_patches,
@@ -441,13 +429,13 @@ def main():
             search_space,
             batch_size=1,
             progress_bar=True,
-            result_dir="noise_validation_model",
+            result_dir=out_folder,
             old_results=old_results,
         )
 
         grid_search.run()
 
-    results = grid_search.stack_results(result_folder="noise_validation_model")
+    results = grid_search.stack_results(result_folder=out_folder)
 
     # Save results
     best_params["NLL"] = best_nll
@@ -455,8 +443,8 @@ def main():
     best_params["B_d_patches"] = params_count["beta_dust"]
     best_params["T_d_patches"] = params_count["temp_dust"]
     best_params["B_s_patches"] = params_count["beta_pl"]
-    np.savez("noise_validation_model/results.npz", **results)
-    np.savez("noise_validation_model/best_params.npz", **best_params)
+    np.savez(f"{out_folder}/results.npz", **results)
+    np.savez(f"{out_folder}/best_params.npz", **best_params)
 
 
 if __name__ == "__main__":

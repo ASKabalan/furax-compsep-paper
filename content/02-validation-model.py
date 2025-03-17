@@ -6,7 +6,6 @@ import os
 import sys
 from functools import partial
 
-import healpy as hp
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -19,118 +18,12 @@ from furax.comp_sep import (
 )
 from furax.obs.landscapes import HealpixLandscape
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from generate_maps import simulate_D_from_params
-
-
-def filter_constant_param(input_dict, indx):
-    out_dict = {}
-    out_dict["B_d_patches"] = input_dict["B_d_patches"][indx]
-    out_dict["T_d_patches"] = input_dict["T_d_patches"][indx]
-    out_dict["B_s_patches"] = input_dict["B_s_patches"][indx]
-    out_dict["value"] = input_dict["value"][indx]
-    out_dict["NLL"] = input_dict["NLL"][indx]
-
-    out_dict["beta_dust"] = input_dict["beta_dust"][indx][: out_dict["B_d_patches"]]
-    out_dict["temp_dust"] = input_dict["temp_dust"][indx][: out_dict["T_d_patches"]]
-    out_dict["beta_pl"] = input_dict["beta_pl"][indx][: out_dict["B_s_patches"]]
-    return out_dict
-
-
-def plot_cmb_nll_vs_B_d_patches(results, best_params):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    validation_model_folder = "validation_model"
-    sns.set_context("paper")
-    # Extract values from the grid search results
-    B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
-    cmb_variance = results["value"]  # CMB variance values from grid search
-    nll = results["NLL"]  # Negative log-likelihood values
-
-    # Create subplots: one for CMB variance, one for NLL
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Plot CMB variance vs. B_d_patches
-    axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
-    axs[0].axhline(
-        y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance"
-    )
-    axs[0].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[0].set_xlabel("B_d_patches (dust patch count)")
-    axs[0].set_ylabel("CMB Variance")
-    axs[0].set_title("CMB Variance vs. B_d_patches")
-    axs[0].legend()
-
-    # Plot NLL vs. B_d_patches
-    axs[1].scatter(B_d_patches, nll, color="green", label="Grid Search")
-    axs[1].axhline(y=best_params["NLL"], color="red", linestyle="--", label="Best NLL")
-    axs[1].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[1].set_xlabel("B_d_patches (dust patch count)")
-    axs[1].set_ylabel("Negative Log Likelihood")
-    axs[1].set_title("NLL vs. B_d_patches")
-    axs[1].legend()
-
-    plt.tight_layout()
-    plt.savefig(
-        f"{validation_model_folder}/cmb_nll_vs_B_d_patches.png",
-        dpi=600,
-        transparent=True,
-    )
-
-
-def plot_healpix_projection(mask, nside, results, best_params):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    validation_model_folder = "validation_model"
-    sns.set_context("paper")
-
-    (indices,) = jnp.where(mask == 1)
-    best_run = filter_constant_param(results, 0)
-    patches = get_clusters(
-        mask,
-        indices,
-        best_run["B_d_patches"],
-        jax.random.key(0),
-        max_centroids=best_run["B_d_patches"],
-    ).astype(jnp.int32)
-    patches = get_cutout_from_mask(patches, indices)
-    best_spectral_params = best_params["beta_dust"][patches]
-    result_spectral_params = best_run["beta_dust"][patches]
-
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
-    result_healpix_map = from_cutout_to_fullmap(result_spectral_params, indices, nside)
-
-    # Plot the best and result maps
-    plt.figure(figsize=(15, 5))
-    hp.mollview(
-        best_healpix_map, title="Best Beta Dust map", sub=(1, 2, 1), bgcolor=(0.0,) * 4
-    )
-    hp.mollview(
-        result_healpix_map,
-        title="Result Beta Dust map",
-        sub=(1, 2, 2),
-        bgcolor=(0.0,) * 4,
-    )
-    plt.savefig(
-        f"{validation_model_folder}/best_result_healpix_projection.png",
-        dpi=600,
-        transparent=True,
-    )
+from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
 
 
 def parse_args():
@@ -151,6 +44,14 @@ def parse_args():
         action="store_true",
         help="Plot the results",
     )
+    parser.add_argument(
+        "-m",
+        "--mask",
+        type=str,
+        default="GAL020",
+        choices=MASK_CHOICES,
+        help="Mask to use",
+    )
     return parser.parse_args()
 
 
@@ -158,19 +59,19 @@ def main():
     args = parse_args()
 
     # GAL020 or GAL040 or GAL060
-    GAL020 = np.load("../data/masks/GAL_PlanckMasks_64.npz")["GAL020"]
+    GAL020 = get_mask(args.mask)
+    out_folder = f"validation_model_{args.mask}"
     if args.plot:
-        validation_model_folder = "validation_model"
-        assert os.path.exists(validation_model_folder), (
+        assert os.path.exists(out_folder), (
             "Validation model not found, please run the model first"
         )
 
-        results = np.load("validation_model/results.npz")
-        best_params = np.load("validation_model/best_params.npz")
+        results = np.load(f"{out_folder}/results.npz")
+        best_params = np.load(f"{out_folder}/best_params.npz")
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches(results, best_params)
-        plot_healpix_projection(GAL020, args.nside, results, best_params)
+        plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder)
+        plot_healpix_projection(GAL020, args.nside, results, best_params, out_folder)
         return
 
     nside = args.nside
@@ -355,10 +256,8 @@ def main():
     ]
 
     # Put the good values for the grid search
-    if os.path.exists("validation_model"):
-        old_results = DistributedGridSearch.stack_results(
-            result_folder="validation_model"
-        )
+    if os.path.exists(out_folder):
+        old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
     else:
         old_results = None
 
@@ -382,13 +281,13 @@ def main():
             batch_size=4,
             progress_bar=True,
             log_every=0.1,
-            result_dir="validation_model",
+            result_dir=out_folder,
             old_results=old_results,
         )
 
         grid_search.run()
 
-    results = grid_search.stack_results(result_folder="validation_model")
+    results = grid_search.stack_results(result_folder=out_folder)
 
     # Save results
     best_params["NLL"] = best_nll
@@ -396,8 +295,8 @@ def main():
     best_params["B_d_patches"] = params_count["beta_dust"]
     best_params["T_d_patches"] = params_count["temp_dust"]
     best_params["B_s_patches"] = params_count["beta_pl"]
-    np.savez("validation_model/results.npz", **results)
-    np.savez("validation_model/best_params.npz", **best_params)
+    np.savez(f"{out_folder}/results.npz", **results)
+    np.savez(f"{out_folder}/best_params.npz", **best_params)
 
 
 if __name__ == "__main__":
