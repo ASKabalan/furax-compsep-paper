@@ -18,7 +18,7 @@ from furax.comp_sep import (
     spectral_cmb_variance,
 )
 from furax.obs.landscapes import HealpixLandscape
-from jax_grid_search import DistributedGridSearch, optimize , ProgressBar
+from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
@@ -282,9 +282,15 @@ def main():
         "beta_pl": jnp.max(search_space["B_s_patches"]),
     }
 
-    @partial(jax.jit, static_argnums=(5 , 6))
+    @partial(jax.jit, static_argnums=(5, 6))
     def compute_minimum_variance(
-        T_d_patches, B_d_patches, B_s_patches, planck_mask, indices, max_patches=25 , progress_bar=None
+        T_d_patches,
+        B_d_patches,
+        B_s_patches,
+        planck_mask,
+        indices,
+        max_patches=25,
+        progress_bar=None,
     ):
         patch_indices = {
             "temp_dust_patches": T_d_patches,
@@ -355,8 +361,9 @@ def main():
         )
     else:
         old_results = None
-    
+
     with ProgressBar(*progress_columns) as p:
+
         @jax.jit
         def objective_function(T_d_patches, B_d_patches, B_s_patches):
             return compute_minimum_variance(
@@ -366,9 +373,8 @@ def main():
                 mask,
                 indices,
                 max_patches=max_centroids,
-                progress_bar=None,
+                progress_bar=p,
             )
-
 
         grid_search = DistributedGridSearch(
             objective_function,

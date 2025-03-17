@@ -8,7 +8,7 @@
 #SBATCH --time=05:00:00              # temps d'execution maximum demande (HH:MM:SS)
 #SBATCH --output=%x_%N.out # nom du fichier de sortie
 #SBATCH --error=%x_%N.err  # nom du fichier d'erreur (ici commun avec la sortie)
-#SBATCH --exclusive                  # ressources dediees
+##SBATCH --exclusive                  # ressources dediees
 ##SBATCH --qos=qos_gpu-dev
 # Nettoyage des modules charges en interactif et herites par defaut
 num_nodes=$SLURM_JOB_NUM_NODES
@@ -25,7 +25,7 @@ echo "Job partition: $SLURM_JOB_PARTITION"
 
 if [[ "$SLURM_JOB_PARTITION" == "gpu_p5" ]]; then
     module load arch/a100
-    source /gpfsdswork/projects/rech/tkc/commun/venv/a100/bin/activate
+    source /gpfsdswork/projects/rech/tkc/commun/venv/wass/bin/activate
     gpu_name=a100
 elif [[ "$SLURM_JOB_PARTITION" == "gpu_p6" ]]; then
     module arch/h100
@@ -42,7 +42,7 @@ echo "The number of GPUs allocated for this job is: $nb_gpus"
 export EQX_ON_ERROR=nan
 export OUTPUT_FOLDER_ARGS=1
 
-function profile_python() {
+function plaunch() {
     if [ $# -lt 1 ]; then
         echo "Usage: profile_python <python_script> [arguments for the script]"
         return 1
@@ -66,7 +66,7 @@ function profile_python() {
     srun timeout 10m nsys profile -t cuda,nvtx,osrt,mpi -o "$report_dir/report_rank%q{SLURM_PROCID}" python "$@" > "$output_dir/$script_name.out" 2> "$output_dir/$script_name.err" || true
 }
 
-function run_python() {
+function slaunch() {
     if [ $# -lt 1 ]; then
         echo "Usage: run_python <python_script> [arguments for the script]"
         return 1
@@ -88,19 +88,8 @@ function run_python() {
 }
 
 
-# run or profile
-
-function slaunch() {
-    run_python "$@"
-}
-
-function plaunch() {
-    profile_python "$@"
-}
-
 # Echo des commandes lancees
 set -x
 
-slaunch 01-bench_bcp.py -n 4 8 16 32 64 128 256 512 1024 -s -l
-slaunch 01-bench_clusters.py -n 32 64 128 256 512 -cl 10 20 50 100 200 500 1000 
+slaunch "$@"
 
