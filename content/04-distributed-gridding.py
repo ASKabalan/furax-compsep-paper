@@ -7,13 +7,22 @@ import sys
 from functools import partial
 
 import jax
+
+# =============================================================================
+# 1. If running on a distributed system, initialize JAX distributed
+# =============================================================================
+if (
+    os.environ.get("SLURM_NTASKS", 0) > 1
+    or os.environ.get("SLURM_NTASKS_PER_NODE", 0) > 1
+):
+    jax.distributed.initialize()
+# =============================================================================
 import jax.numpy as jnp
 import jax.random
 import numpy as np
 import optax
 from furax._instruments.sky import (
     get_noise_sigma_from_instrument,
-    get_observation,
 )
 from furax.comp_sep import (
     negative_log_likelihood,
@@ -21,12 +30,13 @@ from furax.comp_sep import (
 )
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
+from furax.obs.stokes import Stokes
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask
+from generate_maps import MASK_CHOICES, get_mask, load_from_cache
 from instruments import get_instrument
 
 
@@ -90,8 +100,6 @@ def parse_args():
 def main():
     args = parse_args()
 
-    mask = get_mask(args.mask)
-
     out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}"
     if args.plot:
         assert os.path.exists(out_folder), (
@@ -104,8 +112,9 @@ def main():
     noise_ratio = args.noise_ratio
     dust_nu0 = 160.0
     synchrotron_nu0 = 20.0
-    max_centroids = 200
+    max_centroids = 1500
 
+    mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
 
     base_params = {
@@ -135,23 +144,16 @@ def main():
         negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
 
-    d = get_observation(
-        instrument,
-        nside,
-        tag=args.tag,
-        stokes_type="QU",
+    _, freqmaps = load_from_cache(
+        nside, noise=False, instrument_name=args.instrument, sky=args.tag
     )
+    d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
 
     search_space = {
-        "T_d_patches": jnp.array([1]),
-        "B_d_patches": jnp.arange(10, 301, 10),
-        "B_s_patches": jnp.array([1]),
-    }
-    search_space = {
-        "T_d_patches": jnp.array([1]),
-        "B_d_patches": jnp.array([160]),
-        "B_s_patches": jnp.array([1]),
+        "T_d_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
+        "B_d_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
+        "B_s_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
     }
 
     max_count = {
@@ -233,6 +235,9 @@ def main():
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],
                 "beta_pl": final_params["beta_pl"],
+                "beta_dust_patches": guess_clusters["beta_dust_patches"],
+                "temp_dust_patches": guess_clusters["temp_dust_patches"],
+                "beta_pl_patches": guess_clusters["beta_pl_patches"],
             }
 
         return jax.vmap(single_run)(jnp.arange(nb_noise_sim))
@@ -278,6 +283,7 @@ def main():
 
     results = grid_search.stack_results(result_folder=out_folder)
     np.savez(f"{out_folder}/results.npz", **results)
+    np.save(f"{out_folder}/mask.npy", mask)
 
 
 if __name__ == "__main__":
