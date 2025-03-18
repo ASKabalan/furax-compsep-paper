@@ -119,7 +119,7 @@ MASK_CHOICES = [
 ]
 
 
-def get_mask(mask_name="GAL020" , nside=64):
+def get_mask(mask_name="GAL020", nside=64):
     current_dir = Path(__file__).parent
     masks_file = f"{current_dir}/masks/GAL_PlanckMasks_{nside}.npz"
     masks = np.load(masks_file)
@@ -134,7 +134,7 @@ def get_mask(mask_name="GAL020" , nside=64):
     mask_GAL040 = masks["GAL040"]
     mask_GAL060 = masks["GAL060"]
 
-    mask_galactic =  np.logical_and(ones, np.logical_not(mask_GAL060))
+    mask_galactic = np.logical_and(ones, np.logical_not(mask_GAL060))
     mask_GAL060 = np.logical_and(mask_GAL060, np.logical_not(mask_GAL040))
     mask_GAL040 = np.logical_and(mask_GAL040, np.logical_not(mask_GAL020))
 
@@ -163,7 +163,7 @@ def get_mask(mask_name="GAL020" , nside=64):
     zones["GAL040_U"] = np.logical_and(mask_GAL040, upper)
     zones["GAL040_L"] = np.logical_and(mask_GAL040, lower)
     zones["GAL040"] = mask_GAL040
-     # GAL060 Upper ring and lower ring
+    # GAL060 Upper ring and lower ring
     zones["GAL060_U"] = np.logical_and(mask_GAL060, upper)
     zones["GAL060_L"] = np.logical_and(mask_GAL060, lower)
     zones["GAL060"] = mask_GAL060
