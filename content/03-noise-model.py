@@ -81,10 +81,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    # GAL020 or GAL040 or GAL060
-    GAL020 = get_mask(args.mask)
-
     out_folder = f"noise_validation_model{args.mask}_{int(args.noise_ratio * 100)}"
     if args.plot:
         assert os.path.exists(out_folder), (
@@ -93,11 +89,12 @@ def main():
 
         results = np.load(f"{out_folder}/results.npz")
         best_params = np.load(f"{out_folder}/best_params.npz")
+        mask = np.load(f"{out_folder}/mask.npy")
         best_params = dict(best_params)
         results = dict(results)
         plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder)
         plot_healpix_projection_with_noise(
-            GAL020, args.nside, results, best_params, out_folder
+            mask, args.nside, results, best_params, out_folder
         )
         return
 
@@ -119,7 +116,7 @@ def main():
         "beta_pl": get_count(patch_indices["beta_pl_patches"]),
     }
 
-    mask = GAL020
+    mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
@@ -210,11 +207,6 @@ def main():
     search_space = {
         "T_d_patches": jnp.array([1]),
         "B_d_patches": jnp.arange(10, 301, 10),
-        "B_s_patches": jnp.array([1]),
-    }
-    search_space = {
-        "T_d_patches": jnp.array([1]),
-        "B_d_patches": jnp.array([160]),
         "B_s_patches": jnp.array([1]),
     }
 
@@ -311,6 +303,9 @@ def main():
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],
             "beta_pl": final_params["beta_pl"],
+            "beta_dust_patches": guess_clusters["beta_dust_patches"],
+            "temp_dust_patches": guess_clusters["temp_dust_patches"],
+            "beta_pl_patches": guess_clusters["beta_pl_patches"],
         }
 
     @partial(jax.jit, static_argnums=(5, 6))
@@ -386,6 +381,9 @@ def main():
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],
                 "beta_pl": final_params["beta_pl"],
+                "beta_dust_patches": guess_clusters["beta_dust_patches"],
+                "temp_dust_patches": guess_clusters["temp_dust_patches"],
+                "beta_pl_patches": guess_clusters["beta_pl_patches"],
             }
 
         return jax.vmap(single_run)(jnp.arange(nb_noise_sim))
@@ -443,8 +441,12 @@ def main():
     best_params["B_d_patches"] = params_count["beta_dust"]
     best_params["T_d_patches"] = params_count["temp_dust"]
     best_params["B_s_patches"] = params_count["beta_pl"]
+    best_params["beta_dust_patches"] = masked_clusters["beta_dust_patches"]
+    best_params["temp_dust_patches"] = masked_clusters["temp_dust_patches"]
+    best_params["beta_pl_patches"] = masked_clusters["beta_pl_patches"]
     np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
+    np.save(f"{out_folder}/mask.npy", mask)
 
 
 if __name__ == "__main__":
