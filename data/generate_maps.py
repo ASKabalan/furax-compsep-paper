@@ -105,11 +105,13 @@ def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron
 
 
 MASK_CHOICES = [
+    "ALL",
+    "GALACTIC",
     "GAL020_U",
     "GAL020_L",
     "GAL020",
     "GAL040_U",
-    "GAL040_U",
+    "GAL040_L",
     "GAL040",
     "GAL060_U",
     "GAL060_L",
@@ -117,19 +119,22 @@ MASK_CHOICES = [
 ]
 
 
-def get_mask(mask_name="GAL020"):
+def get_mask(mask_name="GAL020" , nside=64):
     current_dir = Path(__file__).parent
-    masks_file = f"{current_dir}/masks/GAL_PlanckMasks_64.npz"
+    masks_file = f"{current_dir}/masks/GAL_PlanckMasks_{nside}.npz"
     masks = np.load(masks_file)
 
     if mask_name not in MASK_CHOICES:
         raise ValueError(f"Invalid mask name: {mask_name}. Choose from: {MASK_CHOICES}")
 
+    npix = 12 * nside**2
+    ones = np.ones(npix, dtype=bool)
     # Extract the masks (keys: "GAL020", "GAL040", "GAL060").
     mask_GAL020 = masks["GAL020"]
     mask_GAL040 = masks["GAL040"]
     mask_GAL060 = masks["GAL060"]
 
+    mask_galactic =  np.logical_and(ones, np.logical_not(mask_GAL060))
     mask_GAL060 = np.logical_and(mask_GAL060, np.logical_not(mask_GAL040))
     mask_GAL040 = np.logical_and(mask_GAL040, np.logical_not(mask_GAL020))
 
@@ -148,19 +153,22 @@ def get_mask(mask_name="GAL020"):
 
     zones = {}
 
+    zones["ALL"] = ones
     # --- Define Zones ---
+    # GAL020 Upper ring and lower ring
     zones["GAL020_U"] = np.logical_and(mask_GAL020, upper)
     zones["GAL020_L"] = np.logical_and(mask_GAL020, lower)
     zones["GAL020"] = mask_GAL020
-    # For annular zones we define the outer region minus the inner (GAL020) part.
-    # Zone 3: Upper zone between GAL040 and GAL020.
+    # GAL040 Upper ring and lower ring
     zones["GAL040_U"] = np.logical_and(mask_GAL040, upper)
     zones["GAL040_L"] = np.logical_and(mask_GAL040, lower)
     zones["GAL040"] = mask_GAL040
-    # Zone 5: Upper zone between GAL060 and GAL040.
+     # GAL060 Upper ring and lower ring
     zones["GAL060_U"] = np.logical_and(mask_GAL060, upper)
     zones["GAL060_L"] = np.logical_and(mask_GAL060, lower)
     zones["GAL060"] = mask_GAL060
+    # Galactic mask
+    zones["GALACTIC"] = mask_galactic
 
     # Return the requested zone.
     return zones[mask_name]
