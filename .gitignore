@@ -170,10 +170,8 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-
+# Ignore Results from runs
 *.pkl
-
 runs/
-
-
 results/
+content/**/*.npz
