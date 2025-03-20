@@ -173,5 +173,7 @@ cython_debug/
 # Ignore Results from runs
 *.pkl
 runs/
-results/
+results*
 content/**/*.npz
+data/**/*.npz
+!data/masks/GAL_PlanckMasks_2048.npz

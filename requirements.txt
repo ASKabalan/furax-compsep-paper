@@ -1,0 +1,10 @@
+git+https://github.com/CMBSciPol/furax@3-multi-patch-component-separation
+git+https://github.com/CMBSciPol/jax-healpy
+jax_hpc_profiler
+jax_grid_search
+jaxopt
+git+https://github.com/fgbuster/fgbuster@clusters
+pre-commit
+ipython
+ipykernel
+ipywidgets

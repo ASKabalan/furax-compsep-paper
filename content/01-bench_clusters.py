@@ -33,12 +33,8 @@ sys.path.append("../data")
 from generate_maps import load_from_cache, save_to_cache
 
 
-def run_fg_buster(
-    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer
-):
-    print(
-        f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}..."
-    )
+def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer):
+    print(f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}...")
 
     d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
 
@@ -74,17 +70,11 @@ def run_fg_buster(
     freq_maps_fg = np.asarray(freq_maps_fg)
     patch_ids_fg = [np.asarray(p) for p in patch_ids_fg]
 
-    comp_sep = partial(
-        adaptive_comp_sep, bounds=bounds, options=options, method=method, tol=tol
-    )
+    comp_sep = partial(adaptive_comp_sep, bounds=bounds, options=options, method=method, tol=tol)
 
-    result = numpy_timer.chrono_jit(
-        comp_sep, components, instrument, freq_maps_fg, patch_ids_fg
-    )
+    result = numpy_timer.chrono_jit(comp_sep, components, instrument, freq_maps_fg, patch_ids_fg)
     for _ in range(2):
-        numpy_timer.chrono_fun(
-            comp_sep, components, instrument, freq_maps_fg, patch_ids_fg
-        )
+        numpy_timer.chrono_fun(comp_sep, components, instrument, freq_maps_fg, patch_ids_fg)
 
     cmb_q, cmb_u = result.s[0]
 
@@ -93,9 +83,7 @@ def run_fg_buster(
     return result.x, cmb_var, result.fun
 
 
-def run_jax_lbfgs(
-    nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer
-):
+def run_jax_lbfgs(nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax LBGS Comp sep nside={nside} cluster_count={cluster_count}...")
@@ -107,8 +95,7 @@ def run_jax_lbfgs(
     }
 
     guess_params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
 
@@ -190,8 +177,7 @@ def run_jax_tnc(
     }
 
     guess_params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
 

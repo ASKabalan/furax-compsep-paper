@@ -60,13 +60,11 @@ def main():
 
     out_folder = f"validation_model_{args.mask}"
     if args.plot:
-        assert os.path.exists(out_folder), (
-            "Validation model not found, please run the model first"
-        )
+        assert os.path.exists(out_folder), "Validation model not found, please run the model first"
 
-        results = np.load(f"{out_folder}/results.npz")
-        best_params = np.load(f"{out_folder}/best_params.npz")
-        mask = np.load(f"{out_folder}/mask.npy")
+        results = np.load(f"{out_folder}/results.npz", allow_pickle=True)
+        best_params = np.load(f"{out_folder}/best_params.npz", allow_pickle=True)
+        mask = np.load(f"{out_folder}/mask.npy", allow_pickle=True)
         best_params = dict(best_params)
         results = dict(results)
         plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder)
@@ -93,9 +91,7 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
-        lambda c: get_clusters(
-            mask, indices, c, jax.random.key(0), max_centroids=max_centroids
-        ),
+        lambda c: get_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
@@ -131,8 +127,7 @@ def main():
     params_flat, tree_struct = jax.tree.flatten(params)
 
     params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].idx), x.shape) * 0.2,
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].idx), x.shape) * 0.2,
         params_flat,
     )
     best_params = jax.tree.unflatten(tree_struct, params)
@@ -206,15 +201,9 @@ def main():
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
-        guess_params = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), base_params, max_count
-        )
-        lower_bound_tree = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), lower_bound, max_count
-        )
-        upper_bound_tree = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), upper_bound, max_count
-        )
+        guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         solver = optax.lbfgs()
         final_params, final_state = optimize(
