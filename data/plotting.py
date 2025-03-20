@@ -4,15 +4,13 @@ os.environ["EQX_ON_ERROR"] = "nan"
 import os
 
 import healpy as hp
-import jax
 import jax.numpy as jnp
-import jax.random
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from grid_search_data import select_best_params
-from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
+from jax_healpy import from_cutout_to_fullmap
 
 
 def filter_constant_param(input_dict, indx):
@@ -22,6 +20,9 @@ def filter_constant_param(input_dict, indx):
     out_dict["B_s_patches"] = input_dict["B_s_patches"][indx]
     out_dict["value"] = input_dict["value"][indx]
     out_dict["NLL"] = input_dict["NLL"][indx]
+    out_dict["beta_dust_patches"] = input_dict["beta_dust_patches"][indx]
+    out_dict["beta_pl_patches"] = input_dict["beta_pl_patches"][indx]
+    out_dict["temp_dust_patches"] = input_dict["temp_dust_patches"][indx]
 
     out_dict["beta_dust"] = input_dict["beta_dust"][indx][: out_dict["B_d_patches"]]
     out_dict["temp_dust"] = input_dict["temp_dust"][indx][: out_dict["T_d_patches"]]
@@ -34,11 +35,9 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, noi
 
     B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
     cmb_variance_mean = np.mean(results["value"], axis=1)  # Mean CMB variance
-    cmb_variance_std = np.std(results["value"], axis=1) / np.sqrt(
-        noise_runs
-    )  # Variance (std) of CMB variance
+    cmb_variance_std = np.std(results["value"], axis=1)
     nll_mean = np.mean(results["NLL"], axis=1)  # Mean Negative log-likelihood
-    nll_std = np.std(results["NLL"], axis=1)  # Variance (std) of NLL
+    nll_std = np.std(results["NLL"], axis=1)
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -94,14 +93,7 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
 
     # Get best run
     best_run = filter_constant_param(results, 0)
-    patches = get_clusters(
-        mask,
-        indices,
-        best_run["B_d_patches"],
-        jax.random.key(0),
-        max_centroids=best_run["B_d_patches"],
-    ).astype(jnp.int32)
-    patches = get_cutout_from_mask(patches, indices)
+    patches = best_run["beta_dust_patches"][0]
 
     best_spectral_params = best_params["beta_dust"][patches]
     best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
@@ -113,7 +105,7 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     std_spectral_params = jnp.std(beta_dust_values, axis=0)[patches]
 
     mean_healpix_map = from_cutout_to_fullmap(mean_spectral_params, indices, nside)
-    std_dev_map = from_cutout_to_fullmap(std_spectral_params, indices, nside) / np.sqrt(noise_runs)
+    std_dev_map = from_cutout_to_fullmap(std_spectral_params / np.sqrt(noise_runs), indices, nside)
 
     # Plot results
     plt.figure(figsize=(6, 12))
@@ -181,14 +173,7 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
 
     (indices,) = jnp.where(mask == 1)
     best_run = filter_constant_param(results, 0)
-    patches = get_clusters(
-        mask,
-        indices,
-        best_run["B_d_patches"],
-        jax.random.key(0),
-        max_centroids=best_run["B_d_patches"],
-    ).astype(jnp.int32)
-    patches = get_cutout_from_mask(patches, indices)
+    patches = patches = best_run["beta_dust_patches"]
     best_spectral_params = best_params["beta_dust"][patches]
     result_spectral_params = best_run["beta_dust"][patches]
 

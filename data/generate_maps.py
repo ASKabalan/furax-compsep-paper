@@ -118,9 +118,10 @@ def get_mask(mask_name="GAL020", nside=64):
     try:
         masks = np.load(masks_file)
     except FileNotFoundError:
-        raise FileNotFoundError(
-            f"Could not find masks file: {masks_file} please run the downgrade script with nside={nside}"
-        )
+        raise FileNotFoundError(f"""
+            Could not find masks file: {masks_file}.
+            please run the downgrade script with nside={nside}
+            """)
 
     if mask_name not in MASK_CHOICES:
         raise ValueError(f"Invalid mask name: {mask_name}. Choose from: {MASK_CHOICES}")
