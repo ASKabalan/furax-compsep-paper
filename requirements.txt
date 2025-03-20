@@ -8,3 +8,4 @@ pre-commit
 ipython
 ipykernel
 ipywidgets
+camb

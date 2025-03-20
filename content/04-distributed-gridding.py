@@ -112,7 +112,6 @@ def main():
     noise_ratio = args.noise_ratio
     dust_nu0 = 160.0
     synchrotron_nu0 = 20.0
-    max_centroids = 1500
 
     mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
@@ -148,26 +147,32 @@ def main():
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
 
+    # Corresponds to PTEP Table page 82
+
     search_space = {
-        "T_d_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
-        "B_d_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
-        "B_s_patches": jnp.concatenate([jnp.arange(10, 1400, 200), jnp.array([1500])]),
+        "T_d_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
+        "B_d_patches": jnp.arange(100, 4001, 100),
+        "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
     }
 
     max_count = {
-        "beta_dust": jnp.max(search_space["B_d_patches"]),
-        "temp_dust": jnp.max(search_space["T_d_patches"]),
-        "beta_pl": jnp.max(search_space["B_s_patches"]),
+        "beta_dust": np.max(np.array(search_space["B_d_patches"])),
+        "temp_dust": np.max(np.array(search_space["T_d_patches"])),
+        "beta_pl": np.max(np.array(search_space["B_s_patches"])),
+    }
+    max_patches = {
+        "temp_dust_patches": max_count["temp_dust"],
+        "beta_dust_patches": max_count["beta_dust"],
+        "beta_pl_patches": max_count["beta_pl"],
     }
 
-    @partial(jax.jit, static_argnums=(5, 6))
+    @partial(jax.jit, static_argnums=(5))
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
         B_s_patches,
         planck_mask,
         indices,
-        max_patches=25,
         progress_bar=None,
     ):
         def single_run(noise_id):
@@ -184,11 +189,13 @@ def main():
                 "beta_dust_patches": B_d_patches,
                 "beta_pl_patches": B_s_patches,
             }
+
             patch_indices = jax.tree.map(
-                lambda c: get_clusters(
-                    mask, indices, c, jax.random.key(0), max_centroids=max_centroids
+                lambda c, mp: get_clusters(
+                    mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
                 ),
                 patch_indices,
+                max_patches,
             )
             guess_clusters = get_cutout_from_mask(patch_indices, indices)
             guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
@@ -258,7 +265,6 @@ def main():
                 B_s_patches,
                 mask,
                 indices,
-                max_patches=max_centroids,
                 progress_bar=p,
             )
 

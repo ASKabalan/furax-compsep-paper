@@ -85,14 +85,14 @@ def main():
     if args.plot:
         assert os.path.exists(out_folder), "noise model not found, please run the model first"
 
-        results = np.load(f"{out_folder}/results.npz")
-        best_params = np.load(f"{out_folder}/best_params.npz")
-        mask = np.load(f"{out_folder}/mask.npy")
+        results = np.load(f"{out_folder}/results.npz", allow_pickle=True)
+        best_params = np.load(f"{out_folder}/best_params.npz", allow_pickle=True)
+        mask = np.load(f"{out_folder}/mask.npy", allow_pickle=True)
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.noise - sim)
+        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.noise_sim)
         plot_healpix_projection_with_noise(
-            mask, args.nside, results, best_params, out_folder, args.noise - sim
+            mask, args.nside, results, best_params, out_folder, args.noise_sim
         )
         return
 
