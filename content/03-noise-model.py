@@ -83,18 +83,16 @@ def main():
     args = parse_args()
     out_folder = f"noise_validation_model{args.mask}_{int(args.noise_ratio * 100)}"
     if args.plot:
-        assert os.path.exists(out_folder), (
-            "noise model not found, please run the model first"
-        )
+        assert os.path.exists(out_folder), "noise model not found, please run the model first"
 
         results = np.load(f"{out_folder}/results.npz")
         best_params = np.load(f"{out_folder}/best_params.npz")
         mask = np.load(f"{out_folder}/mask.npy")
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder)
+        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.noise - sim)
         plot_healpix_projection_with_noise(
-            mask, args.nside, results, best_params, out_folder
+            mask, args.nside, results, best_params, out_folder, args.noise - sim
         )
         return
 
@@ -120,9 +118,7 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
-        lambda c: get_clusters(
-            mask, indices, c, jax.random.key(0), max_centroids=max_centroids
-        ),
+        lambda c: get_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
@@ -160,8 +156,7 @@ def main():
     params_flat, tree_struct = jax.tree.flatten(params)
 
     params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].idx), x.shape) * 0.2,
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].idx), x.shape) * 0.2,
         params_flat,
     )
     best_params = jax.tree.unflatten(tree_struct, params)
@@ -240,9 +235,7 @@ def main():
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
-        guess_params = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), base_params, max_count
-        )
+        guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
 
         def objective_fn(guess_params, nu, d, guess_clusters):
             def single_run(guess_params, nu, masked_d, guess_clusters, noise_id):
@@ -250,9 +243,7 @@ def main():
                 white_noise = f_landscapes.normal(key) * noise_ratio
                 white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
                 instrument = FGBusterInstrument.default_instrument()
-                sigma = get_noise_sigma_from_instrument(
-                    instrument, nside, stokes_type="QU"
-                )
+                sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
                 noise = white_noise * sigma
                 noised_d = masked_d + noise
 
@@ -267,12 +258,8 @@ def main():
             )
             return jnp.mean(nll)
 
-        lower_bound_tree = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), lower_bound, max_count
-        )
-        upper_bound_tree = jax.tree.map(
-            lambda v, c: jnp.full((c,), v), upper_bound, max_count
-        )
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         solver = optax.lbfgs()
         final_params, final_state = optimize(
@@ -341,15 +328,9 @@ def main():
             guess_clusters = get_cutout_from_mask(patch_indices, indices)
             guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
-            guess_params = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), base_params, max_count
-            )
-            lower_bound_tree = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), lower_bound, max_count
-            )
-            upper_bound_tree = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), upper_bound, max_count
-            )
+            guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+            lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+            upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
             solver = optax.lbfgs()
             final_params, final_state = optimize(
@@ -403,9 +384,7 @@ def main():
     ]
 
     objective_gridding_fn = (
-        compute_minimum_variance_with_averaging
-        if args.average
-        else compute_minimum_variance
+        compute_minimum_variance_with_averaging if args.average else compute_minimum_variance
     )
 
     with ProgressBar(*progress_columns) as p:

@@ -11,10 +11,7 @@ import jax
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
 # =============================================================================
-if (
-    os.environ.get("SLURM_NTASKS", 0) > 1
-    or os.environ.get("SLURM_NTASKS_PER_NODE", 0) > 1
-):
+if os.environ.get("SLURM_NTASKS", 0) > 1 or os.environ.get("SLURM_NTASKS_PER_NODE", 0) > 1:
     jax.distributed.initialize()
 # =============================================================================
 import jax.numpy as jnp
@@ -38,6 +35,7 @@ from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 sys.path.append("../data")
 from generate_maps import MASK_CHOICES, get_mask, load_from_cache
 from instruments import get_instrument
+from plotting import plot_grid_search_results
 
 
 def parse_args():
@@ -102,10 +100,12 @@ def main():
 
     out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}"
     if args.plot:
-        assert os.path.exists(out_folder), (
-            "output not found, please run the model first"
+        assert os.path.exists(out_folder), "output not found, please run the model first"
+        results = np.load(f"{out_folder}/results.npz")
+        plot_grid_search_results(
+            results, out_folder, best_metric="value", nb_best=9, noise_runs=args.noise_sim
         )
-        pass
+        return
 
     nside = args.nside
     nb_noise_sim = args.noise_sim
@@ -144,9 +144,7 @@ def main():
         negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
 
-    _, freqmaps = load_from_cache(
-        nside, noise=False, instrument_name=args.instrument, sky=args.tag
-    )
+    _, freqmaps = load_from_cache(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
 
@@ -195,15 +193,9 @@ def main():
             guess_clusters = get_cutout_from_mask(patch_indices, indices)
             guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
-            guess_params = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), base_params, max_count
-            )
-            lower_bound_tree = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), lower_bound, max_count
-            )
-            upper_bound_tree = jax.tree.map(
-                lambda v, c: jnp.full((c,), v), upper_bound, max_count
-            )
+            guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+            lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+            upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
             solver = optax.lbfgs()
             final_params, final_state = optimize(

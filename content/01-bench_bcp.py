@@ -48,9 +48,7 @@ def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
     A_dB_ev = A.diff_evaluator(nu)
     data = freq_maps.T
 
-    logL, _, _ = _build_bound_inv_logL_and_logL_dB(
-        A_ev, data, None, A_dB_ev, A.comp_of_dB
-    )
+    logL, _, _ = _build_bound_inv_logL_and_logL_dB(A_ev, data, None, A_dB_ev, A.comp_of_dB)
     x0 = np.array([x for c in components for x in c.defaults])
 
     numpy_timer.chrono_jit(logL, x0)
@@ -63,9 +61,7 @@ def run_jax_negative_log_prob(
 ):
     """Run JAX-based negative log-likelihood."""
     print(f"Running Furax Log Likelihood nside={nside} ...")
-    d = Stokes.from_stokes(
-        I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
-    )
+    d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
 
     nll = partial(
@@ -83,16 +79,12 @@ def run_jax_negative_log_prob(
         jax_timer.chrono_fun(nll, best_params)
 
 
-def run_jax_lbfgs(
-    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
-):
+def run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax LBGS Comp sep nside={nside} ...")
 
-    d = Stokes.from_stokes(
-        I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
-    )
+    d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
 
     nll = partial(
@@ -108,8 +100,7 @@ def run_jax_lbfgs(
 
     best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
 
@@ -128,16 +119,12 @@ def run_jax_lbfgs(
         jax_timer.chrono_fun(basic_comp, guess_params)
 
 
-def run_jax_tnc(
-    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, numpy_timer
-):
+def run_jax_tnc(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, numpy_timer):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax TNC From SciPy Comp sep nside={nside} ...")
 
-    d = Stokes.from_stokes(
-        I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :]
-    )
+    d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
 
     nll = partial(
@@ -151,8 +138,7 @@ def run_jax_tnc(
 
     best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
 
@@ -166,16 +152,13 @@ def run_jax_tnc(
         numpy_timer.chrono_fun(basic_comp, guess_params)
 
 
-def run_fgbuster_comp_sep(
-    nside, instrument, best_params, freq_maps, components, numpy_timer
-):
+def run_fgbuster_comp_sep(nside, instrument, best_params, freq_maps, components, numpy_timer):
     """Run FGBuster log-likelihood."""
     print(f"Running FGBuster Comp sep nside={nside} ...")
 
     best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
-        lambda path, x: x
-        + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
+        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
         best_params,
     )
     guess_params = jax.tree.map(lambda x: jnp.array(x), guess_params)
@@ -296,9 +279,7 @@ def main():
             numpy_timer.report("runs/BCP_FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
-            run_jax_lbfgs(
-                nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
-            )
+            run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer)
             kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
             jax_timer.report("runs/BCP_FURAX.csv", **kwargs)
 

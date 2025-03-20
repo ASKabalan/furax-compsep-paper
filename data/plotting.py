@@ -7,9 +7,11 @@ import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from grid_search_data import select_best_params
 from jax_healpy import from_cutout_to_fullmap, get_clusters, get_cutout_from_mask
 
 
@@ -27,13 +29,13 @@ def filter_constant_param(input_dict, indx):
     return out_dict
 
 
-def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder):
+def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, noise_runs):
     sns.set_context("paper")
 
     B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
     cmb_variance_mean = np.mean(results["value"], axis=1)  # Mean CMB variance
-    cmb_variance_std = np.std(
-        results["value"], axis=1
+    cmb_variance_std = np.std(results["value"], axis=1) / np.sqrt(
+        noise_runs
     )  # Variance (std) of CMB variance
     nll_mean = np.mean(results["NLL"], axis=1)  # Mean Negative log-likelihood
     nll_std = np.std(results["NLL"], axis=1)  # Variance (std) of NLL
@@ -49,9 +51,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder):
         color="blue",
         label="Grid Search",
     )
-    axs[0].axhline(
-        y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance"
-    )
+    axs[0].axhline(y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance")
     axs[0].axvline(
         x=best_params["B_d_patches"],
         color="orange",
@@ -87,7 +87,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder):
     )
 
 
-def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_folder):
+def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_folder, noise_runs):
     sns.set_context("paper")
 
     (indices,) = jnp.where(mask == 1)
@@ -113,16 +113,12 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     std_spectral_params = jnp.std(beta_dust_values, axis=0)[patches]
 
     mean_healpix_map = from_cutout_to_fullmap(mean_spectral_params, indices, nside)
-    std_dev_map = from_cutout_to_fullmap(std_spectral_params, indices, nside)
+    std_dev_map = from_cutout_to_fullmap(std_spectral_params, indices, nside) / np.sqrt(noise_runs)
 
     # Plot results
     plt.figure(figsize=(6, 12))
-    hp.mollview(
-        best_healpix_map, title="Best Beta Dust Map", sub=(3, 1, 1), bgcolor=(0.0,) * 4
-    )
-    hp.mollview(
-        mean_healpix_map, title="Mean Beta Dust Map", sub=(3, 1, 2), bgcolor=(0.0,) * 4
-    )
+    hp.mollview(best_healpix_map, title="Best Beta Dust Map", sub=(3, 1, 1), bgcolor=(0.0,) * 4)
+    hp.mollview(mean_healpix_map, title="Mean Beta Dust Map", sub=(3, 1, 2), bgcolor=(0.0,) * 4)
     hp.mollview(
         std_dev_map,
         title="Standard Deviation (Uncertainty)",
@@ -146,9 +142,7 @@ def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
 
     # Plot CMB variance vs. B_d_patches
     axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
-    axs[0].axhline(
-        y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance"
-    )
+    axs[0].axhline(y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance")
     axs[0].axvline(
         x=best_params["B_d_patches"],
         color="orange",
@@ -203,9 +197,7 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
 
     # Plot the best and result maps
     plt.figure(figsize=(15, 5))
-    hp.mollview(
-        best_healpix_map, title="Best Beta Dust map", sub=(1, 2, 1), bgcolor=(0.0,) * 4
-    )
+    hp.mollview(best_healpix_map, title="Best Beta Dust map", sub=(1, 2, 1), bgcolor=(0.0,) * 4)
     hp.mollview(
         result_healpix_map,
         title="Result Beta Dust map",
@@ -214,6 +206,130 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
     )
     plt.savefig(
         f"{out_folder}/best_result_healpix_projection.png",
+        dpi=600,
+        transparent=True,
+    )
+
+
+def plot_grid_search_results(
+    results, out_folder, best_metric="value", nb_best=9, plot_style="errorbars", noise_runs=50
+):
+    """
+    1) Select the nb_best combos by the chosen best_metric ('value' or 'NLL').
+    2) Plot them in a grid (3 columns x enough rows), each cell split into two panels:
+       - Top: 'value' vs. B_d
+       - Bottom: 'NLL' vs. B_d
+    3) Optionally plot with error bars or just a line (plot_style).
+
+    results: dict with keys:
+       ['T_d_patches','B_s_patches','B_d_patches','value','NLL']
+       where 'value' and 'NLL' are lists of arrays (#B_d_points, #noise_runs).
+
+    best_metric: which metric to use for selecting combos: 'value' or 'NLL'.
+    nb_best: number of combos to display.
+    plot_style: 'errorbars' or 'line'.
+    """
+    sns.set_context("paper")
+
+    # 1) Select combos
+    combos, combos_best_value, combos_best_nll = select_best_params(
+        results, best_metric=best_metric, nb_best=nb_best
+    )
+
+    # We'll define the global best among the selected combos for reference lines
+    global_best_value = combos_best_value.min()
+    global_best_nll = combos_best_nll.min()
+
+    # 2) Prepare data arrays
+    T_d_arr = np.array(results["T_d_patches"])
+    B_s_arr = np.array(results["B_s_patches"])
+    B_d_arr = np.array(results["B_d_patches"])
+
+    # 3) Setup figure with a 3-column layout
+    nb_cols = 3
+    nb_rows = int(np.ceil(len(combos) / nb_cols))
+    fig = plt.figure(figsize=(6 * nb_cols, 6 * nb_rows))
+
+    outer_gs = gridspec.GridSpec(
+        nrows=nb_rows,
+        ncols=nb_cols,
+        wspace=0.1,  # less horizontal space between columns
+        hspace=0.15,  # less vertical space between rows
+        left=0.05,  # left margin
+        right=0.98,  # right margin
+        top=0.95,  # top margin
+        bottom=0.05,  # bottom margin
+    )
+
+    for i, (T_d, B_s) in enumerate(combos):
+        row_idx = i // nb_cols
+        col_idx = i % nb_cols
+
+        # Create sub-GridSpec for top/bottom within each outer cell
+        cell_gs = gridspec.GridSpecFromSubplotSpec(
+            2,
+            1,
+            subplot_spec=outer_gs[row_idx, col_idx],
+            height_ratios=[3, 2],
+            hspace=0.1,
+            wspace=0.1,
+        )
+        ax_top = fig.add_subplot(cell_gs[0])
+        ax_bottom = fig.add_subplot(cell_gs[1], sharex=ax_top)
+
+        # Filter data for this combo
+        indices = np.where((T_d_arr == T_d) & (B_s_arr == B_s))[0]
+        value_list = results["value"][indices]  # shape (#B_d_points, #noise_runs)
+        nll_list = results["NLL"][indices]
+        B_d_vals = B_d_arr[indices]
+
+        # Compute means/stds
+        mean_value = np.array([v.mean() for v in value_list])
+        std_value = np.array([v.std() for v in value_list]) / np.sqrt(noise_runs)
+        mean_nll = np.array([n.mean() for n in nll_list])
+        std_nll = np.array([n.std() for n in nll_list]) / np.sqrt(noise_runs)
+
+        # Sort by B_d for a cleaner left-to-right plot
+        sort_idx = np.argsort(B_d_vals)
+        B_d_vals = B_d_vals[sort_idx]
+        mean_value = mean_value[sort_idx]
+        std_value = std_value[sort_idx]
+        mean_nll = mean_nll[sort_idx]
+        std_nll = std_nll[sort_idx]
+
+        # ---- Top panel: "value" vs B_d ----
+        if plot_style == "errorbars":
+            ax_top.errorbar(
+                B_d_vals, mean_value, yerr=std_value, fmt="o", color="blue", label="value"
+            )
+        else:
+            ax_top.plot(B_d_vals, mean_value, "o-", color="blue", label="value")
+
+        # Reference line: global best among the selected combos
+        ax_top.axhline(global_best_value, color="r", linestyle="--", label="global best value")
+        ax_top.set_ylabel("Mean Value")
+        ax_top.set_title(f"T_d={T_d}, B_s={B_s}")
+        ax_top.legend(loc="best")
+
+        # ---- Bottom panel: "NLL" vs B_d ----
+        if plot_style == "errorbars":
+            ax_bottom.errorbar(
+                B_d_vals, mean_nll, yerr=std_nll, fmt="o", color="green", label="NLL"
+            )
+        else:
+            ax_bottom.plot(B_d_vals, mean_nll, "o-", color="green", label="NLL")
+
+        ax_bottom.axhline(global_best_nll, color="r", linestyle="--", label="global best NLL")
+        ax_bottom.set_xlabel("B_d")
+        ax_bottom.set_ylabel("Mean NLL")
+        ax_bottom.legend(loc="best")
+
+        # Hide x-labels in top panel to avoid repetition
+        plt.setp(ax_top.get_xticklabels(), visible=False)
+
+    plt.tight_layout()
+    plt.savefig(
+        f"{out_folder}/grid_search_results.png",
         dpi=600,
         transparent=True,
     )

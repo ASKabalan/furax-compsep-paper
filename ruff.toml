@@ -4,14 +4,8 @@ target-version = "py311"
 # Enable specific linting rules
 select = ["E", "F", "W", "I" , "UP"]
 
-# Ignore specific rules
-ignore = ["E501"]  # Ignore line length issues
-
-# Exclude certain directories
-exclude = ["tests", "migrations"]
-
 # Maximum line length
-line-length = 88
+line-length = 100
 
 # Fix issues automatically where possible
 fix = true

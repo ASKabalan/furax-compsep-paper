@@ -24,9 +24,7 @@ def save_to_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
     cache_dir = "freq_maps_cache"
     os.makedirs(cache_dir, exist_ok=True)
     noise_str = "noise" if noise else "no_noise"
-    cache_file = os.path.join(
-        cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{sky}.pkl"
-    )
+    cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{sky}.pkl")
 
     # Check if file exists, load if it does, otherwise create and save it
     if os.path.exists(cache_file):
@@ -49,9 +47,7 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     instrument = get_instrument(instrument_name)
     noise_str = "noise" if noise else "no_noise"
     cache_dir = "freq_maps_cache"
-    cache_file = os.path.join(
-        cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{sky}.pkl"
-    )
+    cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{sky}.pkl")
 
     # Check if file exists and load if it does; otherwise raise an error with guidance
     if os.path.exists(cache_file):
@@ -67,9 +63,7 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
-def get_mixin_matrix_operator(
-    params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
-):
+def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
     in_structure = first_element.structure_for((size,))
@@ -96,9 +90,7 @@ def get_mixin_matrix_operator(
 
 
 def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
-    A = get_mixin_matrix_operator(
-        params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
-    )
+    A = get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0)
     d = A(sky)
 
     return d
@@ -122,7 +114,13 @@ MASK_CHOICES = [
 def get_mask(mask_name="GAL020", nside=64):
     current_dir = Path(__file__).parent
     masks_file = f"{current_dir}/masks/GAL_PlanckMasks_{nside}.npz"
-    masks = np.load(masks_file)
+
+    try:
+        masks = np.load(masks_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"Could not find masks file: {masks_file} please run the downgrade script with nside={nside}"
+        )
 
     if mask_name not in MASK_CHOICES:
         raise ValueError(f"Invalid mask name: {mask_name}. Choose from: {MASK_CHOICES}")
