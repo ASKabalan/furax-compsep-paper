@@ -11,7 +11,7 @@ import jax
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
 # =============================================================================
-if os.environ.get("SLURM_NTASKS", 0) > 1 or os.environ.get("SLURM_NTASKS_PER_NODE", 0) > 1:
+if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
     jax.distributed.initialize()
 # =============================================================================
 import jax.numpy as jnp
@@ -151,9 +151,9 @@ def main():
 
     search_space = {
         "T_d_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
-        "B_d_patches": jnp.arange(100, 4001, 100),
+        "B_d_patches": jnp.arange(100, 5001, 100),
         "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
-    }
+    }   
 
     max_count = {
         "beta_dust": np.max(np.array(search_space["B_d_patches"])),
@@ -271,7 +271,7 @@ def main():
         grid_search = DistributedGridSearch(
             objective_function,
             search_space,
-            batch_size=1,
+            batch_size=4,
             progress_bar=True,
             result_dir=out_folder,
             old_results=old_results,
