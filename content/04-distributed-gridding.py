@@ -15,6 +15,12 @@ if (
     int(os.environ.get("SLURM_NTASKS", 0)) > 1
     or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1
 ):
+    os.environ["VSCODE_PROXY_URI"] = ""
+    os.environ["no_proxy"] = ""
+    os.environ["NO_PROXY"] = ""
+    del os.environ["VSCODE_PROXY_URI"]
+    del os.environ["no_proxy"]
+    del os.environ["NO_PROXY"]
     jax.distributed.initialize()
 # =============================================================================
 import jax.numpy as jnp
