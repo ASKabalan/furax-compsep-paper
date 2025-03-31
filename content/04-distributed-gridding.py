@@ -164,6 +164,11 @@ def main():
         "B_d_patches": jnp.arange(100, 5001, 100),
         "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
     }
+    search_space = {
+        "T_d_patches": jnp.array([1]),
+        "B_d_patches": jnp.array([10]),
+        "B_s_patches": jnp.array([1]),
+    }
 
     max_count = {
         "beta_dust": np.max(np.array(search_space["B_d_patches"])),
@@ -185,34 +190,40 @@ def main():
         indices,
         progress_bar=None,
     ):
+        T_d_patches = T_d_patches.squeeze()
+        B_d_patches = B_d_patches.squeeze()
+        B_s_patches = B_s_patches.squeeze()
+
+        patch_indices = {
+            "temp_dust_patches": T_d_patches,
+            "beta_dust_patches": B_d_patches,
+            "beta_pl_patches": B_s_patches,
+        }
+
+        patch_indices = jax.tree.map(
+            lambda c, mp: get_clusters(
+                mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
+            ),
+            patch_indices,
+            max_patches,
+        )
+        guess_clusters = get_cutout_from_mask(patch_indices, indices)
+        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
+
+        guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
             white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
+            instrument = get_instrument(args.instrument)
             sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
             noise = white_noise * sigma
             noised_d = masked_d + noise
 
-            N = NoiseDiagonalOperator((sigma* noise_ratio)**2, _in_structure=masked_d.structure)
-            patch_indices = {
-                "temp_dust_patches": T_d_patches,
-                "beta_dust_patches": B_d_patches,
-                "beta_pl_patches": B_s_patches,
-            }
-
-            patch_indices = jax.tree.map(
-                lambda c, mp: get_clusters(
-                    mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
-                ),
-                patch_indices,
-                max_patches,
-            )
-            guess_clusters = get_cutout_from_mask(patch_indices, indices)
-            guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
-
-            guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-            lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-            upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+            N = NoiseDiagonalOperator((sigma * noise_ratio) ** 2, _in_structure=masked_d.structure)
 
             solver = optax.lbfgs()
             final_params, final_state = optimize(
@@ -244,12 +255,13 @@ def main():
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],
                 "beta_pl": final_params["beta_pl"],
-                "beta_dust_patches": guess_clusters["beta_dust_patches"],
-                "temp_dust_patches": guess_clusters["temp_dust_patches"],
-                "beta_pl_patches": guess_clusters["beta_pl_patches"],
             }
 
-        return jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        results["beta_dust_patches"] = guess_clusters["beta_dust_patches"]
+        results["temp_dust_patches"] = guess_clusters["temp_dust_patches"]
+        results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
+        return results
 
     # Put the good values for the grid search
     if os.path.exists(out_folder):

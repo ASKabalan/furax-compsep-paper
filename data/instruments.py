@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
+import numpy as np
 import yaml
 from furax._instruments.sky import FGBusterInstrument
 
@@ -21,4 +21,4 @@ def get_instrument(instrument_name: str) -> FGBusterInstrument:
     depth_p = instrument_yaml["depth_p"]
 
     instrument = FGBusterInstrument(frequency, depth_i, depth_p)
-    return jax.tree.map(jnp.array, instrument, is_leaf=lambda x: isinstance(x, list))
+    return jax.tree.map(np.array, instrument, is_leaf=lambda x: isinstance(x, list))
