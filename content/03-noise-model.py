@@ -415,6 +415,7 @@ def main():
     results = grid_search.stack_results(result_folder=out_folder)
 
     # Save results
+    best_params["I_CMB"] = sky["cmb"]
     best_params["NLL"] = best_nll
     best_params["value"] = best_cmb_var
     best_params["B_d_patches"] = params_count["beta_dust"]

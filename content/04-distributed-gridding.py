@@ -42,7 +42,7 @@ from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, load_from_cache
+from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_from_cache
 from instruments import get_instrument
 from plotting import plot_grid_search_results
 
@@ -112,7 +112,7 @@ def main():
         assert os.path.exists(out_folder), "output not found, please run the model first"
         results = np.load(f"{out_folder}/results.npz")
         plot_grid_search_results(
-            results, out_folder, best_metric="value", nb_best=9, noise_runs=args.noise_sim
+            results, out_folder, best_metric="value", nb_best=12, noise_runs=args.noise_sim
         )
         return
 
@@ -138,7 +138,7 @@ def main():
     upper_bound = {
         "beta_dust": 3.0,
         "temp_dust": 30.0,
-        "beta_pl": 0.0,
+        "beta_pl": -1.0,
     }
 
     instrument = get_instrument(args.instrument)
@@ -153,6 +153,7 @@ def main():
     )
 
     _, freqmaps = load_from_cache(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
+    _, cmb_map = load_cmb_map(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
 
@@ -290,7 +291,9 @@ def main():
 
     results = grid_search.stack_results(result_folder=out_folder)
     np.savez(f"{out_folder}/results.npz", **results)
+    np.save(f"{out_folder}/cmb_map.npy", cmb_map)
     np.save(f"{out_folder}/mask.npy", mask)
+    print("Run complete. Results saved to", out_folder)
 
 
 if __name__ == "__main__":
