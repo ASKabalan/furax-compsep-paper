@@ -200,7 +200,7 @@ def main():
         noise = white_noise * sigma
         noised_d = masked_d + noise
 
-        N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+        N = NoiseDiagonalOperator(((sigma* noise_ratio)* noise_ratio)**2, _in_structure=masked_d.structure)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
