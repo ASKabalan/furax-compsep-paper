@@ -63,6 +63,75 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
+def save_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    # Define cache file path
+    instrument = get_instrument(instrument_name)
+    noise_str = "noise" if noise else "no_noise"
+    cache_dir = "freq_maps_cache"
+    preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
+    cmb_template = None
+    for strr in preset_strings:
+        if strr.startswith("c"):
+            cmb_template = strr
+            break
+
+    if cmb_template is None:
+        npix = 12 * nside**2
+        return np.zeros((len(instrument["frequency"]), 3, npix))
+    else:
+        cache_file = os.path.join(
+            cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{cmb_template}.pkl"
+        )
+        freq_maps = get_observation(instrument, cmb_template, nside=nside, noise=noise)
+        with open(cache_file, "wb") as f:
+            pickle.dump(freq_maps, f)
+        print(f"Generated and saved freq_maps for nside {nside} and for tag {cmb_template}.")
+
+        return instrument["frequency"].values, freq_maps
+
+
+def load_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    # Define cache file path
+    instrument = get_instrument(instrument_name)
+    noise_str = "noise" if noise else "no_noise"
+    cache_dir = "freq_maps_cache"
+    preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
+    cmb_template = None
+    for strr in preset_strings:
+        if strr.startswith("c"):
+            cmb_template = strr
+            break
+    if cmb_template is None:
+        npix = 12 * nside**2
+        return np.zeros((len(instrument["frequency"]), 3, npix))
+    else:
+        cache_file = os.path.join(
+            cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{cmb_template}.pkl"
+        )
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                freq_maps = pickle.load(f)
+            print(f"Loaded freq_maps for nside {nside} from cache.")
+        else:
+            raise FileNotFoundError(
+                f"Cache file for freq_maps with nside {nside} not found.\n"
+                f"Please generate it first by calling `generate_maps({nside})`."
+            )
+
+    # Check if file exists and load if it does; otherwise raise an error with guidance
+    if os.path.exists(cache_file):
+        with open(cache_file, "rb") as f:
+            freq_maps = pickle.load(f)
+        print(f"Loaded freq_maps for nside {nside} from cache.")
+    else:
+        raise FileNotFoundError(
+            f"Cache file for freq_maps with nside {nside} not found.\n"
+            f"Please generate it first by calling `generate_maps({nside})`."
+        )
+
+    return instrument["frequency"].values, freq_maps
+
+
 def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
