@@ -156,6 +156,13 @@ def main():
         "beta_pl": np.unique(ud_beta_pl_map).size,
     }
     patch_indices = get_cutout_from_mask(patch_indices, indices)
+
+    def normalize_array(arr):
+        unique_vals, indices = np.unique(arr, return_inverse=True)
+        return indices
+
+    patch_indices = jax.tree.map(normalize_array, patch_indices)
+
     # Define the base parameters and bounds
     base_params = {
         "beta_dust": 1.54,
@@ -200,7 +207,9 @@ def main():
         noise = white_noise * sigma
         noised_d = masked_d + noise
 
-        N = NoiseDiagonalOperator(((sigma* noise_ratio)* noise_ratio)**2, _in_structure=masked_d.structure)
+        N = NoiseDiagonalOperator(
+            ((sigma * noise_ratio) * noise_ratio) ** 2, _in_structure=masked_d.structure
+        )
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
@@ -236,14 +245,14 @@ def main():
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],
             "beta_pl": final_params["beta_pl"],
-            "beta_dust_patches": patch_indices["beta_dust_patches"],
-            "temp_dust_patches": patch_indices["temp_dust_patches"],
-            "beta_pl_patches": patch_indices["beta_pl_patches"],
         }
 
     results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
 
     # Save results and mask
+    results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
+    results["temp_dust_patches"] = patch_indices["temp_dust_patches"]
+    results["beta_pl_patches"] = patch_indices["beta_pl_patches"]
     np.savez(f"{out_folder}/results.npz", **results)
     np.save(f"{out_folder}/cmb_map.npy", cmb_map)
     np.save(f"{out_folder}/mask.npy", mask)
