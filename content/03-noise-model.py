@@ -182,7 +182,7 @@ def main():
     sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
     noise = white_noise * sigma
     noised_d = masked_d + noise
-    N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+    N = NoiseDiagonalOperator((sigma* noise_ratio)**2, _in_structure=masked_d.structure)
 
     best_nll = negative_log_likelihood_fn(
         best_params,
@@ -247,7 +247,7 @@ def main():
                 noise = white_noise * sigma
                 noised_d = masked_d + noise
 
-                N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+                N = NoiseDiagonalOperator((sigma* noise_ratio)**2, _in_structure=masked_d.structure)
 
                 return negative_log_likelihood_fn(
                     guess_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
@@ -313,7 +313,7 @@ def main():
             noise = white_noise * sigma
             noised_d = masked_d + noise
 
-            N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+            N = NoiseDiagonalOperator((sigma* noise_ratio)**2, _in_structure=masked_d.structure)
             patch_indices = {
                 "temp_dust_patches": T_d_patches,
                 "beta_dust_patches": B_d_patches,

@@ -193,7 +193,7 @@ def main():
             noise = white_noise * sigma
             noised_d = masked_d + noise
 
-            N = NoiseDiagonalOperator(sigma**2, _in_structure=masked_d.structure)
+            N = NoiseDiagonalOperator((sigma* noise_ratio)**2, _in_structure=masked_d.structure)
             patch_indices = {
                 "temp_dust_patches": T_d_patches,
                 "beta_dust_patches": B_d_patches,
