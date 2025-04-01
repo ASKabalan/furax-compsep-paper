@@ -150,12 +150,12 @@ def main():
         "temp_dust_patches": ud_temp_d_map,
         "beta_pl_patches": ud_beta_pl_map,
     }
-    max_count = {
-        "beta_dust": np.unique(ud_beta_d_map).size,
-        "temp_dust": np.unique(ud_temp_d_map).size,
-        "beta_pl": np.unique(ud_beta_pl_map).size,
-    }
     patch_indices = get_cutout_from_mask(patch_indices, indices)
+    max_count = {
+        "beta_dust": np.unique(patch_indices["beta_dust_patches"]).size,
+        "temp_dust": np.unique(patch_indices["temp_dust_patches"]).size,
+        "beta_pl": np.unique(patch_indices["beta_pl_patches"]).size,
+    }
 
     def normalize_array(arr):
         unique_vals, indices = np.unique(arr, return_inverse=True)
