@@ -164,11 +164,6 @@ def main():
         "B_d_patches": jnp.arange(100, 5001, 100),
         "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
     }
-    search_space = {
-        "T_d_patches": jnp.array([1]),
-        "B_d_patches": jnp.array([10]),
-        "B_s_patches": jnp.array([1]),
-    }
 
     max_count = {
         "beta_dust": np.max(np.array(search_space["B_d_patches"])),
