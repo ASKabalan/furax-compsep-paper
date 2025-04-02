@@ -9,6 +9,7 @@ import numpy as np
 from fgbuster import (
     get_instrument,
     get_observation,
+    get_sky,
 )
 from furax.obs.operators import (
     CMBOperator,
@@ -63,10 +64,8 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
-def save_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+def save_cmb_map(nside, sky="c1d0s0"):
     # Define cache file path
-    instrument = get_instrument(instrument_name)
-    noise_str = "noise" if noise else "no_noise"
     cache_dir = "freq_maps_cache"
     preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
     cmb_template = None
@@ -77,23 +76,20 @@ def save_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
 
     if cmb_template is None:
         npix = 12 * nside**2
-        return np.zeros((len(instrument["frequency"]), 3, npix))
+        return np.zeros((3, npix))
     else:
-        cache_file = os.path.join(
-            cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{cmb_template}.pkl"
-        )
-        freq_maps = get_observation(instrument, cmb_template, nside=nside, noise=noise)
+        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_template}.pkl")
+        sky_obj = get_sky(nside, sky)
+        freq_maps = sky_obj.components[0].map
         with open(cache_file, "wb") as f:
             pickle.dump(freq_maps, f)
         print(f"Generated and saved freq_maps for nside {nside} and for tag {cmb_template}.")
 
-        return instrument["frequency"].values, freq_maps
+        return freq_maps
 
 
-def load_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+def load_cmb_map(nside, sky="c1d0s0"):
     # Define cache file path
-    instrument = get_instrument(instrument_name)
-    noise_str = "noise" if noise else "no_noise"
     cache_dir = "freq_maps_cache"
     preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
     cmb_template = None
@@ -103,11 +99,9 @@ def load_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
             break
     if cmb_template is None:
         npix = 12 * nside**2
-        return np.zeros((len(instrument["frequency"]), 3, npix))
+        return np.zeros((3, npix))
     else:
-        cache_file = os.path.join(
-            cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{cmb_template}.pkl"
-        )
+        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_template}.pkl")
         if os.path.exists(cache_file):
             with open(cache_file, "rb") as f:
                 freq_maps = pickle.load(f)
@@ -129,7 +123,7 @@ def load_cmb_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
             f"Please generate it first by calling `generate_maps({nside})`."
         )
 
-    return instrument["frequency"].values, freq_maps
+    return freq_maps
 
 
 def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):

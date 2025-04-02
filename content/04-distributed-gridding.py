@@ -153,7 +153,7 @@ def main():
     )
 
     _, freqmaps = load_from_cache(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
-    _, cmb_map = load_cmb_map(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
+    cmb_map = load_cmb_map(nside, sky=args.tag)
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
 
