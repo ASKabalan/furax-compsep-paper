@@ -80,7 +80,7 @@ def save_cmb_map(nside, sky="c1d0s0"):
     else:
         cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_template}.pkl")
         sky_obj = get_sky(nside, sky)
-        freq_maps = sky_obj.components[0].map
+        freq_maps = sky_obj.components[0].map.to_value()
         with open(cache_file, "wb") as f:
             pickle.dump(freq_maps, f)
         print(f"Generated and saved freq_maps for nside {nside} and for tag {cmb_template}.")
