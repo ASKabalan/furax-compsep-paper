@@ -3,6 +3,7 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 
 import argparse
+import operator
 import os
 import sys
 from functools import partial
@@ -14,7 +15,7 @@ import jax.random
 import numpy as np
 import optax
 from furax._instruments.sky import get_noise_sigma_from_instrument
-from furax.comp_sep import negative_log_likelihood, spectral_cmb_variance
+from furax.comp_sep import negative_log_likelihood, sky_signal
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
@@ -134,15 +135,16 @@ def main():
     npix = nside**2 * 12
     ipix = np.arange(npix)
 
-    def ud_grade(ipix, nside_out):
+    def ud_grade(ipix, nside_in, nside_out):
         if nside_out == 0:
             return np.zeros_like(ipix)
         else:
-            return hp.ud_grade(ipix, nside_out=nside_out)
+            lowered = hp.ud_grade(ipix, nside_out=nside_out)
+            return hp.ud_grade(lowered, nside_out=nside_in)
 
-    ud_beta_d_map = ud_grade(ipix, ud_beta_d)
-    ud_temp_d_map = ud_grade(ipix, ud_temp_d)
-    ud_beta_pl_map = ud_grade(ipix, ud_beta_pl)
+    ud_beta_d_map = ud_grade(ipix, nside, ud_beta_d)
+    ud_temp_d_map = ud_grade(ipix, nside, ud_temp_d)
+    ud_beta_pl_map = ud_grade(ipix, nside, ud_beta_pl)
 
     # These downgraded maps serve as our patch indices.
     patch_indices = {
@@ -184,9 +186,7 @@ def main():
     nu = instrument.frequency
     f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
 
-    spectral_cmb_variance_fn = partial(
-        spectral_cmb_variance, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
-    )
+    sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
         negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
@@ -233,14 +233,18 @@ def main():
                 patch_indices=patch_indices,
             )
 
-        cmb_var = spectral_cmb_variance_fn(
-            final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices
-        )
+        s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices)
+        cmb = s["cmb"]
+        cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+
+        cmb_np = jnp.stack([cmb.q, cmb.u])
+
         nll = negative_log_likelihood_fn(
             final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices
         )
         return {
             "value": cmb_var,
+            "CMB_O": cmb_np,
             "NLL": nll,
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],

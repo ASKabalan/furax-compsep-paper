@@ -23,6 +23,8 @@ if (
     del os.environ["NO_PROXY"]
     jax.distributed.initialize()
 # =============================================================================
+import operator
+
 import jax.numpy as jnp
 import jax.random
 import numpy as np
@@ -32,7 +34,7 @@ from furax._instruments.sky import (
 )
 from furax.comp_sep import (
     negative_log_likelihood,
-    spectral_cmb_variance,
+    sky_signal,
 )
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
@@ -145,9 +147,7 @@ def main():
     nu = instrument.frequency
     f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
 
-    spectral_cmb_variance_fn = partial(
-        spectral_cmb_variance, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
-    )
+    sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
         negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
@@ -164,6 +164,7 @@ def main():
         "B_d_patches": jnp.arange(100, 5001, 100),
         "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
     }
+    search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
 
     max_count = {
         "beta_dust": np.max(np.array(search_space["B_d_patches"])),
@@ -237,15 +238,19 @@ def main():
                 patch_indices=guess_clusters,
             )
 
-            cmb_var = spectral_cmb_variance_fn(
-                final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
-            )
+            s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
+            cmb = s["cmb"]
+            cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+
+            cmb_np = jnp.stack([cmb.q, cmb.u])
+
             nll = negative_log_likelihood_fn(
                 final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
             )
 
             return {
                 "value": cmb_var,
+                "CMB_O": cmb_np,
                 "NLL": nll,
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],

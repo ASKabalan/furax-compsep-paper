@@ -2,6 +2,7 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
+import operator
 import os
 import sys
 from functools import partial
@@ -14,6 +15,7 @@ import optax
 from furax._instruments.sky import FGBusterInstrument, get_noise_sigma_from_instrument
 from furax.comp_sep import (
     negative_log_likelihood,
+    sky_signal,
     spectral_cmb_variance,
 )
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
@@ -169,7 +171,7 @@ def main():
         dust_nu0=dust_nu0,
         synchrotron_nu0=synchrotron_nu0,
     )
-
+    sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     spectral_cmb_variance_fn = partial(
         spectral_cmb_variance, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
@@ -221,6 +223,10 @@ def main():
         max_patches=25,
         progress_bar=None,
     ):
+        T_d_patches = T_d_patches.squeeze()
+        B_d_patches = B_d_patches.squeeze()
+        B_s_patches = B_s_patches.squeeze()
+
         patch_indices = {
             "temp_dust_patches": T_d_patches,
             "beta_dust_patches": B_d_patches,
@@ -279,15 +285,19 @@ def main():
             guess_clusters=guess_clusters,
         )
 
-        cmb_var = spectral_cmb_variance_fn(
-            final_params, nu=nu, d=masked_d, N=N, patch_indices=guess_clusters
-        )
+        s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
+        cmb = s["cmb"]
+        cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+
+        cmb_np = jnp.stack([cmb.q, cmb.u])
+
         nll = negative_log_likelihood_fn(
             final_params, nu=nu, d=masked_d, N=N, patch_indices=guess_clusters
         )
 
         return {
             "value": cmb_var,
+            "CMB_O": cmb_np,
             "NLL": nll,
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],
@@ -333,6 +343,7 @@ def main():
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
             white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
+            instrument = FGBusterInstrument.default_instrument()
             sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
             noise = white_noise * sigma
             noised_d = masked_d + noise
@@ -356,15 +367,19 @@ def main():
                 patch_indices=guess_clusters,
             )
 
-            cmb_var = spectral_cmb_variance_fn(
-                final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
-            )
+            s = sky_signal_fn(final_params, nu=nu, d=masked_d, N=N, patch_indices=guess_clusters)
+            cmb = s["cmb"]
+            cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+
+            cmb_np = jnp.stack([cmb.q, cmb.u])
+
             nll = negative_log_likelihood_fn(
                 final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters
             )
 
             return {
                 "value": cmb_var,
+                "CMB_O": cmb_np,
                 "NLL": nll,
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],

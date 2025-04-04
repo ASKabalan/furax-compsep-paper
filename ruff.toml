@@ -10,5 +10,5 @@ line-length = 100
 # Fix issues automatically where possible
 fix = true
 
-include = ["*.py", "*.ipynb", "*.md"]
+include = ["*.py", "*.ipynb"]
 
