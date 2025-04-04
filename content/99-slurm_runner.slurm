@@ -6,10 +6,10 @@
 #SBATCH --cpus-per-task=8           # nombre de CPU par tache pour gpu_p5 (1/8 du noeud 8-GPU)
 #SBATCH --hint=nomultithread         # hyperthreading desactive
 #SBATCH --time=05:00:00              # temps d'execution maximum demande (HH:MM:SS)
+##SBATCH --qos=qos_gpu_a100-dev
 #SBATCH --output=%x_%N.out # nom du fichier de sortie
 #SBATCH --error=%x_%N.err  # nom du fichier d'erreur (ici commun avec la sortie)
 ##SBATCH --exclusive                  # ressources dediees
-##SBATCH --qos=qos_gpu-dev
 # Nettoyage des modules charges en interactif et herites par defaut
 num_nodes=$SLURM_JOB_NUM_NODES
 num_gpu_per_node=$SLURM_NTASKS_PER_NODE
@@ -63,7 +63,7 @@ function plaunch() {
     mkdir -p "$output_dir"
     mkdir -p "$report_dir"
 
-    srun timeout 10m nsys profile -t cuda,nvtx,osrt,mpi -o "$report_dir/report_rank%q{SLURM_PROCID}" python "$@" > "$output_dir/$script_name.out" 2> "$output_dir/$script_name.err" || true
+    srun nsys profile -t cuda,nvtx,osrt,mpi -o "$report_dir/report_rank%q{SLURM_PROCID}" python "$@" > "$output_dir/$script_name.err" 2> "$output_dir/$script_name.out" || true
 }
 
 function slaunch() {
@@ -84,7 +84,7 @@ function slaunch() {
 
     mkdir -p "$output_dir"
 
-    srun timeout 10m python "$@" > "$output_dir/$script_name.out" 2> "$output_dir/$script_name.err" || true
+    srun python "$@" > "$output_dir/$script_name.out" 2> "$output_dir/$script_name.err" || true
 }
 
 
