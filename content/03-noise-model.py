@@ -105,9 +105,9 @@ def main():
     synchrotron_nu0 = 20.0
     max_centroids = 300
     patch_indices = {
-        "temp_dust_patches": None,
+        "temp_dust_patches": 5,
         "beta_dust_patches": 100,
-        "beta_pl_patches": None,
+        "beta_pl_patches": 15,
     }
     get_count = lambda c: c if c is not None else 1  # noqa E731
     params_count = {
@@ -202,9 +202,9 @@ def main():
     )
 
     search_space = {
-        "T_d_patches": jnp.array([1]),
-        "B_d_patches": jnp.arange(10, 301, 10),
-        "B_s_patches": jnp.array([1]),
+        "T_d_patches": jnp.arange(5, 21, 5),
+        "B_d_patches": jnp.arange(10, 301, 30),
+        "B_s_patches": jnp.arange(5, 21, 5),
     }
 
     max_count = {
