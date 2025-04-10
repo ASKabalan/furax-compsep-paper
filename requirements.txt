@@ -1,7 +1,7 @@
 git+https://github.com/CMBSciPol/furax@3-multi-patch-component-separation
 git+https://github.com/CMBSciPol/jax-healpy@ASKabalan_patch
 jax_hpc_profiler
-git+https://github.com/ASKabalan/jax-grid-search@patch
+git+https://github.com/ASKabalan/jax-grid-search
 jaxopt
 git+https://github.com/fgbuster/fgbuster@clusters
 pre-commit
