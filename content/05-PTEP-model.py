@@ -47,7 +47,7 @@ def parse_args():
         "-ns",
         "--noise-sim",
         type=int,
-        default=1,
+        default=100,
         help="Number of noise simulations (single run uses 1)",
     )
     parser.add_argument(
