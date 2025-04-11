@@ -307,27 +307,21 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
     cmb_stokes = Stokes.from_stokes(Q=cmb_map[1], U=cmb_map[2])
     cmb_stokes = jax.tree.map(lambda x: np.where(full_mask == 1, x, hp.UNSEEN), cmb_stokes)
 
-    hp.mollview(combined_cmb_recon.q , title="CMB Map (Q)", sub=(1 , 2, 1), bgcolor=(0.0,) * 4)
-    hp.mollview(combined_cmb_recon.u , title="CMB Map (U)", sub=(1 , 2, 2), bgcolor=(0.0,) * 4)
-    plt.show()
-
-    print(f"Shape of CMB map: {cmb_stokes.shape}")
-
 
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
         return jax.tree.map(lambda x, y: jnp.mean((x - y) ** 2), seen_x, seen_y)
 
-    #mse_cmb = mse(combined_cmb_recon, cmb_stokes)
-    #cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), combined_cmb_recon)
-    #cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
-    #print("PTEP RESULTS")
-    #print("======================")
-    #print(f"MSE CMB: {mse_cmb}")
-    #print(f"Reconstructed CMB variance: {cmb_recon_var}")
-    #print(f"Input CMB variance: {cmb_input_var}")
-    #print("======================")
+    mse_cmb = mse(combined_cmb_recon, cmb_stokes)
+    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), combined_cmb_recon)
+    cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
+    print("PTEP RESULTS")
+    print("======================")
+    print(f"MSE CMB: {mse_cmb}")
+    print(f"Reconstructed CMB variance: {cmb_recon_var}")
+    print(f"Input CMB variance: {cmb_input_var}")
+    print("======================")
 
     _ = plt.figure(figsize=(12, 8))
     hp.mollview(
