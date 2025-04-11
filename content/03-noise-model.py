@@ -438,7 +438,8 @@ def main():
     results = grid_search.stack_results(result_folder=out_folder)
 
     # Save results
-    best_params["I_CMB"] = sky["cmb"]
+    cmb_map = np.stack([masked_sky["cmb"].q, masked_sky["cmb"].u])
+    best_params["I_CMB"] = cmb_map
     best_params["NLL"] = best_nll
     best_params["value"] = best_cmb_var
     best_params["B_d_patches"] = params_count["beta_dust"]
