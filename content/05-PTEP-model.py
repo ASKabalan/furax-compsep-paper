@@ -172,14 +172,14 @@ def main():
         "beta_pl": -3.0,
     }
     lower_bound = {
-        "beta_dust": 1.0,
-        "temp_dust": 10.0,
-        "beta_pl": -5.0,
+        "beta_dust": 0.5,
+        "temp_dust": 6.0,
+        "beta_pl": -7.0,
     }
     upper_bound = {
-        "beta_dust": 3.0,
-        "temp_dust": 30.0,
-        "beta_pl": -1.0,
+        "beta_dust": 5.0,
+        "temp_dust": 40.0,
+        "beta_pl": -0.5,
     }
 
     instrument = get_instrument(args.instrument)
