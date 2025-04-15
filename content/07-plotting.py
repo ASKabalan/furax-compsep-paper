@@ -12,14 +12,10 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from furax._instruments.sky import get_noise_sigma_from_instrument
-from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.stokes import Stokes
-from jax_healpy import combine_masks, get_cutout_from_mask
+from jax_healpy import combine_masks
 
 sys.path.append("../data")
-from generate_maps import load_from_cache
-from instruments import get_instrument
 
 
 def parse_args():
@@ -155,16 +151,6 @@ def plot_compsep(comsep_results, nside, noise_sims):
         print("No compsep results")
         return None, None
 
-    instrument = get_instrument("LiteBIRD")
-    dust_nu0 = 160.0
-    synchrotron_nu0 = 20.0
-    nu = instrument.frequency
-    f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
-    sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
-
-    _, freqmaps = load_from_cache(nside, instrument_name="LiteBIRD", sky="c1d1s1")
-    d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
-
     cmb_recons = []
     cmb_maps = []
     masks = []
@@ -175,18 +161,6 @@ def plot_compsep(comsep_results, nside, noise_sims):
         cmb_map = np.load(f"{res_folder}/cmb_map.npy")
         mask = np.load(f"{res_folder}/mask.npy")
         (indices,) = jnp.where(mask == 1)
-
-        masked_d = get_cutout_from_mask(d, indices, axis=1)
-
-        params, patch_indices = {}, {}
-        params["temp_dust"] = run_data["temp_dust"][0]
-        params["beta_dust"] = run_data["beta_dust"][0]
-        params["beta_pl"] = run_data["beta_pl"][0]
-        patch_indices["beta_dust_patches"] = run_data["beta_dust_patches"][0]
-        patch_indices["beta_pl_patches"] = run_data["beta_pl_patches"][0]
-        patch_indices["temp_dust_patches"] = run_data["temp_dust_patches"][0]
-
-        base_params = jax.tree.map(lambda x: x.mean(axis=0), params)
 
         cmb_recon = run_data["CMB_O"]
         cmb_recon = Stokes.from_stokes(Q=cmb_recon[:, 0], U=cmb_recon[:, 1])
@@ -251,16 +225,6 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
         print("No PTEP results")
         return None, None
 
-    instrument = get_instrument("LiteBIRD")
-    dust_nu0 = 160.0
-    synchrotron_nu0 = 20.0
-    nu = instrument.frequency
-    f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
-    sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
-
-    _, freqmaps = load_from_cache(nside, instrument_name="LiteBIRD", sky="c1d1s1")
-    d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
-
     cmb_recons = []
     cmb_maps = []
     masks = []
@@ -271,18 +235,6 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
         cmb_map = np.load(f"{res_folder}/cmb_map.npy")
         mask = np.load(f"{res_folder}/mask.npy")
         (indices,) = jnp.where(mask == 1)
-
-        masked_d = get_cutout_from_mask(d, indices, axis=1)
-
-        params, patch_indices = {}, {}
-        params["temp_dust"] = run_data["temp_dust"]
-        params["beta_dust"] = run_data["beta_dust"]
-        params["beta_pl"] = run_data["beta_pl"]
-        patch_indices["beta_dust_patches"] = run_data["beta_dust_patches"]
-        patch_indices["beta_pl_patches"] = run_data["beta_pl_patches"]
-        patch_indices["temp_dust_patches"] = run_data["temp_dust_patches"]
-
-        base_params = jax.tree.map(lambda x: x.mean(axis=0), params)
 
         cmb_recon = run_data["CMB_O"]
         cmb_recon = Stokes.from_stokes(Q=cmb_recon[:, 0], U=cmb_recon[:, 1])
@@ -306,7 +258,6 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
     cmb_map = cmb_maps[0]
     cmb_stokes = Stokes.from_stokes(Q=cmb_map[1], U=cmb_map[2])
     cmb_stokes = jax.tree.map(lambda x: np.where(full_mask == 1, x, hp.UNSEEN), cmb_stokes)
-
 
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
