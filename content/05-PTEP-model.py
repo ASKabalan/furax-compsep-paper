@@ -171,16 +171,16 @@ def main():
         "temp_dust": 20.0,
         "beta_pl": -3.0,
     }
-    lower_bound = {
-        "beta_dust": 0.5,
-        "temp_dust": 6.0,
-        "beta_pl": -7.0,
-    }
-    upper_bound = {
-        "beta_dust": 5.0,
-        "temp_dust": 40.0,
-        "beta_pl": -0.5,
-    }
+    # lower_bound = {
+    #    "beta_dust": 0.5,
+    #    "temp_dust": 6.0,
+    #    "beta_pl": -7.0,
+    # }
+    # upper_bound = {
+    #    "beta_dust": 5.0,
+    #    "temp_dust": 40.0,
+    #    "beta_pl": -0.5,
+    # }
 
     instrument = get_instrument(args.instrument)
     nu = instrument.frequency
@@ -212,8 +212,8 @@ def main():
         )
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         with ProgressBar(*progress_columns) as p:
             solver = optax.lbfgs()
@@ -223,8 +223,8 @@ def main():
                 solver,
                 max_iter=200,
                 tol=1e-10,
-                lower_bound=lower_bound_tree,
-                upper_bound=upper_bound_tree,
+                # lower_bound=lower_bound_tree,
+                # upper_bound=upper_bound_tree,
                 nu=nu,
                 N=N,
                 d=noised_d,

@@ -10,8 +10,5 @@ npix = hp.nside2npix(nside)
 
 
 for n in [64, 128, 256, 512]:
-    ipix = np.arange(npix)
-    ipix_ud = hp.ud_grade(ipix, n)
-
-    mask_ud = jax.tree.map(lambda x: x[ipix_ud], mask)
+    mask_ud = jax.tree.map(lambda x: hp.ud_grade(x * 1.0, n).astype(np.uint8), mask)
     np.savez(f"GAL_PlanckMasks_{n}.npz", **mask_ud)
