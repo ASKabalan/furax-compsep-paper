@@ -8,6 +8,24 @@ import sys
 from functools import partial
 
 import jax
+
+# =============================================================================
+# 1. If running on a distributed system, initialize JAX distributed
+# =============================================================================
+if (
+    int(os.environ.get("SLURM_NTASKS", 0)) > 1
+    or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1
+):
+    os.environ["VSCODE_PROXY_URI"] = ""
+    os.environ["no_proxy"] = ""
+    os.environ["NO_PROXY"] = ""
+    del os.environ["VSCODE_PROXY_URI"]
+    del os.environ["no_proxy"]
+    del os.environ["NO_PROXY"]
+    jax.distributed.initialize()
+# =============================================================================
+
+
 import jax.numpy as jnp
 import jax.random
 import numpy as np
@@ -131,16 +149,16 @@ def main():
         "temp_dust": 20.0,
         "beta_pl": -3.0,
     }
-    lower_bound = {
-        "beta_dust": 0.5,
-        "temp_dust": 6.0,
-        "beta_pl": -7.0,
-    }
-    upper_bound = {
-        "beta_dust": 5.0,
-        "temp_dust": 40.0,
-        "beta_pl": -0.5,
-    }
+    # lower_bound = {
+    #    "beta_dust": 0.5,
+    #    "temp_dust": 6.0,
+    #    "beta_pl": -7.0,
+    # }
+    # upper_bound = {
+    #    "beta_dust": 5.0,
+    #    "temp_dust": 40.0,
+    #    "beta_pl": -0.5,
+    # }
 
     instrument = FGBusterInstrument.default_instrument()
     nu = instrument.frequency
@@ -266,8 +284,8 @@ def main():
             )
             return jnp.mean(nll)
 
-        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         solver = optax.lbfgs()
         final_params, final_state = optimize(
@@ -278,8 +296,8 @@ def main():
             tol=1e-10,
             progress=progress_bar,
             progress_id=0,
-            lower_bound=lower_bound_tree,
-            upper_bound=upper_bound_tree,
+            # lower_bound=lower_bound_tree,
+            # upper_bound=upper_bound_tree,
             nu=nu,
             d=masked_d,
             guess_clusters=guess_clusters,
@@ -336,8 +354,8 @@ def main():
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
@@ -359,8 +377,8 @@ def main():
                 tol=1e-10,
                 progress=progress_bar,
                 progress_id=noise_id,
-                lower_bound=lower_bound_tree,
-                upper_bound=upper_bound_tree,
+                # lower_bound=lower_bound_tree,
+                # upper_bound=upper_bound_tree,
                 nu=nu,
                 N=N,
                 d=noised_d,

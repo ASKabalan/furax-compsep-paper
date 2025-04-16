@@ -117,16 +117,16 @@ def main():
         "temp_dust": 20.0,
         "beta_pl": -3.0,
     }
-    #lower_bound = {
+    # lower_bound = {
     #    "beta_dust": 1.0,
     #    "temp_dust": 10.0,
     #    "beta_pl": -5.0,
-    #}
-    #upper_bound = {
+    # }
+    # upper_bound = {
     #    "beta_dust": 3.0,
     #    "temp_dust": 30.0,
     #    "beta_pl": -1.0,
-    #}
+    # }
 
     instrument = get_instrument(args.instrument)
     nu = instrument.frequency
@@ -192,9 +192,8 @@ def main():
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        #lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        #upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
-
+        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
@@ -216,8 +215,8 @@ def main():
                 tol=1e-10,
                 progress=progress_bar,
                 progress_id=noise_id,
-                #lower_bound=lower_bound_tree,
-                #upper_bound=upper_bound_tree,
+                # lower_bound=lower_bound_tree,
+                # upper_bound=upper_bound_tree,
                 nu=nu,
                 N=N,
                 d=noised_d,
