@@ -11,9 +11,9 @@ sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --jo
 # =============================================================================
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GRID_valid-N-a100 99-slurm_runner.slurm 02-validation-model.py -n 64 -m GAL020
 # with 50% noise
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GRID_noise_50-N-a100 99-slurm_runner.slurm 03-noise-model.py -n 64 -ns 100 -nr 0.5 -m GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:4 --tasks-per-node=4 -C a100 --job-name=GRID_noise_50-N-a100 99-slurm_runner.slurm 03-noise-model.py -n 64 -ns 100 -nr 0.5 -m GAL020
 # with 100% noise
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GRID_noise_20-N-a100 99-slurm_runner.slurm 03-noise-model.py -n 64 -ns 100 -nr 1.0 -m GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:4 --tasks-per-node=4 -C a100 --job-name=GRID_noise_100-N-a100 99-slurm_runner.slurm 03-noise-model.py -n 64 -ns 100 -nr 1.0 -m GAL020
 
 # =============================================================================
 # c1d1s1 MODELS

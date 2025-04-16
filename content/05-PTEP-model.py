@@ -104,7 +104,7 @@ def main():
     args = parse_args()
 
     # Define the output folder and create it if necessary
-    out_folder = f"PTEP_{args.tag}_{args.instrument}_{args.mask}"
+    out_folder = f"PTEP_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
     os.makedirs(out_folder, exist_ok=True)
 
     # Set up parameters

@@ -109,7 +109,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}"
+    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
     if args.plot:
         assert os.path.exists(out_folder), "output not found, please run the model first"
         results = np.load(f"{out_folder}/results.npz")
