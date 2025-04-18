@@ -44,7 +44,7 @@ from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_from_cache
+from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
 from instruments import get_instrument
 from plotting import plot_grid_search_results
 
@@ -153,9 +153,14 @@ def main():
     )
 
     _, freqmaps = load_from_cache(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
+    _, fg_maps = load_fg_map(nside, instrument_name=args.instrument, sky=args.tag)
     cmb_map = load_cmb_map(nside, sky=args.tag)
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
+    fg_stokes = Stokes.from_stokes(fg_maps[:, 1], fg_maps[:, 2])
+    cmb_map_stokes = Stokes.from_stokes(cmb_map[1], cmb_map[2])
     masked_d = get_cutout_from_mask(d, indices, axis=1)
+    masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
+    masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
     # Corresponds to PTEP Table page 82
 
@@ -302,8 +307,18 @@ def main():
         grid_search.run()
 
     results = grid_search.stack_results(result_folder=out_folder)
+
+    # Save results and mask
+    best_params = {}
+    cmb_map = np.stack([masked_cmb.q, masked_cmb.u])
+    fg_map = np.stack([masked_fg.q, masked_fg.u])
+    d_map = np.stack([masked_d.q, masked_d.u])
+    best_params["I_CMB"] = cmb_map
+    best_params["I_D"] = d_map
+    best_params["I_D_NOCMB"] = fg_map
+
     np.savez(f"{out_folder}/results.npz", **results)
-    np.save(f"{out_folder}/cmb_map.npy", cmb_map)
+    np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
     print("Run complete. Results saved to", out_folder)
 

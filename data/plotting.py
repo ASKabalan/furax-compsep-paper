@@ -4,6 +4,7 @@ os.environ["EQX_ON_ERROR"] = "nan"
 import os
 
 import healpy as hp
+import jax
 import jax.numpy as jnp
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
@@ -14,74 +15,67 @@ from jax_healpy import from_cutout_to_fullmap
 
 
 def filter_constant_param(input_dict, indx):
-    out_dict = {}
-    out_dict["B_d_patches"] = input_dict["B_d_patches"][indx]
-    out_dict["T_d_patches"] = input_dict["T_d_patches"][indx]
-    out_dict["B_s_patches"] = input_dict["B_s_patches"][indx]
-    out_dict["value"] = input_dict["value"][indx]
-    out_dict["NLL"] = input_dict["NLL"][indx]
-    out_dict["beta_dust_patches"] = input_dict["beta_dust_patches"][indx]
-    out_dict["beta_pl_patches"] = input_dict["beta_pl_patches"][indx]
-    out_dict["temp_dust_patches"] = input_dict["temp_dust_patches"][indx]
-
-    out_dict["beta_dust"] = input_dict["beta_dust"][indx][: out_dict["B_d_patches"]]
-    out_dict["temp_dust"] = input_dict["temp_dust"][indx][: out_dict["T_d_patches"]]
-    out_dict["beta_pl"] = input_dict["beta_pl"][indx][: out_dict["B_s_patches"]]
-    return out_dict
+    return jax.tree.map(lambda x: x[indx], input_dict)
 
 
-def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, noise_runs):
-    sns.set_context("paper")
+def sort_results(results, key):
+    indices = np.argsort(results[key])
+    return jax.tree.map(lambda x: x[indices], results)
 
-    B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
-    cmb_variance_mean = np.mean(results["value"], axis=1)  # Mean CMB variance
-    cmb_variance_std = np.std(results["value"], axis=1)
-    nll_mean = np.mean(results["NLL"], axis=1)  # Mean Negative log-likelihood
-    nll_std = np.std(results["NLL"], axis=1)
 
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot):
+    fig, axs = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
+    colors = plt.cm.viridis(np.linspace(0, 1, len(nb_to_plot)))
 
-    # Plot CMB variance vs. B_d_patches with error bars
-    axs[0].errorbar(
-        B_d_patches,
-        cmb_variance_mean,
-        yerr=cmb_variance_std,
-        fmt="o",
-        color="blue",
-        label="Grid Search",
-    )
-    axs[0].axhline(y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance")
-    axs[0].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[0].set_xlabel("B_d_patches (dust patch count)")
-    axs[0].set_ylabel("CMB Variance")
-    axs[0].set_title("CMB Variance vs. B_d_patches")
+    for i, nb in enumerate(nb_to_plot):
+        run = filter_constant_param(results, nb)
+        B_s = run["B_s_patches"]
+        T_d = run["T_d_patches"]
+
+        mask = (results["B_s_patches"] == B_s) & (results["T_d_patches"] == T_d)
+        filtered = filter_constant_param(results, mask)
+        filtered = sort_results(filtered, "B_d_patches")
+
+        x = filtered["B_d_patches"]
+        y_variance = filtered["value"].mean(axis=1)
+        y_likelihood = -filtered["NLL"].mean(axis=1)
+
+        label_var = f"T_d={T_d:.2f}, B_s={B_s:.2f} | Min Var={y_variance.min():.4f}"
+        label_ll = f"T_d={T_d:.2f}, B_s={B_s:.2f}"
+
+        # Plot CMB Variance
+        axs[0].plot(x, y_variance, label=label_var, color=colors[i])
+
+        # Plot Likelihood
+        axs[1].plot(x, y_likelihood, label=label_ll, color=colors[i])
+
+    # Add best param markers
+    best_B_d = best_params["B_d_patches"]
+    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {best_B_d:.2f}")
+    axs[1].axvline(best_B_d, color="red", linestyle="--")
+
+    min_val = results["value"].mean(axis=1).min()
+    axs[0].axhline(min_val, color="gray", linestyle="--", label=f"Min Var = {min_val:.4f}")
+
+    max_ll = -results["NLL"].mean(axis=1).min()
+    axs[1].axhline(max_ll, color="gray", linestyle="--", label="Max Likelihood")
+
+    # Labels and titles
+    axs[0].set_ylabel("Mean CMB Variance")
+    axs[0].set_title("CMB Variance vs B_d_patches")
     axs[0].legend()
+    axs[0].grid(True)
 
-    # Plot NLL vs. B_d_patches with error bars
-    axs[1].errorbar(
-        B_d_patches, nll_mean, yerr=nll_std, fmt="o", color="green", label="Grid Search"
-    )
-    axs[1].axhline(y=best_params["NLL"], color="red", linestyle="--", label="Best NLL")
-    axs[1].axvline(
-        x=best_params["B_d_patches"],
-        color="orange",
-        linestyle="--",
-        label="Best B_d_patches",
-    )
-    axs[1].set_xlabel("B_d_patches (dust patch count)")
-    axs[1].set_ylabel("Negative Log Likelihood")
-    axs[1].set_title("NLL vs. B_d_patches")
+    axs[1].set_xlabel("B_d_patches")
+    axs[1].set_ylabel("Mean Likelihood")
+    axs[1].set_title("Likelihood vs B_d_patches")
     axs[1].legend()
+    axs[1].grid(True)
 
     plt.tight_layout()
     plt.savefig(
-        f"{out_folder}/cmb_nll_vs_B_d_patches_with_errorbars.png",
-        dpi=600,
+        f"{out_folder}/validation_likelihood_vs_variance.pdf",
+        dpi=1200,
         transparent=True,
     )
 
@@ -119,7 +113,7 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     )
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/beta_dust_projection.png", dpi=600, transparent=True)
+    plt.savefig(f"{out_folder}/beta_dust_projection.pdf", dpi=1200, transparent=True)
 
 
 def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):

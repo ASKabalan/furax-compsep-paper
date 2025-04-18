@@ -134,7 +134,7 @@ def main():
     )
     best_params = jax.tree.unflatten(tree_struct, params)
 
-    masked_d = simulate_D_from_params(
+    masked_d, _ = simulate_D_from_params(
         best_params,
         masked_clusters,
         nu,

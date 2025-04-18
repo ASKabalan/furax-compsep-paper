@@ -76,6 +76,14 @@ def parse_args():
         help="Plot the results",
     )
     parser.add_argument(
+        "-np",
+        "--nb-plot",
+        type=int,
+        nargs="*",
+        default=[0, 1, 2],
+        help="Runs to plot",
+    )
+    parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
@@ -110,7 +118,7 @@ def main():
         mask = np.load(f"{out_folder}/mask.npy", allow_pickle=True)
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.noise_sim)
+        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot)
         plot_healpix_projection_with_noise(
             mask, args.nside, results, best_params, out_folder, args.noise_sim
         )
@@ -181,7 +189,7 @@ def main():
     )
     best_params = jax.tree.unflatten(tree_struct, params)
 
-    masked_d = simulate_D_from_params(
+    masked_d, no_cmb_d = simulate_D_from_params(
         best_params,
         masked_clusters,
         nu,
@@ -456,8 +464,12 @@ def main():
     results = grid_search.stack_results(result_folder=out_folder)
 
     # Save results
-    cmb_map = np.stack([masked_sky["cmb"].q, masked_sky["cmb"].u])
+    cmb_map = np.stack([masked_sky["cmb"].q, masked_sky["cmb"].u], axis=0)
+    fg_map = np.stack([masked_fg.q, masked_fg.u], axis=1)
+    d_map = np.stack([masked_d.q, masked_d.u], axis=1)
     best_params["I_CMB"] = cmb_map
+    best_params["I_D"] = d_map
+    best_params["I_D_NOCMB"] = fg_map
     best_params["NLL"] = best_nll
     best_params["value"] = best_cmb_var
     best_params["B_d_patches"] = params_count["beta_dust"]
