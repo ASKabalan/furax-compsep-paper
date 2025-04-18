@@ -64,6 +64,23 @@ def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"
     return instrument["frequency"].values, freq_maps
 
 
+def strip_cmb_tag(sky_string):
+    """Removes the 'cX' tag from the sky string."""
+    tags = [sky_string[i : i + 2] for i in range(0, len(sky_string), 2)]
+    fg_tags = [tag for tag in tags if not tag.startswith("c")]
+    return "".join(fg_tags)
+
+
+def save_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    stripped_sky = strip_cmb_tag(sky)
+    return save_to_cache(nside, noise=noise , instrument_name=instrument_name , sky=stripped_sky)
+
+
+def load_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    stripped_sky = strip_cmb_tag(sky)
+    return load_from_cache(nside, noise=noise , instrument_name=instrument_name , sky=stripped_sky)
+
+
 def save_cmb_map(nside, sky="c1d0s0"):
     # Define cache file path
     cache_dir = "freq_maps_cache"
@@ -149,14 +166,20 @@ def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrot
         in_structure=in_structure,
     )
 
-    return MixingMatrixOperator(cmb=cmb, dust=dust, synchrotron=synchrotron)
+    return MixingMatrixOperator(cmb=cmb, dust=dust, synchrotron=synchrotron), MixingMatrixOperator(
+        dust=dust, synchrotron=synchrotron
+    )
 
 
 def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
-    A = get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0)
+    A, A_nocmb = get_mixin_matrix_operator(
+        params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
+    )
     d = A(sky)
-
-    return d
+    sky_no_cmb = sky.copy()
+    sky_no_cmb.pop("cmb")
+    d_nocmb = A_nocmb(sky_no_cmb)
+    return d, d_nocmb
 
 
 MASK_CHOICES = [
