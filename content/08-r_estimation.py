@@ -5,14 +5,12 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["EQX_ON_ERROR"] = "nan"
 
-import os
 import sys
 
 import camb
 import healpy as hp
 import jax
 import jax.numpy as jnp
-import jax.random
 import matplotlib.pyplot as plt
 import numpy as np
 from furax import HomothetyOperator
@@ -25,17 +23,17 @@ from instruments import get_instrument
 
 
 def parse_args():
+    """
+    Parse command-line arguments for benchmark evaluation.
+
+    Returns:
+        argparse.Namespace: Parsed arguments including nside, instrument, and run filters.
+    """
     parser = argparse.ArgumentParser(
         description="Benchmark FGBuster and Furax Component Separation Methods"
     )
 
-    parser.add_argument(
-        "-n",
-        "--nside",
-        type=int,
-        default=64,
-        help="The nside of the map",
-    )
+    parser.add_argument("-n", "--nside", type=int, default=64, help="The nside of the map")
     parser.add_argument(
         "-i",
         "--instrument",
@@ -44,17 +42,27 @@ def parse_args():
         choices=["LiteBIRD", "Planck"],
         help="Instrument to use",
     )
-
     parser.add_argument(
         "-r",
         "--runs",
         type=str,
         nargs="*",
+        help="List of run name keywords to filter result folders",
     )
+
     return parser.parse_args()
 
 
 def expand_stokes(stokes_map):
+    """
+    Promote a StokesI or StokesQU object to a full StokesIQU object.
+
+    Args:
+        stokes_map (StokesI | StokesQU | StokesIQU): Input Stokes map.
+
+    Returns:
+        StokesIQU: Complete IQU map.
+    """
     if isinstance(stokes_map, StokesIQU):
         return stokes_map
 
@@ -67,24 +75,71 @@ def expand_stokes(stokes_map):
 
 
 def filter_constant_param(input_dict, indx):
+    """
+    Filter a dictionary of arrays using an index.
+
+    Args:
+        input_dict (dict): Input data dictionary.
+        indx (int): Index to extract.
+
+    Returns:
+        dict: Dictionary with extracted entries.
+    """
     return jax.tree.map(lambda x: x[indx], input_dict)
 
 
 def sort_results(results, key):
+    """
+    Sort a result dictionary by a specific key.
+
+    Args:
+        results (dict): Dictionary of results.
+        key (str): Key to sort by.
+
+    Returns:
+        dict: Sorted result dictionary.
+    """
     indices = np.argsort(results[key])
     return jax.tree.map(lambda x: x[indices], results)
 
 
-# === R ESTIMATION ===
-
-
 def log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
+    """
+    Compute the Gaussian log-likelihood for the tensor-to-scalar ratio r.
+
+    Args:
+        r (float): Trial r value.
+        ell_range (np.ndarray): Array of multipole moments.
+        cl_obs (np.ndarray): Observed BB spectrum.
+        cl_bb_r1 (np.ndarray): Template BB spectrum for r=1.
+        cl_bb_lens (np.ndarray): Lensing contribution.
+        cl_noise (np.ndarray): Statistical residual power.
+        f_sky (float): Sky fraction observed.
+
+    Returns:
+        float: Log-likelihood value.
+    """
     cl_model = r * cl_bb_r1 + cl_bb_lens + cl_noise
     term = (2 * ell_range + 1) * (cl_obs / cl_model + np.log(cl_model))
     return -0.5 * f_sky * np.sum(term)
 
 
 def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
+    """
+    Estimate best-fit r and its uncertainties using likelihood maximization.
+
+    Args:
+        cl_obs (np.ndarray): Observed Cl_BB.
+        ell_range (np.ndarray): Multipole range.
+        cl_bb_r1 (np.ndarray): BB spectrum template for r=1.
+        cl_bb_lens (np.ndarray): Lensing spectrum.
+        cl_noise (np.ndarray): Noise (statistical residual).
+        f_sky (float): Observed sky fraction.
+
+    Returns:
+        Tuple[float, float, float, np.ndarray, np.ndarray]:
+            r_best, lower_sigma, upper_sigma, r_grid, likelihood_vals
+    """
     r_grid = np.linspace(0, 0.01, 1000)
     logL = np.array(
         [
@@ -105,10 +160,16 @@ def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
     return r_best, sigma_neg, sigma_pos, r_grid, L
 
 
-# === CAMB TEMPLATE ===
-
-
 def get_camb_templates(nside):
+    """
+    Generate Cl_BB theoretical spectra using CAMB for r=1 and lensing.
+
+    Args:
+        nside (int): HEALPix resolution parameter.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: ell_range, cl_bb_r1, cl_bb_lens
+    """
     pars = camb.set_params(
         ombh2=0.022,
         omch2=0.12,
@@ -136,38 +197,44 @@ def get_camb_templates(nside):
 
 
 def compute_w(nu, d, results):
+    """
+    Apply the linear component separation operator W to the input sky.
+
+    Args:
+        nu (np.ndarray): Instrument frequencies.
+        d (Stokes): Input sky without CMB.
+        results (dict): Fitted spectral parameters.
+
+    Returns:
+        StokesQU: Reconstructed CMB map.
+    """
     dust_nu0 = 160.0
     synchrotron_nu0 = 20.0
 
-    params = {}
-    patch_indices = {}
-    params["beta_dust"] = results["beta_dust"]
-    params["beta_pl"] = results["beta_pl"]
-    params["temp_dust"] = results["temp_dust"]
-    patch_indices["beta_dust_patches"] = results["beta_dust_patches"]
-    patch_indices["beta_pl_patches"] = results["beta_pl_patches"]
-    patch_indices["temp_dust_patches"] = results["temp_dust_patches"]
-
+    params = {k: results[k] for k in ["beta_dust", "beta_pl", "temp_dust"]}
+    patches = {k: results[k] for k in ["beta_dust_patches", "beta_pl_patches", "temp_dust_patches"]}
     params = jax.tree.map(lambda x: x.mean(axis=0), params)
 
-    def W(params):
+    def W(p):
         N = HomothetyOperator(1.0, _in_structure=d.structure)
-        Wd = sky_signal(
-            params,
-            nu,
-            N,
-            d,
-            dust_nu0=dust_nu0,
-            synchrotron_nu0=synchrotron_nu0,
-            patch_indices=patch_indices,
-        )
-        return Wd["cmb"]
+        return sky_signal(
+            p, nu, N, d, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0, patch_indices=patches
+        )["cmb"]
 
-    Wd_cmb = W(params)  # shape (QU , masked_npix)
-    return Wd_cmb
+    return W(params)
 
 
 def compute_systematic_res(Wd_cmb, ell_range):
+    """
+    Compute the BB spectrum of the systematic residual map.
+
+    Args:
+        Wd_cmb (StokesQU): CMB estimated from foreground-only data.
+        ell_range (np.ndarray): Multipole moments.
+
+    Returns:
+        np.ndarray: BB power spectrum of systematics.
+    """
     Wd_cmb = expand_stokes(Wd_cmb)
     Wd_cmb = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)  # shape (3 , masked_npix)
     Wn_cl = hp.sphtfunc.anafast(Wd_cmb)
@@ -176,7 +243,17 @@ def compute_systematic_res(Wd_cmb, ell_range):
 
 
 def compute_total_res(s_hat, true_s, ell_range):
-    # Subtract true map from each noisy realization
+    """
+    Compute average BB residual spectrum from multiple noisy realizations.
+
+    Args:
+        s_hat (StokesQU): Reconstructed CMB (n_sims, ...)
+        true_s (StokesQU): Ground truth CMB map.
+        ell_range (np.ndarray): Multipole moments.
+
+    Returns:
+        np.ndarray: Residual BB spectrum.
+    """
     s_hat = expand_stokes(s_hat)
     true_s = expand_stokes(true_s)
     s_res = s_hat - true_s[np.newaxis, ...]
@@ -192,6 +269,16 @@ def compute_total_res(s_hat, true_s, ell_range):
 
 
 def compute_cl_obs_bb(s_hat, ell_range):
+    """
+    Compute the average observed Cl_BB from reconstructed maps.
+
+    Args:
+        s_hat (StokesQU): Reconstructed maps (n_sims, ...).
+        ell_range (np.ndarray): Multipole moments.
+
+    Returns:
+        np.ndarray: Averaged BB spectrum.
+    """
     s_hat = expand_stokes(s_hat)
     s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
 
@@ -203,10 +290,10 @@ def compute_cl_obs_bb(s_hat, ell_range):
     return np.mean(cl_list, axis=0)  # shape (len(ell_range),)
 
 
-# === PLOT ===
-
-
 def main():
+    """
+    Entry point for evaluating and plotting r estimation from multiple runs.
+    """
     args = parse_args()
     nside = args.nside
     instrument = get_instrument(args.instrument)
@@ -225,56 +312,46 @@ def main():
 
     print("Results to plot: ", results_to_plot)
 
-    results_to_plot = [f"{result_folder}{res}" for res in results_to_plot]
-
-    PTEP_results = [res for res in results_to_plot if "PTEP" in res]
-    # comp_sep_results = [res for res in results_to_plot if "compsep" in res]
-
+    PTEP_results = [os.path.join(result_folder, res) for res in results_to_plot if "PTEP" in res]
     plot_PTEP(PTEP_results, nside, instrument)
 
 
 def plot_PTEP(PTEP_results, nside, instrument):
+    """
+    Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
+
+    Args:
+        PTEP_results (list[str]): List of result directories.
+        nside (int): HEALPix resolution.
+        instrument (Instrument): Instrument object.
+    """
     if len(PTEP_results) == 0:
         print("No PTEP results")
-        return None, None
+        return
 
-    cmb_recons = []
-    cmb_maps = []
-    masks = []
-    indices_list = []
-    w_d_list = []
+    cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
 
-    for res_folder in PTEP_results:
-        run_data = dict(np.load(f"{res_folder}/results.npz"))
-        best_params = dict(np.load(f"{res_folder}/best_params.npz"))
-        cmb_true = best_params["I_CMB"]
-        fg_map = best_params["I_D_NOCMB"]
-        cmb_recon = run_data["CMB_O"]
+    for folder in PTEP_results:
+        run_data = dict(np.load(f"{folder}/results.npz"))
+        best_params = dict(np.load(f"{folder}/best_params.npz"))
+        mask = np.load(f"{folder}/mask.npy")
+        indices = jnp.where(mask == 1)[0]
 
-        mask = np.load(f"{res_folder}/mask.npy")
-        (indices,) = jnp.where(mask == 1)
-
-        cmb_recon = Stokes.from_stokes(Q=cmb_recon[:, 0], U=cmb_recon[:, 1])
-        cmb_map_stokes = Stokes.from_stokes(Q=cmb_true[0], U=cmb_true[1])
-        fg_map_stokes = Stokes.from_stokes(Q=fg_map[:, 0], U=fg_map[:, 1])
-
-        wd = compute_w(
-            instrument.frequency,
-            fg_map_stokes,
-            run_data,
+        cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
+        fg_map = Stokes.from_stokes(
+            Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
         )
+        cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
+        wd = compute_w(instrument.frequency, fg_map, run_data)
 
         cmb_recons.append(cmb_recon)
-        cmb_maps.append(cmb_map_stokes)
+        cmb_maps.append(cmb_true)
         w_d_list.append(wd)
         masks.append(mask)
         indices_list.append(indices)
 
-    full_mask = np.zeros_like(masks[0])
-    for mask in masks:
-        full_mask = np.logical_or(full_mask, mask)
+    full_mask = np.logical_or.reduce(masks)
 
-    (full_mask_indices,) = jnp.where(full_mask == 1)
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside, axis=1)
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
