@@ -158,7 +158,7 @@ def plot_compsep(comsep_results, nside, noise_sims):
 
     for res_folder in comsep_results:
         run_data = dict(np.load(f"{res_folder}/results.npz"))
-        cmb_map = np.load(f"{res_folder}/cmb_map.npy")
+        cmb_map = np.load(f"{res_folder}/best_params.npz")["I_CMB"]
         mask = np.load(f"{res_folder}/mask.npy")
         (indices,) = jnp.where(mask == 1)
 
@@ -232,21 +232,21 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
 
     for res_folder in PTEP_results:
         run_data = dict(np.load(f"{res_folder}/results.npz"))
-        cmb_map = np.load(f"{res_folder}/cmb_map.npy")
+        cmb_map = np.load(f"{res_folder}/best_params.npz")["I_CMB"]
         mask = np.load(f"{res_folder}/mask.npy")
         (indices,) = jnp.where(mask == 1)
 
         cmb_recon = run_data["CMB_O"]
         cmb_recon = Stokes.from_stokes(Q=cmb_recon[:, 0], U=cmb_recon[:, 1])
         cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), cmb_recon)
+        cmb_map_stokes = Stokes.from_stokes(Q=cmb_map[0], U=cmb_map[1])
+        print(f"STOKEs shape of cmb_map: {cmb_map_stokes.structure}")
+        print(f"STOKEs shape of recon: {cmb_recon_mean.structure}")
 
         cmb_recons.append(cmb_recon_mean)
-        cmb_maps.append(cmb_map)
+        cmb_maps.append(cmb_map_stokes)
         masks.append(mask)
         indices_list.append(indices)
-
-    for cmb_map in cmb_maps:
-        assert (cmb_map == cmb_maps[0]).all(), "CMB maps are not the same"
 
     full_mask = np.zeros_like(masks[0])
     for mask in masks:
@@ -254,10 +254,7 @@ def plot_PTEP(PTEP_results, nside, noise_sims):
 
     (full_mask_indices,) = jnp.where(full_mask == 1)
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside)
-
-    cmb_map = cmb_maps[0]
-    cmb_stokes = Stokes.from_stokes(Q=cmb_map[1], U=cmb_map[2])
-    cmb_stokes = jax.tree.map(lambda x: np.where(full_mask == 1, x, hp.UNSEEN), cmb_stokes)
+    cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
 
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
