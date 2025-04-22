@@ -60,6 +60,9 @@ def parse_args():
     return parser.parse_args()
 
 
+# ========== Helper Functions ==========
+# ======================================
+
 def expand_stokes(stokes_map):
     """
     Promote a StokesI or StokesQU object to a full StokesIQU object.
@@ -109,6 +112,9 @@ def sort_results(results, key):
     indices = np.argsort(results[key])
     return jax.tree.map(lambda x: x[indices], results)
 
+
+# ========== R Estimation Functions ==========
+# ============================================
 
 def log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
     """
@@ -202,6 +208,8 @@ def get_camb_templates(nside):
     cl_bb_lens = cl_bb_lens_full[ell_range] / coeff
     return ell_range, cl_bb_r1, cl_bb_lens
 
+# ========== CL COMPUTATION FUNCTIONS ==========
+# ============================================
 
 def compute_w(nu, d, results):
     """
@@ -297,43 +305,8 @@ def compute_cl_obs_bb(s_hat, ell_range):
 
     return np.mean(cl_list, axis=0) / coeff  # shape (len(ell_range),)
 
-
-def main():
-    """
-    Entry point for evaluating and plotting r estimation from multiple runs.
-    """
-    args = parse_args()
-    nside = args.nside
-    instrument = get_instrument(args.instrument)
-    result_folder = "../results/"
-    print("Loading data...")
-    results = os.listdir(result_folder)
-    filter_kw = [kw.split("_") for kw in args.runs]
-    results_kw = {kw: kw.split("_") for kw in results}
-
-    results_to_plot = []
-    for filt_kw in filter_kw:
-        group = []
-        for result_name, res_kw in results_kw.items():
-            if all(kw in res_kw for kw in filt_kw):
-                group.append(os.path.join(result_folder, result_name))
-
-        if len(group) > 0:
-            results_to_plot.append(group)
-
-    print("Results to plot: ", results_to_plot)
-    assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
-    cmb_pytree_list = []
-    cl_pytree_list = []
-    r_pytree_list = []
-    for name , group_results in zip(args.titles, results_to_plot):
-        cmb_pytree, cl_pytree, r_pytree = plot_results(name , group_results, nside, instrument)
-        cmb_pytree_list.append(cmb_pytree)
-        cl_pytree_list.append(cl_pytree)
-        r_pytree_list.append(r_pytree)
-
-    plot_all_cmb(args.titles , cmb_pytree_list)
-
+# ========== Plot All runs ===================
+# ============================================
 
 def plot_all_cmb(names , cmb_pytree_list):
     nb_cmb = len(cmb_pytree_list)
@@ -353,6 +326,78 @@ def plot_all_cmb(names , cmb_pytree_list):
         )
     plt.show()
 
+
+
+def plot_all_cl_residuals(names, cl_pytree_list):
+    _ = plt.figure(figsize=(12, 8))
+
+    if len(cl_pytree_list) == 0:
+        print("No results")
+        return
+
+    cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
+    ell_range = cl_pytree_list[0]["ell_range"]
+
+    plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red", linewidth=2)
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for i, (name, cl_pytree) in enumerate(zip(names, cl_pytree_list)):
+        color = colors[i % len(colors)]
+        plt.plot(ell_range, cl_pytree["cl_bb_obs"], label=fr"{name} $C_\ell^{{\mathrm{{obs}}}}$", color=color, linestyle="-")
+        plt.plot(ell_range, cl_pytree["cl_total_res"], label=fr"{name} $C_\ell^{{\mathrm{{res}}}}$", color=color, linestyle="--")
+        plt.plot(ell_range, cl_pytree["cl_syst_res"], label=fr"{name} $C_\ell^{{\mathrm{{syst}}}}$", color=color, linestyle=":")
+        plt.plot(ell_range, cl_pytree["cl_stat_res"], label=fr"{name} $C_\ell^{{\mathrm{{stat}}}}$", color=color, linestyle="-.")
+
+    plt.title("BB Power Spectra (All Runs)")
+    plt.xlabel(r"Multipole $\ell$")
+    plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.grid(True, which="both", ls="--", alpha=0.4)
+    plt.legend(fontsize="small", ncol=2)
+    plt.tight_layout()
+    plt.show()
+    
+
+def plot_all_r_estimation(names, r_pytree_list):
+    _ = plt.figure(figsize=(10, 6))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for i, (name, r_data) in enumerate(zip(names, r_pytree_list)):
+        r_grid = r_data["r_grid"]
+        L_vals = r_data["L_vals"]
+        r_best = r_data["r_best"]
+        sigma_r_neg = r_data["sigma_r_neg"]
+        sigma_r_pos = r_data["sigma_r_pos"]
+
+        color = colors[i % len(colors)]
+        likelihood = L_vals / L_vals.max()
+        plt.plot(
+                r_grid,
+                likelihood,
+                label=fr"{name} $\hat{{r}} = {r_best:.2e}^{{+{sigma_r_pos:.1e}}}_{{-{sigma_r_neg:.1e}}}$",
+                color=color,)
+
+        plt.fill_between(
+            r_grid,
+            0,
+            likelihood,
+            where=(r_grid > r_best - sigma_r_neg) & (r_grid < r_best + sigma_r_pos),
+            color=color,
+            alpha=0.2,
+        )
+
+    plt.title("Likelihood Curves for $r$ (All Runs)")
+    plt.xlabel(r"$r$")
+    plt.ylabel("Relative Likelihood")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+# ========== Plot Single Run ===================
+# ==============================================
 
 def plot_cmb_reconsturctions(name ,cmb_stokes, cmb_recon_mean):
     def mse(a, b):
@@ -416,7 +461,11 @@ def plot_r_estimator(name ,r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_s
     _ = plt.figure(figsize=(12, 8))
     # --- Likelihood Plot ---
     likelihood = L_vals / L_vals.max()
-    plt.plot(r_grid, likelihood, label="Likelihood", color="purple")
+    plt.plot(
+                r_grid,
+                likelihood,
+                label=fr"{name} $\hat{{r}} = {r_best:.2e}^{{+{sigma_r_pos:.1e}}}_{{-{sigma_r_neg:.1e}}}$",
+                 color="purple",)
     plt.axvline(r_best, color="black", linestyle="--", label=rf"$\hat{{r}} = {r_best:.2e}$")
     plt.fill_between(
         r_grid,
@@ -494,7 +543,7 @@ def plot_results(name , filtered_results, nside, instrument):
     # Compute the total residuals Cl_res = <CL(s_hat - s_true)>n
     cl_total_res = compute_total_res(combined_cmb_recon, cmb_stokes, ell_range)
     # Compute the statistical residuals Cl_stat = CL_res - CL_syst
-    cl_stat_res = cl_total_res - cl_syst_res
+    cl_stat_res = jnp.clip(cl_total_res - cl_syst_res , 0.0, None)
     # Compute observed Cl_obs = <CL(s_hat)>
     cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, ell_range)
 
@@ -509,6 +558,8 @@ def plot_results(name , filtered_results, nside, instrument):
 
     cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
     cl_pytree = {
+        "cl_bb_r1" : cl_bb_r1,
+        "ell_range": ell_range,
         "cl_bb_obs": cl_bb_obs,
         "cl_syst_res": cl_syst_res,
         "cl_total_res": cl_total_res,
@@ -524,6 +575,48 @@ def plot_results(name , filtered_results, nside, instrument):
     }
 
     return cmb_pytree, cl_pytree, r_pytree
+
+
+# ========== Main Function ================
+# =========================================
+
+def main():
+    """
+    Entry point for evaluating and plotting r estimation from multiple runs.
+    """
+    args = parse_args()
+    nside = args.nside
+    instrument = get_instrument(args.instrument)
+    result_folder = "../results/"
+    print("Loading data...")
+    results = os.listdir(result_folder)
+    filter_kw = [kw.split("_") for kw in args.runs]
+    results_kw = {kw: kw.split("_") for kw in results}
+
+    results_to_plot = []
+    for filt_kw in filter_kw:
+        group = []
+        for result_name, res_kw in results_kw.items():
+            if all(kw in res_kw for kw in filt_kw):
+                group.append(os.path.join(result_folder, result_name))
+
+        if len(group) > 0:
+            results_to_plot.append(group)
+
+    print("Results to plot: ", results_to_plot)
+    assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
+    cmb_pytree_list = []
+    cl_pytree_list = []
+    r_pytree_list = []
+    for name , group_results in zip(args.titles, results_to_plot):
+        cmb_pytree, cl_pytree, r_pytree = plot_results(name , group_results, nside, instrument)
+        cmb_pytree_list.append(cmb_pytree)
+        cl_pytree_list.append(cl_pytree)
+        r_pytree_list.append(r_pytree)
+
+    #plot_all_cmb(args.titles , cmb_pytree_list)
+    plot_all_cl_residuals(args.titles , cl_pytree_list)
+    plot_all_r_estimation(args.titles , r_pytree_list)
 
 
 if __name__ == "__main__":
