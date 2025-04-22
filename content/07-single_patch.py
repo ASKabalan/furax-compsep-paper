@@ -215,9 +215,9 @@ def main():
     best_params["I_D"] = d_map
     best_params["I_D_NOCMB"] = fg_map
 
-    results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
-    results["temp_dust_patches"] = patch_indices["temp_dust_patches"]
-    results["beta_pl_patches"] = patch_indices["beta_pl_patches"]
+    results["beta_dust_patches"] = np.zeros(1 , len(indices)).astype(np.int32)
+    results["temp_dust_patches"] = np.zeros(1 , len(indices)).astype(np.int32)
+    results["beta_pl_patches"] = np.zeros(1 , len(indices)).astype(np.int32)
 
     # Add a new axis to the results so it matches the shape of grid search results
     results = jax.tree.map(lambda x: x[np.newaxis, ...], results)

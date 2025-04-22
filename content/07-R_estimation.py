@@ -49,6 +49,13 @@ def parse_args():
         nargs="*",
         help="List of run name keywords to filter result folders",
     )
+    parser.add_argument(
+        "-t",
+        "--titles",
+        type=str,
+        nargs="*",
+        help="List of titles for the plots",
+    )
 
     return parser.parse_args()
 
@@ -315,38 +322,39 @@ def main():
             results_to_plot.append(group)
 
     print("Results to plot: ", results_to_plot)
+    assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
     cmb_pytree_list = []
     cl_pytree_list = []
     r_pytree_list = []
-    for group_results in results_to_plot:
-        cmb_pytree, cl_pytree, r_pytree = plot_results(group_results, nside, instrument)
+    for name , group_results in zip(args.titles, results_to_plot):
+        cmb_pytree, cl_pytree, r_pytree = plot_results(name , group_results, nside, instrument)
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
 
-    plot_all_cmb(cmb_pytree_list)
+    plot_all_cmb(args.titles , cmb_pytree_list)
 
 
-def plot_all_cmb(cmb_pytree_list):
+def plot_all_cmb(names , cmb_pytree_list):
     nb_cmb = len(cmb_pytree_list)
     _ = plt.figure(figsize=(8, 4 * nb_cmb))
     for i, cmb_pytree in enumerate(cmb_pytree_list):
         hp.mollview(
             cmb_pytree["cmb"].q - cmb_pytree["recon_mean"].q,
-            title=f"Difference (Q) {i}",
+            title=f"Difference (Q) {names[i]}",
             sub=(nb_cmb, 2, i + 1),
             bgcolor=(0.0,) * 4,
         )
         hp.mollview(
             cmb_pytree["cmb"].u - cmb_pytree["recon_mean"].u,
-            title=f"Difference (U) {i}",
+            title=f"Difference (U) {names[i]}",
             sub=(nb_cmb, 2, i + 1 + nb_cmb),
             bgcolor=(0.0,) * 4,
         )
     plt.show()
 
 
-def plot_cmb_reconsturctions(cmb_stokes, cmb_recon_mean):
+def plot_cmb_reconsturctions(name ,cmb_stokes, cmb_recon_mean):
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
@@ -378,10 +386,12 @@ def plot_cmb_reconsturctions(cmb_stokes, cmb_recon_mean):
         sub=(2, 3, 6),
         bgcolor=(0.0,) * 4,
     )
+    plt.title(f"{name} CMB Reconstruction")
+    plt.tight_layout()
     plt.show()
 
 
-def plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range):
+def plot_cl_residuals(name , cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range):
     _ = plt.figure(figsize=(12, 8))
 
     # --- Power Spectrum Plot ---
@@ -391,7 +401,7 @@ def plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r
     plt.plot(ell_range, cl_stat_res, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
     plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
 
-    plt.title("BB Power Spectra")
+    plt.title(f"{name} BB Power Spectra")
     plt.xlabel(r"Multipole $\ell$")
     plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
     plt.xscale("log")
@@ -402,7 +412,7 @@ def plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r
     plt.show()
 
 
-def plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
+def plot_r_estimator(name ,r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
     _ = plt.figure(figsize=(12, 8))
     # --- Likelihood Plot ---
     likelihood = L_vals / L_vals.max()
@@ -418,7 +428,7 @@ def plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
         label=r"$1\sigma$ interval",
     )
 
-    plt.title("Likelihood vs $r$")
+    plt.title(f"{name} Likelihood vs $r$")
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True)
@@ -431,7 +441,7 @@ def plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
     print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
-def plot_results(filtered_results, nside, instrument):
+def plot_results(name , filtered_results, nside, instrument):
     """
     Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
 
@@ -475,7 +485,7 @@ def plot_results(filtered_results, nside, instrument):
     wd = combine_masks(w_d_list, indices_list, nside)
 
     cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
-    plot_cmb_reconsturctions(cmb_stokes, cmb_recon_mean)
+    plot_cmb_reconsturctions(name , cmb_stokes, cmb_recon_mean)
 
     ell_range, cl_bb_r1, cl_bb_lens = get_camb_templates(nside=64)
 
@@ -488,14 +498,14 @@ def plot_results(filtered_results, nside, instrument):
     # Compute observed Cl_obs = <CL(s_hat)>
     cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, ell_range)
 
-    plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range)
+    plot_cl_residuals(name , cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range)
 
     # --- Likelihood Plot ---
     f_sky = full_mask.sum() / len(full_mask)
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
         cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
-    plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky)
+    plot_r_estimator(name , r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky)
 
     cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
     cl_pytree = {

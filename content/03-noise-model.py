@@ -38,12 +38,12 @@ from furax.comp_sep import (
 )
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
 from furax.obs.operators import NoiseDiagonalOperator
-from instruments import get_instrument
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
+from instruments import get_instrument
 from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
 from plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
