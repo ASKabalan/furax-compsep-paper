@@ -39,7 +39,7 @@ def parse_args():
         "--instrument",
         type=str,
         default="LiteBIRD",
-        choices=["LiteBIRD", "Planck" , "default"],
+        choices=["LiteBIRD", "Planck", "default"],
         help="Instrument to use",
     )
     parser.add_argument(
@@ -177,7 +177,7 @@ def get_camb_templates(nside):
         As=2e-9,
         ns=0.965,
         cosmomc_theta=1.04e-2,
-        r=1, # Pourquoi r = 1 ?
+        r=1,  # Pourquoi r = 1 ?
         DoLensing=True,
         WantTensors=True,
         Want_CMB_lensing=True,
@@ -430,7 +430,7 @@ def plot_results(filtered_results, nside, instrument):
         indices = jnp.where(mask == 1)[0]
 
         # Get best run data
-        run_data = jax.tree.map(lambda x: x[0] , run_data)
+        run_data = jax.tree.map(lambda x: x[0], run_data)
 
         cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
         fg_map = Stokes.from_stokes(

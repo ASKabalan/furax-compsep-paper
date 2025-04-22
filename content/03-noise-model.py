@@ -38,6 +38,7 @@ from furax.comp_sep import (
 )
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
 from furax.obs.operators import NoiseDiagonalOperator
+from instruments import get_instrument
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -104,6 +105,14 @@ def parse_args():
         choices=MASK_CHOICES,
         help="Mask to use",
     )
+    parser.add_argument(
+        "-i",
+        "--instrument",
+        type=str,
+        default="LiteBIRD",
+        choices=["LiteBIRD", "Planck", "default"],
+        help="Instrument to use",
+    )
     return parser.parse_args()
 
 
@@ -168,7 +177,7 @@ def main():
     #    "beta_pl": -0.5,
     # }
 
-    instrument = FGBusterInstrument.default_instrument()
+    instrument = get_instrument(args.instrument)
     nu = instrument.frequency
     hp_landscape = HealpixLandscape(nside=nside, stokes="QU")
     f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")

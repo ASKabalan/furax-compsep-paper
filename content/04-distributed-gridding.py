@@ -101,7 +101,7 @@ def parse_args():
         "--instrument",
         type=str,
         default="LiteBIRD",
-        choices=["LiteBIRD", "Planck"],
+        choices=["LiteBIRD", "Planck", "default"],
     )
     return parser.parse_args()
 

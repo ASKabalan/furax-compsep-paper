@@ -73,12 +73,12 @@ def strip_cmb_tag(sky_string):
 
 def save_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
     stripped_sky = strip_cmb_tag(sky)
-    return save_to_cache(nside, noise=noise , instrument_name=instrument_name , sky=stripped_sky)
+    return save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
 
 def load_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
     stripped_sky = strip_cmb_tag(sky)
-    return load_from_cache(nside, noise=noise , instrument_name=instrument_name , sky=stripped_sky)
+    return load_from_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
 
 def save_cmb_map(nside, sky="c1d0s0"):

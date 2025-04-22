@@ -83,7 +83,7 @@ def parse_args():
         "--instrument",
         type=str,
         default="LiteBIRD",
-        choices=["LiteBIRD", "Planck"],
+        choices=["LiteBIRD", "Planck", "default"],
         help="Instrument to use",
     )
     parser.add_argument(
@@ -259,7 +259,7 @@ def main():
     results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
 
     # Add a new axis to the results so it matches the shape of grid search results
-    results = jax.tree.map(lambda x : x[np.newaxis, ...], results)
+    results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
 
     # Save results and mask
     best_params = {}
