@@ -305,28 +305,55 @@ def main():
     results_kw = {kw: kw.split("_") for kw in results}
 
     results_to_plot = []
-    for result_name, res_kw in results_kw.items():
-        for filt_kw in filter_kw:
+    for filt_kw in filter_kw:
+        group = []
+        for result_name, res_kw in results_kw.items():
             if all(kw in res_kw for kw in filt_kw):
-                results_to_plot.append(result_name)
-                break
+                group.append(os.path.join(result_folder, result_name))
+
+        if len(group) > 0:
+            results_to_plot.append(group)
 
     print("Results to plot: ", results_to_plot)
+    cmb_pytree_list = []
+    cl_pytree_list = []
+    r_pytree_list = []
+    for group_results in results_to_plot:
+        cmb_pytree, cl_pytree, r_pytree = plot_results(group_results, nside, instrument)
+        cmb_pytree_list.append(cmb_pytree)
+        cl_pytree_list.append(cl_pytree)
+        r_pytree_list.append(r_pytree)
 
-    filtered_results = [os.path.join(result_folder, res) for res in results_to_plot]
-    plot_results(filtered_results, nside, instrument)
+    plot_all_cmb(cmb_pytree_list)
 
 
-def plot_cmb_reconsturctions(cmb_stokes, cmb_recon):
+def plot_all_cmb(cmb_pytree_list):
+    nb_cmb = len(cmb_pytree_list)
+    _ = plt.figure(figsize=(8, 4 * nb_cmb))
+    for i, cmb_pytree in enumerate(cmb_pytree_list):
+        hp.mollview(
+            cmb_pytree["cmb"].q - cmb_pytree["recon_mean"].q,
+            title=f"Difference (Q) {i}",
+            sub=(nb_cmb, 2, i + 1),
+            bgcolor=(0.0,) * 4,
+        )
+        hp.mollview(
+            cmb_pytree["cmb"].u - cmb_pytree["recon_mean"].u,
+            title=f"Difference (U) {i}",
+            sub=(nb_cmb, 2, i + 1 + nb_cmb),
+            bgcolor=(0.0,) * 4,
+        )
+    plt.show()
+
+
+def plot_cmb_reconsturctions(cmb_stokes, cmb_recon_mean):
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
         return jax.tree.map(lambda x, y: jnp.mean((x - y) ** 2), seen_x, seen_y)
 
-    combined_cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), cmb_recon)
-
-    mse_cmb = mse(combined_cmb_recon_mean, cmb_stokes)
-    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), combined_cmb_recon_mean)
+    mse_cmb = mse(cmb_recon_mean, cmb_stokes)
+    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_recon_mean)
     cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
     print("======================")
     print(f"MSE CMB: {mse_cmb}")
@@ -335,22 +362,18 @@ def plot_cmb_reconsturctions(cmb_stokes, cmb_recon):
     print("======================")
 
     _ = plt.figure(figsize=(12, 8))
-    hp.mollview(
-        combined_cmb_recon_mean.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4
-    )
+    hp.mollview(cmb_recon_mean.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.q, title="Input CMB Map (Q)", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
     hp.mollview(
-        combined_cmb_recon_mean.q - cmb_stokes.q,
+        cmb_recon_mean.q - cmb_stokes.q,
         title="Difference (Q)",
         sub=(2, 3, 3),
         bgcolor=(0.0,) * 4,
     )
-    hp.mollview(
-        combined_cmb_recon_mean.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4
-    )
+    hp.mollview(cmb_recon_mean.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.u, title="Input CMB Map (U)", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
     hp.mollview(
-        combined_cmb_recon_mean.u - cmb_stokes.u,
+        cmb_recon_mean.u - cmb_stokes.u,
         title="Difference (U)",
         sub=(2, 3, 6),
         bgcolor=(0.0,) * 4,
@@ -451,7 +474,8 @@ def plot_results(filtered_results, nside, instrument):
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
 
-    plot_cmb_reconsturctions(cmb_stokes, combined_cmb_recon)
+    cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
+    plot_cmb_reconsturctions(cmb_stokes, cmb_recon_mean)
 
     ell_range, cl_bb_r1, cl_bb_lens = get_camb_templates(nside=64)
 
@@ -472,6 +496,24 @@ def plot_results(filtered_results, nside, instrument):
         cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
     plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky)
+
+    cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
+    cl_pytree = {
+        "cl_bb_obs": cl_bb_obs,
+        "cl_syst_res": cl_syst_res,
+        "cl_total_res": cl_total_res,
+        "cl_stat_res": cl_stat_res,
+    }
+    r_pytree = {
+        "r_best": r_best,
+        "sigma_r_neg": sigma_r_neg,
+        "sigma_r_pos": sigma_r_pos,
+        "r_grid": r_grid,
+        "L_vals": L_vals,
+        "f_sky": f_sky,
+    }
+
+    return cmb_pytree, cl_pytree, r_pytree
 
 
 if __name__ == "__main__":
