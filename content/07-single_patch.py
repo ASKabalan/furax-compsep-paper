@@ -8,7 +8,6 @@ import os
 import sys
 from functools import partial
 
-import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
@@ -51,12 +50,6 @@ def parse_args():
         help="Number of noise simulations (single run uses 1)",
     )
     parser.add_argument(
-        "-p",
-        "--plot",
-        action="store_true",
-        help="Plot the results",
-    )
-    parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
@@ -86,17 +79,6 @@ def parse_args():
         choices=["LiteBIRD", "Planck", "default"],
         help="Instrument to use",
     )
-    parser.add_argument(
-        "-ud",
-        "--target-ud-grade",
-        type=float,
-        nargs=3,  # Expecting exactly three values
-        default=[64, 32, 16],  # Example target nsides for beta_dust, temp_dust, beta_pl
-        help=(
-            "List of three target nside values (for ud_grade downgrading) corresponding to "
-            "beta_dust, temp_dust, beta_pl respectively"
-        ),
-    )
     return parser.parse_args()
 
 
@@ -104,7 +86,7 @@ def main():
     args = parse_args()
 
     # Define the output folder and create it if necessary
-    out_folder = f"PTEP_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+    out_folder = f"SINGLE_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
     os.makedirs(out_folder, exist_ok=True)
 
     # Set up parameters
@@ -129,46 +111,12 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
-    # Instead of clustering, use hp.ud_grade to downgrade to lower resolutions.
-    # We interpret the three ud values as the target nsides for each parameter.
-    # (Make sure these values are integers and valid Healpy nsides.)
-    ud_beta_d = int(args.target_ud_grade[0])
-    ud_temp_d = int(args.target_ud_grade[1])
-    ud_beta_pl = int(args.target_ud_grade[2])
-
-    # Create a dummy full-sky map (of ones) to generate the downgraded patch indices.
-    npix = nside**2 * 12
-    ipix = np.arange(npix)
-
-    def ud_grade(ipix, nside_in, nside_out):
-        if nside_out == 0:
-            return np.zeros_like(ipix)
-        else:
-            lowered = hp.ud_grade(ipix, nside_out=nside_out)
-            return hp.ud_grade(lowered, nside_out=nside_in)
-
-    ud_beta_d_map = ud_grade(ipix, nside, ud_beta_d)
-    ud_temp_d_map = ud_grade(ipix, nside, ud_temp_d)
-    ud_beta_pl_map = ud_grade(ipix, nside, ud_beta_pl)
-
     # These downgraded maps serve as our patch indices.
     patch_indices = {
-        "beta_dust_patches": ud_beta_d_map,
-        "temp_dust_patches": ud_temp_d_map,
-        "beta_pl_patches": ud_beta_pl_map,
+        "beta_dust_patches": None,
+        "temp_dust_patches": None,
+        "beta_pl_patches": None,
     }
-    patch_indices = get_cutout_from_mask(patch_indices, indices)
-    max_count = {
-        "beta_dust": np.unique(patch_indices["beta_dust_patches"]).size,
-        "temp_dust": np.unique(patch_indices["temp_dust_patches"]).size,
-        "beta_pl": np.unique(patch_indices["beta_pl_patches"]).size,
-    }
-
-    def normalize_array(arr):
-        unique_vals, indices = np.unique(arr, return_inverse=True)
-        return indices
-
-    patch_indices = jax.tree.map(normalize_array, patch_indices)
 
     # Define the base parameters and bounds
     base_params = {
@@ -216,7 +164,7 @@ def main():
             ((sigma * noise_ratio) * noise_ratio) ** 2, _in_structure=masked_d.structure
         )
 
-        guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+        guess_params = jax.tree.map(lambda v: jnp.full((1,), v), base_params)
         # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
