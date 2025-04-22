@@ -39,7 +39,7 @@ def parse_args():
         "--instrument",
         type=str,
         default="LiteBIRD",
-        choices=["LiteBIRD", "Planck"],
+        choices=["LiteBIRD", "Planck" , "default"],
         help="Instrument to use",
     )
     parser.add_argument(
@@ -313,8 +313,8 @@ def main():
 
     print("Results to plot: ", results_to_plot)
 
-    PTEP_results = [os.path.join(result_folder, res) for res in results_to_plot if "PTEP" in res]
-    plot_PTEP(PTEP_results, nside, instrument)
+    filtered_results = [os.path.join(result_folder, res) for res in results_to_plot]
+    plot_results(filtered_results, nside, instrument)
 
 
 def plot_cmb_reconsturctions(cmb_stokes, cmb_recon):
@@ -408,26 +408,29 @@ def plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
     print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
-def plot_PTEP(PTEP_results, nside, instrument):
+def plot_results(filtered_results, nside, instrument):
     """
     Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
 
     Args:
-        PTEP_results (list[str]): List of result directories.
+        filtered_results (list[str]): List of result directories.
         nside (int): HEALPix resolution.
         instrument (Instrument): Instrument object.
     """
-    if len(PTEP_results) == 0:
-        print("No PTEP results")
+    if len(filtered_results) == 0:
+        print("No results")
         return
 
     cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
 
-    for folder in PTEP_results:
+    for folder in filtered_results:
         run_data = dict(np.load(f"{folder}/results.npz"))
         best_params = dict(np.load(f"{folder}/best_params.npz"))
         mask = np.load(f"{folder}/mask.npy")
         indices = jnp.where(mask == 1)[0]
+
+        # Get best run data
+        run_data = jax.tree.map(lambda x: x[0] , run_data)
 
         cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
         fg_map = Stokes.from_stokes(
