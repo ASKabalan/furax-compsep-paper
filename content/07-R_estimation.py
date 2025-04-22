@@ -140,7 +140,7 @@ def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
         Tuple[float, float, float, np.ndarray, np.ndarray]:
             r_best, lower_sigma, upper_sigma, r_grid, likelihood_vals
     """
-    r_grid = np.linspace(0, 0.01, 1000)
+    r_grid = np.linspace(0, 0.004, 1000)
     logL = np.array(
         [
             log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky)
@@ -177,7 +177,7 @@ def get_camb_templates(nside):
         As=2e-9,
         ns=0.965,
         cosmomc_theta=1.04e-2,
-        r=1,
+        r=1, # Pourquoi r = 1 ?
         DoLensing=True,
         WantTensors=True,
         Want_CMB_lensing=True,
@@ -281,13 +281,14 @@ def compute_cl_obs_bb(s_hat, ell_range):
     """
     s_hat = expand_stokes(s_hat)
     s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
 
     cl_list = []
     for i in range(s_hat.shape[0]):
         cl = hp.anafast(s_hat[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
-    return np.mean(cl_list, axis=0)  # shape (len(ell_range),)
+    return np.mean(cl_list, axis=0) / coeff  # shape (len(ell_range),)
 
 
 def main():
@@ -314,6 +315,97 @@ def main():
 
     PTEP_results = [os.path.join(result_folder, res) for res in results_to_plot if "PTEP" in res]
     plot_PTEP(PTEP_results, nside, instrument)
+
+
+def plot_cmb_reconsturctions(cmb_stokes, cmb_recon):
+    def mse(a, b):
+        seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
+        seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
+        return jax.tree.map(lambda x, y: jnp.mean((x - y) ** 2), seen_x, seen_y)
+
+    combined_cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), cmb_recon)
+
+    mse_cmb = mse(combined_cmb_recon_mean, cmb_stokes)
+    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), combined_cmb_recon_mean)
+    cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
+    print("======================")
+    print(f"MSE CMB: {mse_cmb}")
+    print(f"Reconstructed CMB variance: {cmb_recon_var}")
+    print(f"Input CMB variance: {cmb_input_var}")
+    print("======================")
+
+    _ = plt.figure(figsize=(12, 8))
+    hp.mollview(
+        combined_cmb_recon_mean.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4
+    )
+    hp.mollview(cmb_stokes.q, title="Input CMB Map (Q)", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
+    hp.mollview(
+        combined_cmb_recon_mean.q - cmb_stokes.q,
+        title="Difference (Q)",
+        sub=(2, 3, 3),
+        bgcolor=(0.0,) * 4,
+    )
+    hp.mollview(
+        combined_cmb_recon_mean.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4
+    )
+    hp.mollview(cmb_stokes.u, title="Input CMB Map (U)", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
+    hp.mollview(
+        combined_cmb_recon_mean.u - cmb_stokes.u,
+        title="Difference (U)",
+        sub=(2, 3, 6),
+        bgcolor=(0.0,) * 4,
+    )
+    plt.show()
+
+
+def plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range):
+    _ = plt.figure(figsize=(12, 8))
+
+    # --- Power Spectrum Plot ---
+    plt.plot(ell_range, cl_bb_obs, label=r"$C_\ell^{\mathrm{obs}}$", color="green")
+    plt.plot(ell_range, cl_total_res, label=r"$C_\ell^{\mathrm{res}}$", color="black")
+    plt.plot(ell_range, cl_syst_res, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
+    plt.plot(ell_range, cl_stat_res, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
+    plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
+
+    plt.title("BB Power Spectra")
+    plt.xlabel(r"Multipole $\ell$")
+    plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.grid(True, which="both", ls="--", alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
+    _ = plt.figure(figsize=(12, 8))
+    # --- Likelihood Plot ---
+    likelihood = L_vals / L_vals.max()
+    plt.plot(r_grid, likelihood, label="Likelihood", color="purple")
+    plt.axvline(r_best, color="black", linestyle="--", label=rf"$\hat{{r}} = {r_best:.2e}$")
+    plt.fill_between(
+        r_grid,
+        0,
+        likelihood,
+        where=(r_grid > r_best - sigma_r_neg) & (r_grid < r_best + sigma_r_pos),
+        color="purple",
+        alpha=0.3,
+        label=r"$1\sigma$ interval",
+    )
+
+    plt.title("Likelihood vs $r$")
+    plt.xlabel(r"$r$")
+    plt.ylabel("Relative Likelihood")
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+    # plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf")
+    plt.show()
+
+    print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
 def plot_PTEP(PTEP_results, nside, instrument):
@@ -356,6 +448,8 @@ def plot_PTEP(PTEP_results, nside, instrument):
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
 
+    plot_cmb_reconsturctions(cmb_stokes, combined_cmb_recon)
+
     ell_range, cl_bb_r1, cl_bb_lens = get_camb_templates(nside=64)
 
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
@@ -367,52 +461,14 @@ def plot_PTEP(PTEP_results, nside, instrument):
     # Compute observed Cl_obs = <CL(s_hat)>
     cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, ell_range)
 
-    fig, axs = plt.subplots(2, 1, figsize=(10, 10), sharex=False)
-
-    # --- Power Spectrum Plot ---
-    axs[0].plot(ell_range, cl_bb_obs, label=r"$C_\ell^{\mathrm{obs}}$", color="green")
-    axs[0].plot(ell_range, cl_total_res, label=r"$C_\ell^{\mathrm{res}}$", color="black")
-    axs[0].plot(ell_range, cl_syst_res, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
-    axs[0].plot(ell_range, cl_stat_res, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
-    axs[0].plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
-
-    axs[0].set_title("BB Power Spectra")
-    axs[0].set_xlabel(r"Multipole $\ell$")
-    axs[0].set_ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
-    axs[0].set_xscale("log")
-    axs[0].set_yscale("log")
-    axs[0].grid(True, which="both", ls="--", alpha=0.4)
-    axs[0].legend()
+    plot_cl_residuals(cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range)
 
     # --- Likelihood Plot ---
     f_sky = full_mask.sum() / len(full_mask)
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
         cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
-    likelihood = L_vals / L_vals.max()
-    axs[1].plot(r_grid, likelihood, label="Likelihood", color="purple")
-    axs[1].axvline(r_best, color="black", linestyle="--", label=rf"$\hat{{r}} = {r_best:.2e}$")
-    axs[1].fill_between(
-        r_grid,
-        0,
-        likelihood,
-        where=(r_grid > r_best - sigma_r_neg) & (r_grid < r_best + sigma_r_pos),
-        color="purple",
-        alpha=0.3,
-        label=r"$1\sigma$ interval",
-    )
-
-    axs[1].set_title("Likelihood vs $r$")
-    axs[1].set_xlabel(r"$r$")
-    axs[1].set_ylabel("Relative Likelihood")
-    axs[1].grid(True)
-    axs[1].legend()
-
-    plt.tight_layout()
-    # plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf")
-    plt.show()
-
-    print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+    plot_r_estimator(r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky)
 
 
 if __name__ == "__main__":
