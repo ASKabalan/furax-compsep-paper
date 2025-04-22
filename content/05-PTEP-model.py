@@ -258,6 +258,9 @@ def main():
 
     results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
 
+    # Add a new axis to the results so it matches the shape of grid search results
+    results = jax.tree.map(lambda x : x[np.newaxis, ...], results)
+
     # Save results and mask
     best_params = {}
     cmb_map = np.stack([masked_cmb.q, masked_cmb.u], axis=0)

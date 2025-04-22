@@ -12,6 +12,10 @@ def get_instrument(instrument_name: str) -> FGBusterInstrument:
     with open(f"{current_dir}/instruments.yaml") as f:
         instruments = yaml.safe_load(f)
 
+    if instrument_name == "default":
+        instrument = FGBusterInstrument.default_instrument()
+        return jax.tree.map(np.array, instrument, is_leaf=lambda x: isinstance(x, list))
+
     if instrument_name not in instruments:
         raise ValueError(f"Unknown instrument {instrument_name}.")
 
