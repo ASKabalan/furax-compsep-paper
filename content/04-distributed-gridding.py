@@ -310,7 +310,7 @@ def main():
 
     # Save results and mask
     best_params = {}
-    cmb_map = np.stack([masked_cmb.q, masked_cmb.u] , axis=0)
+    cmb_map = np.stack([masked_cmb.q, masked_cmb.u], axis=0)
     fg_map = np.stack([masked_fg.q, masked_fg.u], axis=1)
     d_map = np.stack([masked_d.q, masked_d.u], axis=1)
     best_params["I_CMB"] = cmb_map
