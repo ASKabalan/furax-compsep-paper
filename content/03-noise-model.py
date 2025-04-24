@@ -30,7 +30,7 @@ import jax.numpy as jnp
 import jax.random
 import numpy as np
 import optax
-from furax._instruments.sky import FGBusterInstrument, get_noise_sigma_from_instrument
+from furax._instruments.sky import get_noise_sigma_from_instrument
 from furax.comp_sep import (
     negative_log_likelihood,
     sky_signal,
@@ -43,8 +43,8 @@ from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
-from instruments import get_instrument
 from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from instruments import get_instrument
 from plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
     plot_healpix_projection_with_noise,
@@ -237,9 +237,9 @@ def main():
     )
 
     search_space = {
-        "T_d_patches": jnp.arange(5, 21, 5),
+        "T_d_patches": jnp.arange(5, 21, 10),
         "B_d_patches": jnp.arange(10, 301, 30),
-        "B_s_patches": jnp.arange(5, 21, 5),
+        "B_s_patches": jnp.arange(5, 21, 10),
     }
 
     max_count = {
@@ -283,7 +283,7 @@ def main():
                 key = jax.random.PRNGKey(noise_id)
                 white_noise = f_landscapes.normal(key) * noise_ratio
                 white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
-                instrument = FGBusterInstrument.default_instrument()
+                instrument = get_instrument(args.instrument)
                 sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
                 noise = white_noise * sigma
                 noised_d = masked_d + noise
@@ -378,7 +378,7 @@ def main():
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
             white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
-            instrument = FGBusterInstrument.default_instrument()
+            instrument = get_instrument(args.instrument)
             sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
             noise = white_noise * sigma
             noised_d = masked_d + noise
