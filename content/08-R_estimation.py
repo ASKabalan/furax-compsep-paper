@@ -433,7 +433,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
 
 
 def plot_all_r_estimation(names, r_pytree_list):
-    _ = plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(8, 6))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     for i, (name, r_data) in enumerate(zip(names, r_pytree_list)):
@@ -445,6 +445,8 @@ def plot_all_r_estimation(names, r_pytree_list):
 
         color = colors[i % len(colors)]
         likelihood = L_vals / L_vals.max()
+
+        # Plot likelihood curve
         plt.plot(
             r_grid,
             likelihood,
@@ -452,6 +454,7 @@ def plot_all_r_estimation(names, r_pytree_list):
             color=color,
         )
 
+        # Fill the ±1σ region
         plt.fill_between(
             r_grid,
             0,
@@ -461,11 +464,19 @@ def plot_all_r_estimation(names, r_pytree_list):
             alpha=0.2,
         )
 
+        # Add vertical dotted line at best-fit r
+        plt.axvline(
+            x=r_best,
+            color=color,
+            linestyle="--",
+            alpha=0.7,
+        )
+
     plt.title("Likelihood Curves for $r$ (All Runs)")
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
-    plt.grid(True)
-    plt.legend()
+    plt.grid(True, which="both", ls=":")
+    plt.legend(fontsize="medium")
     plt.tight_layout()
     plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
     plt.show()
