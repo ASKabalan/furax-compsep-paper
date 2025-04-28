@@ -54,6 +54,11 @@ def parse_args():
         choices=MASK_CHOICES,
         help="Mask to use",
     )
+    parser.add_argument(
+        "-b--best-only",
+        action="store_true",
+        help="Only generate best results",
+    )
     return parser.parse_args()
 
 
@@ -287,9 +292,12 @@ def main():
             old_results=old_results,
         )
 
-        grid_search.run()
+        if not args.best_only:
+            grid_search.run()
 
-    results = grid_search.stack_results(result_folder=out_folder)
+    if not args.best_only:
+        results = grid_search.stack_results(result_folder=out_folder)
+        np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results
     cmb_map = np.stack([masked_sky["cmb"].q, masked_sky["cmb"].u])
@@ -302,7 +310,6 @@ def main():
     best_params["beta_dust_patches"] = masked_clusters["beta_dust_patches"]
     best_params["temp_dust_patches"] = masked_clusters["temp_dust_patches"]
     best_params["beta_pl_patches"] = masked_clusters["beta_pl_patches"]
-    np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
 

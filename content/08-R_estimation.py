@@ -332,7 +332,7 @@ def plot_all_cmb(names, cmb_pytree_list):
             sub=(nb_cmb, 2, i + 1 + nb_cmb),
             bgcolor=(0.0,) * 4,
         )
-    plt.savefig(f"{out_folder}/cmb_recon.png")
+    plt.savefig(f"{out_folder}/cmb_recon.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -389,7 +389,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.grid(True, which="both", ls="--", alpha=0.4)
     plt.legend(fontsize="small", ncol=2)
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra.png")
+    plt.savefig(f"{out_folder}/bb_spectra.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -428,7 +428,7 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.png")
+    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -470,7 +470,7 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
     )
     plt.title(f"{name} CMB Reconstruction")
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/cmb_recon_{name}.png")
+    plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -492,7 +492,7 @@ def plot_cl_residuals(name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, c
     plt.grid(True, which="both", ls="--", alpha=0.4)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra_{name}.png")
+    plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -524,7 +524,7 @@ def plot_r_estimator(name, r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_s
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.png")
+    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
     plt.show()
 
     print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
@@ -656,7 +656,7 @@ def main():
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
 
-    # plot_all_cmb(args.titles , cmb_pytree_list)
+    plot_all_cmb(args.titles, cmb_pytree_list)
     plot_all_cl_residuals(args.titles, cl_pytree_list)
     plot_all_r_estimation(args.titles, r_pytree_list)
 

@@ -37,28 +37,40 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         filtered = sort_results(filtered, "B_d_patches")
 
         x = filtered["B_d_patches"]
-        y_variance = filtered["value"].mean(axis=1)
-        y_likelihood = -filtered["NLL"].mean(axis=1)
 
-        label_var = f"T_d={T_d:.2f}, B_s={B_s:.2f} | Min Var={y_variance.min():.4f}"
-        label_ll = f"T_d={T_d:.2f}, B_s={B_s:.2f}"
+        y_variance_mean = filtered["value"].mean(axis=1)
+        y_variance_std = filtered["value"].std(axis=1)
 
-        # Plot CMB Variance
-        axs[0].plot(x, y_variance, label=label_var, color=colors[i])
+        y_likelihood_mean = -filtered["NLL"].mean(axis=1)
+        y_likelihood_std = filtered["NLL"].std(axis=1)
 
-        # Plot Likelihood
-        axs[1].plot(x, y_likelihood, label=label_ll, color=colors[i])
+        label = f"T_d={T_d:.2f}, B_s={B_s:.2f}"
 
-    # Add best param markers
+        # Plot CMB Variance with error bars
+        axs[0].errorbar(
+            x,
+            y_variance_mean,
+            yerr=y_variance_std,
+            fmt="o-",
+            color=colors[i],
+            label=label,
+            capsize=3,
+        )
+
+        # Plot Likelihood with error bars
+        axs[1].errorbar(
+            x,
+            y_likelihood_mean,
+            yerr=y_likelihood_std,
+            fmt="o-",
+            color=colors[i],
+            label=label,
+            capsize=3,
+        )
+
     best_B_d = best_params["B_d_patches"]
     axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {best_B_d:.2f}")
     axs[1].axvline(best_B_d, color="red", linestyle="--")
-
-    min_val = results["value"].mean(axis=1).min()
-    axs[0].axhline(min_val, color="gray", linestyle="--", label=f"Min Var = {min_val:.4f}")
-
-    max_ll = -results["NLL"].mean(axis=1).min()
-    axs[1].axhline(max_ll, color="gray", linestyle="--", label="Max Likelihood")
 
     # Labels and titles
     axs[0].set_ylabel("Mean CMB Variance")

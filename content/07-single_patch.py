@@ -79,6 +79,11 @@ def parse_args():
         choices=["LiteBIRD", "Planck", "default"],
         help="Instrument to use",
     )
+    parser.add_argument(
+        "-b--best-only",
+        action="store_true",
+        help="Only generate best results",
+    )
     return parser.parse_args()
 
 
@@ -204,7 +209,14 @@ def main():
             "beta_pl": final_params["beta_pl"],
         }
 
-    results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+    if not args.best_only:
+        results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        results["beta_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
+        results["temp_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
+        results["beta_pl_patches"] = np.zeros(1, len(indices)).astype(np.int32)
+        # Add a new axis to the results so it matches the shape of grid search results
+        results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
+        np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results and mask
     best_params = {}
@@ -215,13 +227,6 @@ def main():
     best_params["I_D"] = d_map
     best_params["I_D_NOCMB"] = fg_map
 
-    results["beta_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
-    results["temp_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
-    results["beta_pl_patches"] = np.zeros(1, len(indices)).astype(np.int32)
-
-    # Add a new axis to the results so it matches the shape of grid search results
-    results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
-    np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
     print("Run complete. Results saved to", out_folder)
