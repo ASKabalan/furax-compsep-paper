@@ -393,7 +393,7 @@ def main():
         grid_search = DistributedGridSearch(
             objective_function,
             search_space,
-            batch_size=4,
+            batch_size=1,
             progress_bar=True,
             result_dir=out_folder,
             old_results=old_results,
