@@ -81,7 +81,7 @@ def parse_args():
         "--nb-plot",
         type=int,
         nargs="*",
-        default=[0, 1, 2],
+        default=[0, 1, 2, 3],
         help="Runs to plot",
     )
     parser.add_argument(
@@ -113,6 +113,11 @@ def parse_args():
         choices=["LiteBIRD", "Planck", "default"],
         help="Instrument to use",
     )
+    parser.add_argument(
+        "-b--best-only",
+        action="store_true",
+        help="Only generate best results",
+    )
     return parser.parse_args()
 
 
@@ -120,6 +125,7 @@ def main():
     args = parse_args()
     out_folder = f"noise_validation_model{args.mask}_{int(args.noise_ratio * 100)}"
     if args.plot:
+        out_folder = f"../results/{out_folder}"
         assert os.path.exists(out_folder), "noise model not found, please run the model first"
 
         results = np.load(f"{out_folder}/results.npz", allow_pickle=True)
@@ -128,9 +134,9 @@ def main():
         best_params = dict(best_params)
         results = dict(results)
         plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot)
-        plot_healpix_projection_with_noise(
-            mask, args.nside, results, best_params, out_folder, args.noise_sim
-        )
+        #plot_healpix_projection_with_noise(
+        #    mask, args.nside, results, best_params, out_folder, args.noise_sim
+        #)
         return
 
     nside = args.nside
@@ -468,9 +474,12 @@ def main():
             old_results=old_results,
         )
 
-        grid_search.run()
+        if not args.best_only:
+            grid_search.run()
 
-    results = grid_search.stack_results(result_folder=out_folder)
+    if not args.best_only:
+        results = grid_search.stack_results(result_folder=out_folder)
+        np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results
     cmb_map = np.stack([masked_sky["cmb"].q, masked_sky["cmb"].u], axis=0)
@@ -487,7 +496,6 @@ def main():
     best_params["beta_dust_patches"] = masked_clusters["beta_dust_patches"]
     best_params["temp_dust_patches"] = masked_clusters["temp_dust_patches"]
     best_params["beta_pl_patches"] = masked_clusters["beta_pl_patches"]
-    np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
 

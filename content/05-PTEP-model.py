@@ -97,6 +97,11 @@ def parse_args():
             "beta_dust, temp_dust, beta_pl respectively"
         ),
     )
+    parser.add_argument(
+        "-b--best-only",
+        action="store_true",
+        help="Only generate best results",
+    )
     return parser.parse_args()
 
 
@@ -256,9 +261,16 @@ def main():
             "beta_pl": final_params["beta_pl"],
         }
 
-    results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
-
     # Save results and mask
+    if not args.best_only:
+        results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
+        results["temp_dust_patches"] = patch_indices["temp_dust_patches"]
+        results["beta_pl_patches"] = patch_indices["beta_pl_patches"]
+        # Add a new axis to the results so it matches the shape of grid search results
+        results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
+        np.savez(f"{out_folder}/results.npz", **results)
+
     best_params = {}
     cmb_map = np.stack([masked_cmb.q, masked_cmb.u], axis=0)
     fg_map = np.stack([masked_fg.q, masked_fg.u], axis=1)
@@ -267,13 +279,6 @@ def main():
     best_params["I_D"] = d_map
     best_params["I_D_NOCMB"] = fg_map
 
-    results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
-    results["temp_dust_patches"] = patch_indices["temp_dust_patches"]
-    results["beta_pl_patches"] = patch_indices["beta_pl_patches"]
-
-    # Add a new axis to the results so it matches the shape of grid search results
-    results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
-    np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
     print("Run complete. Results saved to", out_folder)

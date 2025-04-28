@@ -103,6 +103,11 @@ def parse_args():
         default="LiteBIRD",
         choices=["LiteBIRD", "Planck", "default"],
     )
+    parser.add_argument(
+        "-b--best-only",
+        action="store_true",
+        help="Only generate best results",
+    )
     return parser.parse_args()
 
 
@@ -303,10 +308,12 @@ def main():
             result_dir=out_folder,
             old_results=old_results,
         )
+        if not args.best_only:
+            grid_search.run()
 
-        grid_search.run()
-
-    results = grid_search.stack_results(result_folder=out_folder)
+    if not args.best_only:
+        results = grid_search.stack_results(result_folder=out_folder)
+        np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results and mask
     best_params = {}
@@ -317,7 +324,6 @@ def main():
     best_params["I_D"] = d_map
     best_params["I_D_NOCMB"] = fg_map
 
-    np.savez(f"{out_folder}/results.npz", **results)
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
     print("Run complete. Results saved to", out_folder)
