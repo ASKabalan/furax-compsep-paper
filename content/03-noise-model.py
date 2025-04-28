@@ -47,8 +47,8 @@ from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
 from instruments import get_instrument
 from plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
-    plot_healpix_projection_with_noise,
 )
+
 jax.config.update("jax_enable_x64", True)
 
 
@@ -245,9 +245,9 @@ def main():
     )
 
     search_space = {
-        "T_d_patches": jnp.arange(5, 21, 10),
+        "T_d_patches": jnp.arange(5, 21, 5),
         "B_d_patches": jnp.arange(10, 301, 30),
-        "B_s_patches": jnp.arange(5, 21, 10),
+        "B_s_patches": jnp.arange(5, 21, 5),
     }
 
     max_count = {

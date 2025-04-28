@@ -26,6 +26,7 @@ from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 sys.path.append("../data")
 from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
 from instruments import get_instrument
+
 jax.config.update("jax_enable_x64", True)
 
 
