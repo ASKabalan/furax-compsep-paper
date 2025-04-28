@@ -23,6 +23,8 @@ from instruments import get_instrument
 
 out_folder = "plots/"
 
+jax.config.update("jax_enable_x64", True)
+
 
 def parse_args():
     """
@@ -318,26 +320,63 @@ def compute_cl_obs_bb(s_hat, ell_range):
 
 def plot_all_cmb(names, cmb_pytree_list):
     nb_cmb = len(cmb_pytree_list)
-    _ = plt.figure(figsize=(8, 4 * nb_cmb))
-    for i, cmb_pytree in enumerate(cmb_pytree_list):
+
+    # First, compute global min/max for consistent colorbar scaling
+    diff_q_all, diff_u_all = [], []
+
+    for cmb_pytree in cmb_pytree_list:
+        unseen_mask_q = cmb_pytree["cmb"].q == hp.UNSEEN
+        diff_q = cmb_pytree["cmb"].q - cmb_pytree["recon_mean"].q
+        diff_q = np.where(unseen_mask_q, np.nan, diff_q)
+        diff_q_all.append(diff_q)
+
+        unseen_mask_u = cmb_pytree["cmb"].u == hp.UNSEEN
+        diff_u = cmb_pytree["cmb"].u - cmb_pytree["recon_mean"].u
+        diff_u = np.where(unseen_mask_u, np.nan, diff_u)
+        diff_u_all.append(diff_u)
+
+    # Set shared color scale per Stokes component
+    vmin_q = np.nanmin([np.nanmin(diff) for diff in diff_q_all])
+    vmax_q = np.nanmax([np.nanmax(diff) for diff in diff_q_all])
+    vmin_u = np.nanmin([np.nanmin(diff) for diff in diff_u_all])
+    vmax_u = np.nanmax([np.nanmax(diff) for diff in diff_u_all])
+
+    # Start figure
+    plt.figure(figsize=(10, 3.5 * nb_cmb))
+
+    for i, (name, diff_q, diff_u) in enumerate(zip(names, diff_q_all, diff_u_all)):
+        # Q map
         hp.mollview(
-            cmb_pytree["cmb"].q - cmb_pytree["recon_mean"].q,
-            title=f"Difference (Q) {names[i]}",
-            sub=(nb_cmb, 2, i + 1),
+            diff_q,
+            title=f"Difference (Q) - {name}",
+            sub=(nb_cmb, 2, 2 * i + 1),
+            min=vmin_q,
+            max=vmax_q,
+            cmap="viridis",
             bgcolor=(0.0,) * 4,
+            cbar=True,
+            notext=True,
         )
+        # U map
         hp.mollview(
-            cmb_pytree["cmb"].u - cmb_pytree["recon_mean"].u,
-            title=f"Difference (U) {names[i]}",
-            sub=(nb_cmb, 2, i + 1 + nb_cmb),
+            diff_u,
+            title=f"Difference (U) - {name}",
+            sub=(nb_cmb, 2, 2 * i + 2),
+            min=vmin_u,
+            max=vmax_u,
+            cmap="viridis",
             bgcolor=(0.0,) * 4,
+            cbar=True,
+            notext=True,
         )
-    plt.savefig(f"{out_folder}/cmb_recon.pdf", transparent=True, dpi=1200)
+
+    plt.tight_layout()
+    plt.savefig(f"{out_folder}cmb_recon.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
-    _ = plt.figure(figsize=(12, 8))
+    _ = plt.figure(figsize=(8, 6))
 
     if len(cl_pytree_list) == 0:
         print("No results")
@@ -450,12 +489,19 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
     print(f"Reconstructed CMB variance: {cmb_recon_var}")
     print(f"Input CMB variance: {cmb_input_var}")
     print("======================")
+    unseen_mask = cmb_recon_mean.q == hp.UNSEEN
+    diff_q = cmb_recon_mean.q - cmb_stokes.q
+    diff_q = np.where(unseen_mask, hp.UNSEEN, diff_q)
+
+    unseen_mask = cmb_recon_mean.u == hp.UNSEEN
+    diff_u = cmb_recon_mean.u - cmb_stokes.u
+    diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
 
     _ = plt.figure(figsize=(12, 8))
     hp.mollview(cmb_recon_mean.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.q, title="Input CMB Map (Q)", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
     hp.mollview(
-        cmb_recon_mean.q - cmb_stokes.q,
+        diff_q,
         title="Difference (Q)",
         sub=(2, 3, 3),
         bgcolor=(0.0,) * 4,
@@ -463,7 +509,7 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
     hp.mollview(cmb_recon_mean.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.u, title="Input CMB Map (U)", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
     hp.mollview(
-        cmb_recon_mean.u - cmb_stokes.u,
+        diff_u,
         title="Difference (U)",
         sub=(2, 3, 6),
         bgcolor=(0.0,) * 4,
@@ -634,6 +680,8 @@ def main():
     results = os.listdir(result_folder)
     filter_kw = [kw.split("_") for kw in args.runs]
     results_kw = {kw: kw.split("_") for kw in results}
+
+    os.makedirs(out_folder, exist_ok=True)
 
     results_to_plot = []
     for filt_kw in filter_kw:

@@ -30,6 +30,7 @@ from instruments import get_instrument
 
 jax.config.update("jax_enable_x64", True)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="""

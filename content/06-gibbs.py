@@ -35,6 +35,7 @@ from plotting import plot_grid_search_results
 
 jax.config.update("jax_enable_x64", True)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Benchmark FGBuster and Furax Component Separation Methods"
