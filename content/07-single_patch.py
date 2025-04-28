@@ -26,6 +26,7 @@ from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 sys.path.append("../data")
 from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
 from instruments import get_instrument
+jax.config.update("jax_enable_x64", True)
 
 
 def parse_args():
@@ -80,7 +81,8 @@ def parse_args():
         help="Instrument to use",
     )
     parser.add_argument(
-        "-b--best-only",
+        "-b",
+        "--best-only",
         action="store_true",
         help="Only generate best results",
     )
@@ -211,9 +213,9 @@ def main():
 
     if not args.best_only:
         results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
-        results["beta_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
-        results["temp_dust_patches"] = np.zeros(1, len(indices)).astype(np.int32)
-        results["beta_pl_patches"] = np.zeros(1, len(indices)).astype(np.int32)
+        results["beta_dust_patches"] = np.zeros(1, len(indices)).astype(np.int64)
+        results["temp_dust_patches"] = np.zeros(1, len(indices)).astype(np.int64)
+        results["beta_pl_patches"] = np.zeros(1, len(indices)).astype(np.int64)
         # Add a new axis to the results so it matches the shape of grid search results
         results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
         np.savez(f"{out_folder}/results.npz", **results)

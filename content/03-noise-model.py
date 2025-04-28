@@ -49,6 +49,7 @@ from plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
     plot_healpix_projection_with_noise,
 )
+jax.config.update("jax_enable_x64", True)
 
 
 def parse_args():
@@ -114,7 +115,8 @@ def parse_args():
         help="Instrument to use",
     )
     parser.add_argument(
-        "-b--best-only",
+        "-b",
+        "--best-only",
         action="store_true",
         help="Only generate best results",
     )
@@ -134,9 +136,9 @@ def main():
         best_params = dict(best_params)
         results = dict(results)
         plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot)
-        #plot_healpix_projection_with_noise(
+        # plot_healpix_projection_with_noise(
         #    mask, args.nside, results, best_params, out_folder, args.noise_sim
-        #)
+        # )
         return
 
     nside = args.nside
@@ -165,7 +167,7 @@ def main():
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
-    masked_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), masked_clusters)
+    masked_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), masked_clusters)
 
     base_params = {
         "beta_dust": 1.54,
@@ -280,7 +282,7 @@ def main():
             patch_indices,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
+        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
 
@@ -374,7 +376,7 @@ def main():
             patch_indices,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
+        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
         # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
