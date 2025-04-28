@@ -31,6 +31,7 @@ from jax_hpc_profiler.plotting import plot_weak_scaling
 
 sys.path.append("../data")
 from generate_maps import load_from_cache, save_to_cache
+jax.config.update("jax_enable_x64", True)
 
 
 def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer):
@@ -53,9 +54,9 @@ def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, nu
         mask, indices, cluster_count, jax.random.PRNGKey(2), max_centroids=max_centroids
     )
     patch_ids_fg = [
-        temp_dust_patch_indices.astype(jnp.int32),
-        beta_dust_patch_indices.astype(jnp.int32),
-        beta_pl_patch_indices.astype(jnp.int32),
+        temp_dust_patch_indices.astype(jnp.int64),
+        beta_dust_patch_indices.astype(jnp.int64),
+        beta_pl_patch_indices.astype(jnp.int64),
     ]
 
     components = [CMB(), Dust(dust_nu0), Synchrotron(synchrotron_nu0)]
@@ -117,9 +118,9 @@ def run_jax_lbfgs(nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0
     )
 
     patch_indices = {
-        "temp_dust_patches": temp_dust_patch_indices.astype(jnp.int32),
-        "beta_dust_patches": beta_dust_patch_indices.astype(jnp.int32),
-        "beta_pl_patches": beta_pl_patch_indices.astype(jnp.int32),
+        "temp_dust_patches": temp_dust_patch_indices.astype(jnp.int64),
+        "beta_dust_patches": beta_dust_patch_indices.astype(jnp.int64),
+        "beta_pl_patches": beta_pl_patch_indices.astype(jnp.int64),
     }
 
     nll = partial(
@@ -200,9 +201,9 @@ def run_jax_tnc(
     )
 
     patch_indices = {
-        "temp_dust_patches": temp_dust_patch_indices.astype(jnp.int32),
-        "beta_dust_patches": beta_dust_patch_indices.astype(jnp.int32),
-        "beta_pl_patches": beta_pl_patch_indices.astype(jnp.int32),
+        "temp_dust_patches": temp_dust_patch_indices.astype(jnp.int64),
+        "beta_dust_patches": beta_dust_patch_indices.astype(jnp.int64),
+        "beta_pl_patches": beta_pl_patch_indices.astype(jnp.int64),
     }
 
     nll = partial(

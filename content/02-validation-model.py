@@ -27,6 +27,7 @@ sys.path.append("../data")
 from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
 from plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
 
+jax.config.update("jax_enable_x64", True)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -55,7 +56,8 @@ def parse_args():
         help="Mask to use",
     )
     parser.add_argument(
-        "-b--best-only",
+        "-b",
+        "--best-only",
         action="store_true",
         help="Only generate best results",
     )
@@ -102,7 +104,7 @@ def main():
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
-    masked_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), masked_clusters)
+    masked_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), masked_clusters)
 
     base_params = {
         "beta_dust": 1.54,
@@ -211,7 +213,7 @@ def main():
             patch_indices,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int32), guess_clusters)
+        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
         # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)

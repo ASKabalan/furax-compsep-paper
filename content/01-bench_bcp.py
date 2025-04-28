@@ -37,6 +37,7 @@ from jax_hpc_profiler.plotting import plot_weak_scaling
 
 sys.path.append("../data")
 from generate_maps import load_from_cache, save_to_cache
+jax.config.update("jax_enable_x64", True)
 
 
 def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
