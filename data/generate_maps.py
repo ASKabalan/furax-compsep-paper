@@ -31,7 +31,7 @@ def save_to_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
     if os.path.exists(cache_file):
         with open(cache_file, "rb") as f:
             freq_maps = pickle.load(f)
-        print(f"Loaded freq_maps for nside {nside} from cache.")
+        print(f"Loaded freq_maps for nside {nside} from cache and noise {noise}.")
     else:
         # Generate freq_maps if not already cached
         freq_maps = get_observation(instrument, sky, nside=nside, noise=noise)
@@ -72,6 +72,7 @@ def strip_cmb_tag(sky_string):
 
 
 def save_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    print(f"Generating fg map for nside {nside}, noise {noise}, instrument {instrument_name}, sky {sky}")
     stripped_sky = strip_cmb_tag(sky)
     return save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
@@ -82,8 +83,10 @@ def load_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
 
 
 def save_cmb_map(nside, sky="c1d0s0"):
+    print(f"Generating CMB map for nside {nside}, sky {sky}")
     # Define cache file path
     cache_dir = "freq_maps_cache"
+    os.makedirs(cache_dir, exist_ok=True)
     preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
     cmb_template = None
     for strr in preset_strings:
@@ -257,3 +260,17 @@ def get_mask(mask_name="GAL020", nside=64):
 
     # Return the requested zone.
     return zones[mask_name]
+
+
+
+
+def generate_needed_maps():
+
+    for nside in [4 , 8 , 32 , 64 ,128, 256 , 512]:
+        for noise in [True, False]:
+            instrument_name = "LiteBIRD"
+            for sky in ["c1d0s0", "c1d1s1",]:
+                save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=sky)
+    
+    save_fg_map(64, noise=False, instrument_name="LiteBIRD", sky="c1d1s1")
+    save_cmb_map(64, sky="c1d1s1")

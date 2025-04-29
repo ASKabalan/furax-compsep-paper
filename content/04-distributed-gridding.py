@@ -398,6 +398,7 @@ def main():
             result_dir=out_folder,
             old_results=old_results,
         )
+        print(f"Number of combinations: {grid_search.n_combinations}")
         if not args.best_only:
             grid_search.run()
 

@@ -202,17 +202,37 @@ def get_camb_templates(nside):
         Want_CMB_lensing=True,
         lmax=1024,
     )
+    pars_0 = camb.set_params(
+        ombh2=0.022,
+        omch2=0.12,
+        tau=0.054,
+        As=2e-9,
+        ns=0.965,
+        cosmomc_theta=1.04e-2,
+        r=0,  # Pourquoi r = 1 ?
+        DoLensing=True,
+        WantTensors=True,
+        Want_CMB_lensing=True,
+        lmax=1024,
+    )
     results = camb.get_results(pars)
     powers = results.get_cmb_power_spectra(pars, CMB_unit="muK", lmax=1024)
     cl_bb_r1_full, cl_bb_total = powers["tensor"][:, 2], powers["total"][:, 2]
     cl_bb_lens_full = cl_bb_total - cl_bb_r1_full
 
-    ell_min, ell_max = 2, nside * 2
+    ell_min, ell_max = 2, nside * 2 + 2
     ell_range = np.arange(ell_min, ell_max)
     coeff = ell_range * (ell_range + 1) / (2 * np.pi)
     cl_bb_r1 = cl_bb_r1_full[ell_range] / coeff
     cl_bb_lens = cl_bb_lens_full[ell_range] / coeff
-    return ell_range, cl_bb_r1, cl_bb_lens
+
+    # get r0
+    results_0 = camb.get_results(pars_0)
+    powers_0 = results_0.get_cmb_power_spectra(pars_0, CMB_unit="muK", lmax=1024)
+    cl_bb_r0_full, _ = powers_0["tensor"][:, 2], powers_0["total"][:, 2]
+    cl_bb_r0 = cl_bb_r0_full[ell_range] / coeff
+
+    return ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens
 
 
 # ========== CL COMPUTATION FUNCTIONS ==========
@@ -305,6 +325,7 @@ def compute_cl_obs_bb(s_hat, ell_range):
     s_hat = expand_stokes(s_hat)
     s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
     coeff = ell_range * (ell_range + 1) / (2 * np.pi)
+    coeff = 1.0
 
     cl_list = []
     for i in range(s_hat.shape[0]):
@@ -312,6 +333,26 @@ def compute_cl_obs_bb(s_hat, ell_range):
         cl_list.append(cl[2][ell_range])  # BB only
 
     return np.mean(cl_list, axis=0) / coeff  # shape (len(ell_range),)
+
+
+def compute_cl_true_bb(s, ell_range):
+    """
+    Compute the average observed Cl_BB from reconstructed maps.
+
+    Args:
+        s_hat (StokesQU): Reconstructed maps (n_sims, ...).
+        ell_range (np.ndarray): Multipole moments.
+
+    Returns:
+        np.ndarray: Averaged BB spectrum.
+    """
+    s = expand_stokes(s)
+    s = np.stack([s.i, s.q, s.u], axis=0)
+    # coeff = ell_range * (ell_range + 1) / (2 * np.pi)
+
+    cl = hp.anafast(s)  # shape (6, lmax+1)
+
+    return cl[2][ell_range]  # shape (len(ell_range),)
 
 
 # ========== Plot All runs ===================
@@ -383,9 +424,13 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         return
 
     cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
+    cl_bb_true = cl_pytree_list[0]["cl_true"]
     ell_range = cl_pytree_list[0]["ell_range"]
 
     plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red", linewidth=2)
+    plt.plot(
+        ell_range, cl_bb_true, label=r"$C_\ell^{\mathrm{true}}$", color="purple", linestyle="--"
+    )
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -531,7 +576,9 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
     plt.show()
 
 
-def plot_cl_residuals(name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range):
+def plot_cl_residuals(
+    name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, cl_bb_r0, cl_true, ell_range
+):
     _ = plt.figure(figsize=(12, 8))
 
     # --- Power Spectrum Plot ---
@@ -540,6 +587,8 @@ def plot_cl_residuals(name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, c
     plt.plot(ell_range, cl_syst_res, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
     plt.plot(ell_range, cl_stat_res, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
     plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
+    plt.plot(ell_range, cl_bb_r0, label=r"$C_\ell^{\mathrm{BB}}(r=0)$", color="orange")
+    plt.plot(ell_range, cl_true, label=r"$C_\ell^{\mathrm{true}}$", color="purple", linestyle="--")
 
     plt.title(f"{name} BB Power Spectra")
     plt.xlabel(r"Multipole $\ell$")
@@ -553,38 +602,77 @@ def plot_cl_residuals(name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, c
     plt.show()
 
 
-def plot_r_estimator(name, r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky):
-    _ = plt.figure(figsize=(12, 8))
-    # --- Likelihood Plot ---
-    likelihood = L_vals / L_vals.max()
+def plot_r_estimator(
+    name,
+    r_best,
+    r_true,
+    sigma_r_neg,
+    sigma_r_true_neg,
+    sigma_r_pos,
+    sigma_r_true_pos,
+    r_grid,
+    L_vals,
+    L_vals_true,
+    f_sky,
+):
+    plt.figure(figsize=(12, 8))
+
+    # Normalize likelihoods
+    likelihood = L_vals / np.max(L_vals)
+    likelihood_true = L_vals_true / np.max(L_vals_true)
+
+    # Plot reconstructed likelihood
     plt.plot(
         r_grid,
         likelihood,
         label=rf"{name} $\hat{{r}} = {r_best:.2e}^{{+{sigma_r_pos:.1e}}}_{{-{sigma_r_neg:.1e}}}$",
         color="purple",
+        linewidth=2,
     )
-    plt.axvline(r_best, color="black", linestyle="--", label=rf"$\hat{{r}} = {r_best:.2e}$")
     plt.fill_between(
         r_grid,
         0,
         likelihood,
         where=(r_grid > r_best - sigma_r_neg) & (r_grid < r_best + sigma_r_pos),
         color="purple",
-        alpha=0.3,
-        label=r"$1\sigma$ interval",
+        alpha=0.2,
     )
+    plt.axvline(r_best, color="purple", linestyle="--", alpha=0.8)
 
+    # Plot true likelihood
+    plt.plot(
+        r_grid,
+        likelihood_true,
+        label=rf"{name} (True) $\hat{{r}} = {r_true:.2e}^{{+{sigma_r_true_pos:.1e}}}_{{-{sigma_r_true_neg:.1e}}}$",  # noqa: E501
+        color="black",
+        linewidth=2,
+        linestyle=":",
+    )
+    plt.fill_between(
+        r_grid,
+        0,
+        likelihood_true,
+        where=(r_grid > r_true - sigma_r_true_neg) & (r_grid < r_true + sigma_r_true_pos),
+        color="black",
+        alpha=0.1,
+    )
+    plt.axvline(r_true, color="black", linestyle="--", alpha=0.7)
+
+    # Labels and plot config
     plt.title(f"{name} Likelihood vs $r$")
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True)
     plt.legend()
-
     plt.tight_layout()
+
+    # Save + Show
     plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
     plt.show()
 
-    print(f"Estimated r: {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+    # Print
+    print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+    print(f"Estimated r (True): {r_true:.4e} (+{sigma_r_true_pos:.1e}, -{sigma_r_true_neg:.1e})")
 
 
 def plot_results(name, filtered_results, nside, instrument):
@@ -633,30 +721,71 @@ def plot_results(name, filtered_results, nside, instrument):
     cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
     plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean)
 
-    ell_range, cl_bb_r1, cl_bb_lens = get_camb_templates(nside=64)
+    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens = get_camb_templates(nside=64)
 
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
     cl_syst_res = compute_systematic_res(wd, ell_range)
     # Compute the total residuals Cl_res = <CL(s_hat - s_true)>n
     cl_total_res = compute_total_res(combined_cmb_recon, cmb_stokes, ell_range)
     # Compute the statistical residuals Cl_stat = CL_res - CL_syst
-    cl_stat_res = jnp.clip(cl_total_res - cl_syst_res, 0.0, None)
-    # cl_stat_res = jnp.abs(cl_total_res - cl_syst_res)
+    # cl_stat_res = jnp.clip(cl_total_res - cl_syst_res, 0.0, None)
+    cl_stat_res = jnp.abs(cl_total_res - cl_syst_res)
     # Compute observed Cl_obs = <CL(s_hat)>
     cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, ell_range)
+    # cl_bb_obs = cl_bb_lens + cl_total_res
+    # Compute cl_true
+    cl_true = compute_cl_true_bb(cmb_stokes, ell_range)
 
-    plot_cl_residuals(name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, ell_range)
+    cl_s = cl_bb_obs + cl_stat_res
+
+    def mse(x, y):
+        return jnp.mean((x - y) ** 2)
+
+    print("================")
+    print(f"cl_s mse cl_true: {mse(cl_s, cl_true)}")
+    print("================")
+
+    plot_cl_residuals(
+        name,
+        cl_bb_obs,
+        cl_syst_res,
+        cl_total_res,
+        cl_stat_res,
+        cl_bb_r1,
+        cl_bb_r0,
+        cl_true,
+        ell_range,
+    )
 
     # --- Likelihood Plot ---
     f_sky = full_mask.sum() / len(full_mask)
+    # compute r from obs
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
-        cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
+        cl_bb_obs, ell_range, cl_bb_r1, 0.0, cl_stat_res, f_sky
     )
-    plot_r_estimator(name, r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, f_sky)
+    # compute r from true
+    r_true, sigma_r_true_neg, sigma_r_true_pos, _, L_vals_true = estimate_r(
+        cl_true, ell_range, cl_bb_r1, 0.0, 0.0, f_sky
+    )
+
+    plot_r_estimator(
+        name,
+        r_best,
+        r_true,
+        sigma_r_neg,
+        sigma_r_true_neg,
+        sigma_r_pos,
+        sigma_r_true_pos,
+        r_grid,
+        L_vals,
+        L_vals_true,
+        f_sky,
+    )
 
     cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
     cl_pytree = {
         "cl_bb_r1": cl_bb_r1,
+        "cl_true": cl_true,
         "ell_range": ell_range,
         "cl_bb_obs": cl_bb_obs,
         "cl_syst_res": cl_syst_res,
@@ -665,10 +794,14 @@ def plot_results(name, filtered_results, nside, instrument):
     }
     r_pytree = {
         "r_best": r_best,
+        "r_true": r_true,
         "sigma_r_neg": sigma_r_neg,
+        "sigma_r_true_neg": sigma_r_true_neg,
         "sigma_r_pos": sigma_r_pos,
+        "sigma_r_true_pos": sigma_r_true_pos,
         "r_grid": r_grid,
         "L_vals": L_vals,
+        "L_vals_true": L_vals_true,
         "f_sky": f_sky,
     }
 
