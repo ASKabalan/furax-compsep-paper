@@ -13,6 +13,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from fgbuster import get_sky
 from furax import HomothetyOperator
 from furax.comp_sep import sky_signal
 from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
@@ -159,7 +160,7 @@ def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
         Tuple[float, float, float, np.ndarray, np.ndarray]:
             r_best, lower_sigma, upper_sigma, r_grid, likelihood_vals
     """
-    r_grid = np.linspace(0, 0.004, 1000)
+    r_grid = np.linspace(-0.003, 0.003, 1000)
     logL = np.array(
         [
             log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky)
@@ -215,6 +216,7 @@ def get_camb_templates(nside):
         Want_CMB_lensing=True,
         lmax=1024,
     )
+    # ERROR R0
     results = camb.get_results(pars)
     powers = results.get_cmb_power_spectra(pars, CMB_unit="muK", lmax=1024)
     cl_bb_r1_full, cl_bb_total = powers["tensor"][:, 2], powers["total"][:, 2]
@@ -229,10 +231,18 @@ def get_camb_templates(nside):
     # get r0
     results_0 = camb.get_results(pars_0)
     powers_0 = results_0.get_cmb_power_spectra(pars_0, CMB_unit="muK", lmax=1024)
-    cl_bb_r0_full, _ = powers_0["tensor"][:, 2], powers_0["total"][:, 2]
-    cl_bb_r0 = cl_bb_r0_full[ell_range] / coeff
+    cl_bb_r0_full, cl_bb_total = powers_0["tensor"][:, 2], powers["total"][:, 2]
+    cl_bb_lens_r0_full = cl_bb_total - cl_bb_r0_full
 
-    return ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens
+    cl_bb_r0 = cl_bb_r0_full[ell_range] / coeff
+    cl_bb_r0_lens = cl_bb_lens_r0_full[ell_range] / coeff
+
+    return ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_r0_lens
+
+
+
+# ========== CL COMPUTATION FUNCTIONS ==========
+# ============================================
 
 
 # ========== CL COMPUTATION FUNCTIONS ==========
@@ -311,28 +321,34 @@ def compute_total_res(s_hat, true_s, ell_range):
     return np.mean(cl_list, axis=0)  # shape (len(ell_range),)
 
 
-def compute_cl_obs_bb(s_hat, ell_range):
-    """
-    Compute the average observed Cl_BB from reconstructed maps.
-
-    Args:
-        s_hat (StokesQU): Reconstructed maps (n_sims, ...).
-        ell_range (np.ndarray): Multipole moments.
-
-    Returns:
-        np.ndarray: Averaged BB spectrum.
-    """
+def compute_cl_obs_bb(s_hat, s_true, cl_bb_lens, ell_range):
+    # s_hat: shape (nsim, 3, NPIX)
+    # s_true: shape (3, NPIX)
     s_hat = expand_stokes(s_hat)
     s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
-    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
-    coeff = 1.0
+
+    res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
 
     cl_list = []
-    for i in range(s_hat.shape[0]):
-        cl = hp.anafast(s_hat[i])  # shape (6, lmax+1)
+    for i in range(res.shape[0]):
+        cl = hp.anafast(res[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
-    return np.mean(cl_list, axis=0) / coeff  # shape (len(ell_range),)
+    cl_res = np.mean(cl_list, axis=0)  # shape (len(ell_range),)
+
+    return cl_res + cl_bb_lens
+
+
+# def compute_cl_obs_bb(s_hat, ell_range):
+#    s_hat = expand_stokes(s_hat)
+#    s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+#
+#    cl_list = []
+#    for i in range(s_hat.shape[0]):
+#        cl = hp.anafast(s_hat[i])
+#        cl_list.append(cl[2][ell_range])
+#
+#    return np.mean(cl_list, axis=0)
 
 
 def compute_cl_true_bb(s, ell_range):
@@ -346,14 +362,33 @@ def compute_cl_true_bb(s, ell_range):
     Returns:
         np.ndarray: Averaged BB spectrum.
     """
-    s = expand_stokes(s)
-    s = np.stack([s.i, s.q, s.u], axis=0)
+
     # coeff = ell_range * (ell_range + 1) / (2 * np.pi)
 
     cl = hp.anafast(s)  # shape (6, lmax+1)
 
     return cl[2][ell_range]  # shape (len(ell_range),)
 
+
+
+# ========== Illustrations ==========
+# ============================================
+
+
+
+def plot_illustrations(name , run_data):
+
+    B_d_patches = run_data["beta_dust_patches"]
+    T_d_patches = run_data["temp_dust_patches"]
+    B_s_patches = run_data["beta_pl_patches"]
+
+    B_d = run_data["beta_dust"]
+    T_d = run_data["temp_dust"]
+    B_s = run_data["beta_pl"]
+
+
+    params = {k: results[k] for k in ["beta_dust", "beta_pl", "temp_dust"]}
+    patches = {k: results[k] for k in ["beta_dust_patches", "beta_pl_patches", "temp_dust_patches"]}
 
 # ========== Plot All runs ===================
 # ============================================
@@ -577,7 +612,16 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
 
 
 def plot_cl_residuals(
-    name, cl_bb_obs, cl_syst_res, cl_total_res, cl_stat_res, cl_bb_r1, cl_bb_r0, cl_true, ell_range
+    name,
+    cl_bb_obs,
+    cl_syst_res,
+    cl_total_res,
+    cl_stat_res,
+    cl_bb_r1,
+    cl_bb_r0,
+    cl_bb_lens,
+    cl_true,
+    ell_range,
 ):
     _ = plt.figure(figsize=(12, 8))
 
@@ -589,6 +633,9 @@ def plot_cl_residuals(
     plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
     plt.plot(ell_range, cl_bb_r0, label=r"$C_\ell^{\mathrm{BB}}(r=0)$", color="orange")
     plt.plot(ell_range, cl_true, label=r"$C_\ell^{\mathrm{true}}$", color="purple", linestyle="--")
+    plt.plot(
+        ell_range, cl_bb_lens, label=r"$C_\ell^{\mathrm{lens}}$", color="purple", linestyle=":"
+    )
 
     plt.title(f"{name} BB Power Spectra")
     plt.xlabel(r"Multipole $\ell$")
@@ -667,7 +714,7 @@ def plot_r_estimator(
     plt.tight_layout()
 
     # Save + Show
-    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
+    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
     # Print
@@ -717,11 +764,12 @@ def plot_results(name, filtered_results, nside, instrument):
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside, axis=1)
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
+    s_true = get_sky(64, "c1d1s1").components[0].map.value
 
     cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
     plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean)
 
-    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens = get_camb_templates(nside=64)
+    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
     cl_syst_res = compute_systematic_res(wd, ell_range)
@@ -730,20 +778,12 @@ def plot_results(name, filtered_results, nside, instrument):
     # Compute the statistical residuals Cl_stat = CL_res - CL_syst
     # cl_stat_res = jnp.clip(cl_total_res - cl_syst_res, 0.0, None)
     cl_stat_res = jnp.abs(cl_total_res - cl_syst_res)
-    # Compute observed Cl_obs = <CL(s_hat)>
-    cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, ell_range)
-    # cl_bb_obs = cl_bb_lens + cl_total_res
     # Compute cl_true
-    cl_true = compute_cl_true_bb(cmb_stokes, ell_range)
-
-    cl_s = cl_bb_obs + cl_stat_res
-
-    def mse(x, y):
-        return jnp.mean((x - y) ** 2)
-
-    print("================")
-    print(f"cl_s mse cl_true: {mse(cl_s, cl_true)}")
-    print("================")
+    cl_true = compute_cl_true_bb(s_true, ell_range)
+    # Compute observed Cl_obs = <CL(s_hat)>
+    cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, s_true, cl_bb_lens, ell_range)
+    # cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon , ell_range)
+    # cl_bb_obs = cl_bb_lens + cl_total_res
 
     plot_cl_residuals(
         name,
@@ -753,6 +793,7 @@ def plot_results(name, filtered_results, nside, instrument):
         cl_stat_res,
         cl_bb_r1,
         cl_bb_r0,
+        cl_bb_lens,
         cl_true,
         ell_range,
     )
@@ -761,11 +802,11 @@ def plot_results(name, filtered_results, nside, instrument):
     f_sky = full_mask.sum() / len(full_mask)
     # compute r from obs
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
-        cl_bb_obs, ell_range, cl_bb_r1, 0.0, cl_stat_res, f_sky
+        cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
     # compute r from true
     r_true, sigma_r_true_neg, sigma_r_true_pos, _, L_vals_true = estimate_r(
-        cl_true, ell_range, cl_bb_r1, 0.0, 0.0, f_sky
+        cl_true, ell_range, cl_bb_r1, cl_bb_lens, 0.0, f_sky
     )
 
     plot_r_estimator(

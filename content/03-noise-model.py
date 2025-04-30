@@ -227,7 +227,11 @@ def main():
     sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
     noise = white_noise * sigma
     noised_d = masked_d + noise
-    N = NoiseDiagonalOperator((sigma * noise_ratio) ** 2, _in_structure=masked_d.structure)
+
+    small_n = (sigma * noise_ratio) ** 2
+    small_n = 1.0 if noise_ratio == 0 else small_n
+
+    N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
     best_nll = negative_log_likelihood_fn(
         best_params,

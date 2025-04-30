@@ -23,7 +23,6 @@ if (
     del os.environ["NO_PROXY"]
     jax.distributed.initialize()
 # =============================================================================
-import glob
 import operator
 
 import jax.numpy as jnp
@@ -40,14 +39,13 @@ from furax.comp_sep import (
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
+from jax_grid_search import ProgressBar, optimize
 from jax_healpy import get_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
 from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
 from instruments import get_instrument
-from plotting import plot_grid_search_results
 
 jax.config.update("jax_enable_x64", True)
 
@@ -70,12 +68,6 @@ def parse_args():
         type=int,
         default=50,
         help="Number of noise simulations",
-    )
-    parser.add_argument(
-        "-p",
-        "--plot",
-        action="store_true",
-        help="Plot the results",
     )
     parser.add_argument(
         "-nr",
@@ -107,111 +99,30 @@ def parse_args():
         choices=["LiteBIRD", "Planck", "default"],
     )
     parser.add_argument(
+        "-pc",
+        "--patch-count",
+        type=int,
+        nargs=3,  # Expecting exactly three values
+        default=[1000, 10, 10],  # Example target patch counts for beta_dust, temp_dust, beta_pl
+        help=(
+            "List of three target patch counts for beta_dust, temp_dust, and beta_pl. "
+            "Example: --patch-count 1000 10 10"
+        ),
+    )
+    parser.add_argument(
         "-b",
         "--best-only",
         action="store_true",
         help="Only generate best results",
     )
-    parser.add_argument(
-        "-c",
-        "--clean-up",
-        type=str,
-        nargs="?",
-        default=None,
-        help="Clean up the output folder",
-    )
     return parser.parse_args()
-
-
-def clean_up(folder):
-    batch_size = 400
-    nb_to_keep = 10
-
-    final_folders = glob.glob("final/*")
-    final_folders = [os.path.basename(f) for f in final_folders]
-    print(f"Final folders: {final_folders}")
-
-    if not os.path.isdir(folder):
-        print(f"Provided folder '{folder}' is not a directory.")
-        return
-
-    if folder in final_folders:
-        print(f"Folder {folder} already processed, skipping.")
-        return
-
-    print(f"Processing folder: {folder}")
-
-    nb_batches = DistributedGridSearch.get_num_batches(folder, batch_size)
-    print(f"Number of batches: {nb_batches}")
-
-    stacked_results = None
-
-    for batch_idx in range(nb_batches):
-        print(f"Processing batch {batch_idx + 1}/{nb_batches}")
-
-        batch_results = DistributedGridSearch.stack_results(
-            folder, batch_size=batch_size, batch_index=batch_idx
-        )
-        if batch_results is None:
-            print(f"Batch {batch_idx} is empty, skipping.")
-            continue
-
-        NLL = batch_results["NLL"]
-        print(f"NLL dtype: {NLL.dtype}, type(NLL): {type(NLL)}")
-
-        finite_nll = np.isfinite(NLL).all(axis=1)
-        if finite_nll.sum() == 0:
-            print(f"No finite results in batch {batch_idx}, skipping.")
-            continue
-
-        results_finite = {k: v[finite_nll] for k, v in batch_results.items()}
-        print(f"Finite results in batch {batch_idx}: {results_finite['NLL'].shape[0]}")
-
-        # Take only the first finite sample, keep axis
-        tosave = {k: v[:nb_to_keep] for k, v in results_finite.items()}
-
-        if stacked_results is None:
-            stacked_results = {k: [v] for k, v in tosave.items()}
-        else:
-            for k, v in tosave.items():
-                stacked_results[k].append(v)
-
-    if stacked_results is None:
-        print(f"No finite results found for folder {folder}.")
-        return
-
-    # Stack across batches
-    final_results = {k: np.concatenate(v, axis=0) for k, v in stacked_results.items()}
-
-    # sort w.r.t to value
-    sorted_indices = np.argsort(
-        final_results["value"].mean(axis=tuple(range(1, final_results["value"].ndim)))
-    )
-    sorted_results = {key: value[sorted_indices] for key, value in final_results.items()}
-
-    output_folder = os.path.join("final", folder)
-    os.makedirs(output_folder, exist_ok=True)
-    output_path = os.path.join(output_folder, "results.npz")
-
-    np.savez(output_path, **sorted_results)
-    print(f"Saved stacked results to {output_path}")
 
 
 def main():
     args = parse_args()
 
-    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
-    if args.plot:
-        assert os.path.exists(out_folder), "output not found, please run the model first"
-        results = np.load(f"{out_folder}/results.npz")
-        plot_grid_search_results(
-            results, out_folder, best_metric="value", nb_best=12, noise_runs=args.noise_sim
-        )
-        return
-
-    if args.clean_up is not None:
-        clean_up(args.clean_up)
-        return
+    out_folder = f"kmeans_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+    os.makedirs(out_folder, exist_ok=True)
 
     nside = args.nside
     nb_noise_sim = args.noise_sim
@@ -221,6 +132,10 @@ def main():
 
     mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
+
+    B_dust_patches = args.patch_count[0]
+    T_dust_patches = args.patch_count[1]
+    B_synchrotron_patches = args.patch_count[2]
 
     base_params = {
         "beta_dust": 1.54,
@@ -257,19 +172,10 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
-    # Corresponds to PTEP Table page 82
-
-    search_space = {
-        "T_d_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
-        "B_d_patches": jnp.arange(100, 5001, 100),
-        "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
-    }
-    search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
-
     max_count = {
-        "beta_dust": np.max(np.array(search_space["B_d_patches"])),
-        "temp_dust": np.max(np.array(search_space["T_d_patches"])),
-        "beta_pl": np.max(np.array(search_space["B_s_patches"])),
+        "beta_dust": B_dust_patches,
+        "temp_dust": T_dust_patches,
+        "beta_pl": B_synchrotron_patches,
     }
     max_patches = {
         "temp_dust_patches": max_count["temp_dust"],
@@ -366,12 +272,6 @@ def main():
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
         return results
 
-    # Put the good values for the grid search
-    if os.path.exists(out_folder):
-        old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
-    else:
-        old_results = None
-
     progress_columns = [
         "[progress.description]{task.description}",
         BarColumn(),
@@ -393,21 +293,11 @@ def main():
                 progress_bar=p,
             )
 
-        grid_search = DistributedGridSearch(
-            objective_function,
-            search_space,
-            batch_size=1,
-            progress_bar=True,
-            result_dir=out_folder,
-            old_results=old_results,
-        )
-        print(f"Number of combinations: {grid_search.n_combinations}")
         if not args.best_only:
-            grid_search.run()
-
-    if not args.best_only:
-        results = grid_search.stack_results(result_folder=out_folder)
-        np.savez(f"{out_folder}/results.npz", **results)
+            results = objective_function(T_dust_patches, B_dust_patches, B_synchrotron_patches)
+            # Add a new axis to the results so it matches the shape of grid search results
+            results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
+            np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results and mask
     best_params = {}
