@@ -72,7 +72,7 @@ def strip_cmb_tag(sky_string):
 
 
 def save_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
-    print(f"Generating fg map for nside {nside}, noise {noise}, instrument {instrument_name}, sky {sky}")
+    print(f"Generating fg map for nside {nside}, noise {noise}, instrument {instrument_name}")
     stripped_sky = strip_cmb_tag(sky)
     return save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
@@ -262,15 +262,17 @@ def get_mask(mask_name="GAL020", nside=64):
     return zones[mask_name]
 
 
-
-
 def generate_needed_maps():
-
-    for nside in [4 , 8 , 32 , 64 ,128, 256 , 512]:
+    for nside in [4, 8, 32, 64, 128, 256, 512]:
         for noise in [True, False]:
             instrument_name = "LiteBIRD"
-            for sky in ["c1d0s0", "c1d1s1",]:
+            for sky in [
+                "c1d0s0",
+                "c1d1s1",
+            ]:
                 save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=sky)
-    
+
     save_fg_map(64, noise=False, instrument_name="LiteBIRD", sky="c1d1s1")
     save_cmb_map(64, sky="c1d1s1")
+    save_fg_map(64, noise=False, instrument_name="LiteBIRD", sky="c1d0s0")
+    save_cmb_map(64, sky="c1d0s0")
