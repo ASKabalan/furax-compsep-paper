@@ -61,6 +61,43 @@ def parse_args():
         nargs="*",
         help="List of titles for the plots",
     )
+    parser.add_argument(
+        "-pi",
+        "--plot-illustrations",
+        action="store_true",
+        help="Plot illustrations of the results",
+    )
+    parser.add_argument(
+        "-ps",
+        "--plot-cl-spectra",
+        action="store_true",
+        help="Plot spectra of the results one by one",
+    )
+    parser.add_argument(
+        "-pc",
+        "--plot-cmb-recon",
+        action="store_true",
+        help="Plot CMB reconstructions of the results one by one",
+    )
+    parser.add_argument(
+        "-as",
+        "--plot-all-spectra",
+        action="store_true",
+        help="Plot all spectra of the results",
+        default=True,
+    )
+    parser.add_argument(
+        "-ac",
+        "--plot-all-cmb-recon",
+        action="store_true",
+        help="Plot all CMB reconstructions of the results",
+    )
+    parser.add_argument(
+        "-a",
+        "--plot-all",
+        action="store_true",
+        help="Plot all results",
+    )
 
     return parser.parse_args()
 
@@ -240,11 +277,6 @@ def get_camb_templates(nside):
     return ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_r0_lens
 
 
-
-# ========== CL COMPUTATION FUNCTIONS ==========
-# ============================================
-
-
 # ========== CL COMPUTATION FUNCTIONS ==========
 # ============================================
 
@@ -370,14 +402,11 @@ def compute_cl_true_bb(s, ell_range):
     return cl[2][ell_range]  # shape (len(ell_range),)
 
 
-
 # ========== Illustrations ==========
 # ============================================
 
 
-
-def plot_illustrations(name , run_data):
-
+def params_to_maps(run_data):
     B_d_patches = run_data["beta_dust_patches"]
     T_d_patches = run_data["temp_dust_patches"]
     B_s_patches = run_data["beta_pl_patches"]
@@ -386,9 +415,68 @@ def plot_illustrations(name , run_data):
     T_d = run_data["temp_dust"]
     B_s = run_data["beta_pl"]
 
+    print(f"shape of B_d {B_d.shape} T_d {T_d.shape}")
 
-    params = {k: results[k] for k in ["beta_dust", "beta_pl", "temp_dust"]}
-    patches = {k: results[k] for k in ["beta_dust_patches", "beta_pl_patches", "temp_dust_patches"]}
+    B_d = B_d.mean(axis=0)[B_d_patches]
+    T_d = T_d.mean(axis=0)[T_d_patches]
+    B_s = B_s.mean(axis=0)[B_s_patches]
+
+    params = {"beta_dust": B_d, "temp_dust": T_d, "beta_pl": B_s}
+    patches = {
+        "beta_dust_patches": B_d_patches,
+        "temp_dust_patches": T_d_patches,
+        "beta_pl_patches": B_s_patches,
+    }
+
+    return params, patches
+
+
+def plot_params_patches(name, params, patches):
+    # Params on a figure
+    _ = plt.figure(figsize=(12, 8))
+
+    for i, (param_name, param_map) in enumerate(params.items()):
+        hp.mollview(
+            param_map,
+            title=f"{name} {param_name}",
+            sub=(3, 1, i + 1),
+            bgcolor=(0.0,) * 4,
+            cbar=True,
+        )
+
+    plt.tight_layout()
+    plt.show()
+
+    # Patches on a figure
+    _ = plt.figure(figsize=(12, 8))
+
+    np.random.seed(0)
+
+    # Shuffle labels in each patch
+    def shuffle_labels(arr):
+        unique_vals = np.unique(arr[arr != hp.UNSEEN])  # Ignore UNSEEN
+        shuffled_vals = np.random.permutation(unique_vals)
+
+        # Create mapping dict
+        mapping = dict(zip(unique_vals, shuffled_vals))
+
+        # Vectorized mapping
+        shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
+        return shuffled_arr.astype(np.float64)
+
+    patches = jax.tree.map(shuffle_labels, patches)
+
+    for i, (patch_name, patch_map) in enumerate(patches.items()):
+        hp.mollview(
+            patch_map,
+            title=f"{name} {patch_name}",
+            sub=(3, 1, i + 1),
+            bgcolor=(0.0,) * 4,
+            cbar=True,
+        )
+    plt.tight_layout()
+    plt.show()
+
 
 # ========== Plot All runs ===================
 # ============================================
@@ -722,7 +810,7 @@ def plot_r_estimator(
     print(f"Estimated r (True): {r_true:.4e} (+{sigma_r_true_pos:.1e}, -{sigma_r_true_neg:.1e})")
 
 
-def plot_results(name, filtered_results, nside, instrument):
+def plot_results(name, filtered_results, nside, instrument, args):
     """
     Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
 
@@ -736,6 +824,7 @@ def plot_results(name, filtered_results, nside, instrument):
         return
 
     cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
+    params_list, patches_list = [], []
 
     for folder in filtered_results:
         run_data = dict(np.load(f"{folder}/results.npz"))
@@ -753,6 +842,11 @@ def plot_results(name, filtered_results, nside, instrument):
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
         wd = compute_w(instrument.frequency, fg_map, run_data)
 
+        if args.plot_illustrations:
+            params, patches = params_to_maps(run_data)
+            params_list.append(params)
+            patches_list.append(patches)
+
         cmb_recons.append(cmb_recon)
         cmb_maps.append(cmb_true)
         w_d_list.append(wd)
@@ -764,10 +858,18 @@ def plot_results(name, filtered_results, nside, instrument):
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside, axis=1)
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
+
+    if args.plot_illustrations:
+        params_map = combine_masks(params_list, indices_list, nside)
+        patches_map = combine_masks(patches_list, indices_list, nside)
+        plot_params_patches(name, params_map, patches_map)
+
     s_true = get_sky(64, "c1d1s1").components[0].map.value
 
     cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
-    plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean)
+
+    if args.plot_cmb_recon:
+        plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean)
 
     ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
@@ -785,18 +887,19 @@ def plot_results(name, filtered_results, nside, instrument):
     # cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon , ell_range)
     # cl_bb_obs = cl_bb_lens + cl_total_res
 
-    plot_cl_residuals(
-        name,
-        cl_bb_obs,
-        cl_syst_res,
-        cl_total_res,
-        cl_stat_res,
-        cl_bb_r1,
-        cl_bb_r0,
-        cl_bb_lens,
-        cl_true,
-        ell_range,
-    )
+    if args.plot_cl_spectra:
+        plot_cl_residuals(
+            name,
+            cl_bb_obs,
+            cl_syst_res,
+            cl_total_res,
+            cl_stat_res,
+            cl_bb_r1,
+            cl_bb_r0,
+            cl_bb_lens,
+            cl_true,
+            ell_range,
+        )
 
     # --- Likelihood Plot ---
     f_sky = full_mask.sum() / len(full_mask)
@@ -809,19 +912,20 @@ def plot_results(name, filtered_results, nside, instrument):
         cl_true, ell_range, cl_bb_r1, cl_bb_lens, 0.0, f_sky
     )
 
-    plot_r_estimator(
-        name,
-        r_best,
-        r_true,
-        sigma_r_neg,
-        sigma_r_true_neg,
-        sigma_r_pos,
-        sigma_r_true_pos,
-        r_grid,
-        L_vals,
-        L_vals_true,
-        f_sky,
-    )
+    if args.plot_cl_spectra:
+        plot_r_estimator(
+            name,
+            r_best,
+            r_true,
+            sigma_r_neg,
+            sigma_r_true_neg,
+            sigma_r_pos,
+            sigma_r_true_pos,
+            r_grid,
+            L_vals,
+            L_vals_true,
+            f_sky,
+        )
 
     cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
     cl_pytree = {
@@ -868,6 +972,13 @@ def main():
 
     os.makedirs(out_folder, exist_ok=True)
 
+    if args.plot_all:
+        args.plot_cmb_recon = True
+        args.plot_cl_spectra = True
+        args.plot_all_cmb_recon = True
+        args.plot_all_spectra = True
+        args.plot_all_r_estimation = True
+
     results_to_plot = []
     for filt_kw in filter_kw:
         group = []
@@ -884,14 +995,16 @@ def main():
     cl_pytree_list = []
     r_pytree_list = []
     for name, group_results in zip(args.titles, results_to_plot):
-        cmb_pytree, cl_pytree, r_pytree = plot_results(name, group_results, nside, instrument)
+        cmb_pytree, cl_pytree, r_pytree = plot_results(name, group_results, nside, instrument, args)
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
 
-    plot_all_cmb(args.titles, cmb_pytree_list)
-    plot_all_cl_residuals(args.titles, cl_pytree_list)
-    plot_all_r_estimation(args.titles, r_pytree_list)
+    if args.plot_all_cmb_recon:
+        plot_all_cmb(args.titles, cmb_pytree_list)
+    if args.plot_all_spectra:
+        plot_all_cl_residuals(args.titles, cl_pytree_list)
+        plot_all_r_estimation(args.titles, r_pytree_list)
 
 
 if __name__ == "__main__":
