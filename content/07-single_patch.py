@@ -183,7 +183,7 @@ def main():
                 guess_params,
                 negative_log_likelihood_fn,
                 solver,
-                max_iter=200,
+                max_iter=1000,
                 tol=1e-10,
                 # lower_bound=lower_bound_tree,
                 # upper_bound=upper_bound_tree,

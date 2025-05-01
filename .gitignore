@@ -177,3 +177,4 @@ results*
 content/**/*.npz
 data/**/*.npz
 !data/masks/GAL_PlanckMasks_2048.npz
+*.pdf

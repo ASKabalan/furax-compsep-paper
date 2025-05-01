@@ -235,7 +235,7 @@ def main():
                 guess_params,
                 negative_log_likelihood_fn,
                 solver,
-                max_iter=200,
+                max_iter=1000,
                 tol=1e-10,
                 progress=progress_bar,
                 progress_id=noise_id,
