@@ -6,6 +6,7 @@ os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["EQX_ON_ERROR"] = "nan"
 
 import sys
+from functools import partial
 
 import camb
 import healpy as hp
@@ -13,11 +14,17 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import optax
 from fgbuster import get_sky
 from furax import HomothetyOperator
-from furax.comp_sep import sky_signal
+from furax.comp_sep import (
+    negative_log_likelihood,
+    sky_signal,
+)
 from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
+from jax_grid_search import ProgressBar, optimize
 from jax_healpy import combine_masks
+from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
 from instruments import get_instrument
@@ -281,7 +288,91 @@ def get_camb_templates(nside):
 # ============================================
 
 
-def compute_w(nu, d, results):
+def compute_w(nu, d, results, result_file):
+    """
+    Apply the linear component separation operator W to the input sky.
+
+    Args:
+        nu (np.ndarray): Instrument frequencies.
+        d (Stokes): Input sky without CMB.
+        results (dict): Fitted spectral parameters.
+        result_file (str): Name of the result file.
+
+    Returns:
+        StokesQU: Reconstructed CMB map.
+    """
+    if results.get("W_D_FG") is not None and True:
+        print("Using W_D_FG from results")
+        W = results["W_D_FG"]
+        W = Stokes.from_stokes(Q=W[0], U=W[1])
+        return W
+
+    dust_nu0 = 160.0
+    synchrotron_nu0 = 20.0
+
+    patches = {k: results[k] for k in ["beta_dust_patches", "beta_pl_patches", "temp_dust_patches"]}
+    max_count = {
+        "beta_dust": patches["beta_dust_patches"].size,
+        "temp_dust": patches["temp_dust_patches"].size,
+        "beta_pl": patches["beta_pl_patches"].size,
+    }
+
+    base_params = {
+        "beta_dust": 1.54,
+        "temp_dust": 20.0,
+        "beta_pl": -3.0,
+    }
+
+    guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+
+    N = HomothetyOperator(1.0, _in_structure=d.structure)
+
+    negative_log_likelihood_fn = partial(
+        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
+    )
+
+    progress_columns = [
+        "[progress.description]{task.description}",
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ]
+
+    with ProgressBar(*progress_columns) as p:
+        solver = optax.lbfgs()
+        final_params, final_state = optimize(
+            guess_params,
+            negative_log_likelihood_fn,
+            solver,
+            max_iter=1000,
+            tol=1e-10,
+            progress=p,
+            progress_id=0,
+            # lower_bound=lower_bound_tree,
+            # upper_bound=upper_bound_tree,
+            nu=nu,
+            N=N,
+            d=d,
+            patch_indices=patches,
+        )
+
+    def W(p):
+        N = HomothetyOperator(1.0, _in_structure=d.structure)
+        return sky_signal(
+            p, nu, N, d, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0, patch_indices=patches
+        )["cmb"]
+
+    W = W(final_params)
+
+    results_from_file = dict(np.load(result_file))
+    W_numpy = np.stack([W.q, W.u], axis=0)
+    results_from_file["W_D_FG"] = W_numpy[np.newaxis, ...]
+    np.savez(result_file, **results_from_file)
+    return W
+
+
+def old_compute_w(nu, d, results, result_file):
     """
     Apply the linear component separation operator W to the input sky.
 
@@ -309,7 +400,7 @@ def compute_w(nu, d, results):
     return W(params)
 
 
-def compute_systematic_res(Wd_cmb, ell_range):
+def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
     Compute the BB spectrum of the systematic residual map.
 
@@ -323,52 +414,36 @@ def compute_systematic_res(Wd_cmb, ell_range):
     Wd_cmb = expand_stokes(Wd_cmb)
     Wd_cmb = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)  # shape (3 , masked_npix)
     Wn_cl = hp.sphtfunc.anafast(Wd_cmb)
-    Wn_cl = Wn_cl[2][ell_range]  # shape (lmax)
-    return Wn_cl
+    Wn_cl = Wn_cl[2][ell_range]  # shape (len(ell_range),)
+    return Wn_cl / fsky  # shape (len(ell_range),)
 
 
-def compute_total_res(s_hat, true_s, ell_range):
+def compute_total_res(s_hat, s_true, fsky, ell_range):
     """
     Compute average BB residual spectrum from multiple noisy realizations.
 
     Args:
         s_hat (StokesQU): Reconstructed CMB (n_sims, ...)
-        true_s (StokesQU): Ground truth CMB map.
+        s_true (StokesQU): Ground truth CMB map.
         ell_range (np.ndarray): Multipole moments.
 
     Returns:
         np.ndarray: Residual BB spectrum.
     """
     s_hat = expand_stokes(s_hat)
-    true_s = expand_stokes(true_s)
-    s_res = s_hat - true_s[np.newaxis, ...]
-    # Stack to shape (nsims, 3, npix)
-    s_res = np.stack([s_res.i, s_res.q, s_res.u], axis=1)
-
-    cl_list = []
-    for i in range(s_res.shape[0]):
-        cl = hp.anafast(s_res[i])  # shape (6, lmax+1)
-        cl_list.append(cl[2][ell_range])  # BB only
-
-    return np.mean(cl_list, axis=0)  # shape (len(ell_range),)
-
-
-def compute_cl_obs_bb(s_hat, s_true, cl_bb_lens, ell_range):
-    # s_hat: shape (nsim, 3, NPIX)
-    # s_true: shape (3, NPIX)
-    s_hat = expand_stokes(s_hat)
     s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
 
     res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
-
     cl_list = []
     for i in range(res.shape[0]):
         cl = hp.anafast(res[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
-    cl_res = np.mean(cl_list, axis=0)  # shape (len(ell_range),)
+    return np.mean(cl_list, axis=0) / fsky  # shape (len(ell_range),)
 
-    return cl_res + cl_bb_lens
+
+def compute_cl_obs_bb(cl_total_res, cl_bb_lens):
+    return cl_total_res + cl_bb_lens
 
 
 # def compute_cl_obs_bb(s_hat, ell_range):
@@ -713,16 +788,28 @@ def plot_cl_residuals(
 ):
     _ = plt.figure(figsize=(12, 8))
 
+    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
+
     # --- Power Spectrum Plot ---
-    plt.plot(ell_range, cl_bb_obs, label=r"$C_\ell^{\mathrm{obs}}$", color="green")
-    plt.plot(ell_range, cl_total_res, label=r"$C_\ell^{\mathrm{res}}$", color="black")
-    plt.plot(ell_range, cl_syst_res, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
-    plt.plot(ell_range, cl_stat_res, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
-    plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
-    plt.plot(ell_range, cl_bb_r0, label=r"$C_\ell^{\mathrm{BB}}(r=0)$", color="orange")
-    plt.plot(ell_range, cl_true, label=r"$C_\ell^{\mathrm{true}}$", color="purple", linestyle="--")
+    plt.plot(ell_range, cl_bb_obs * coeff, label=r"$C_\ell^{\mathrm{obs}}$", color="green")
+    plt.plot(ell_range, cl_total_res * coeff, label=r"$C_\ell^{\mathrm{res}}$", color="black")
+    plt.plot(ell_range, cl_syst_res * coeff, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
+    plt.plot(ell_range, cl_stat_res * coeff, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
+    plt.plot(ell_range, cl_bb_r1 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
+    plt.plot(ell_range, cl_bb_r0 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=0)$", color="orange")
     plt.plot(
-        ell_range, cl_bb_lens, label=r"$C_\ell^{\mathrm{lens}}$", color="purple", linestyle=":"
+        ell_range,
+        cl_true * coeff,
+        label=r"$C_\ell^{\mathrm{true}}$",
+        color="purple",
+        linestyle="--",
+    )
+    plt.plot(
+        ell_range,
+        cl_bb_lens * coeff,
+        label=r"$C_\ell^{\mathrm{lens}}$",
+        color="purple",
+        linestyle=":",
     )
 
     plt.title(f"{name} BB Power Spectra")
@@ -840,7 +927,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
             Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
         )
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
-        wd = compute_w(instrument.frequency, fg_map, run_data)
+        wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
 
         if args.plot_illustrations:
             params, patches = params_to_maps(run_data)
@@ -873,17 +960,18 @@ def plot_results(name, filtered_results, nside, instrument, args):
 
     ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
+    f_sky = full_mask.sum() / len(full_mask)
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
-    cl_syst_res = compute_systematic_res(wd, ell_range)
+    cl_syst_res = compute_systematic_res(wd, f_sky, ell_range)
+    print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
     # Compute the total residuals Cl_res = <CL(s_hat - s_true)>n
-    cl_total_res = compute_total_res(combined_cmb_recon, cmb_stokes, ell_range)
+    cl_total_res = compute_total_res(combined_cmb_recon, s_true, f_sky, ell_range)
     # Compute the statistical residuals Cl_stat = CL_res - CL_syst
-    # cl_stat_res = jnp.clip(cl_total_res - cl_syst_res, 0.0, None)
     cl_stat_res = jnp.abs(cl_total_res - cl_syst_res)
     # Compute cl_true
     cl_true = compute_cl_true_bb(s_true, ell_range)
     # Compute observed Cl_obs = <CL(s_hat)>
-    cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon, s_true, cl_bb_lens, ell_range)
+    cl_bb_obs = compute_cl_obs_bb(cl_total_res, cl_bb_lens)
     # cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon , ell_range)
     # cl_bb_obs = cl_bb_lens + cl_total_res
 
