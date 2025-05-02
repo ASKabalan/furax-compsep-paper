@@ -215,9 +215,9 @@ def main():
 
     if not args.best_only:
         results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
-        results["beta_dust_patches"] = np.zeros((1, len(indices)), dtype=np.int64)
-        results["temp_dust_patches"] = np.zeros((1, len(indices)), dtype=np.int64)
-        results["beta_pl_patches"] = np.zeros((1, len(indices)), dtype=np.int64)
+        results["beta_dust_patches"] = np.zeros((len(indices)), dtype=np.int64)
+        results["temp_dust_patches"] = np.zeros((len(indices)), dtype=np.int64)
+        results["beta_pl_patches"] = np.zeros((len(indices)), dtype=np.int64)
         # Add a new axis to the results so it matches the shape of grid search results
         results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
         np.savez(f"{out_folder}/results.npz", **results)
