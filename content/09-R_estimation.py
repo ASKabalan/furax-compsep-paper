@@ -183,9 +183,9 @@ def log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
     Returns:
         float: Log-likelihood value.
     """
-    cl_model = r * cl_bb_r1 + cl_bb_lens + cl_noise
+    cl_model = r.reshape(-1, 1) * cl_bb_r1 + cl_bb_lens + cl_noise
     term = (2 * ell_range + 1) * (cl_obs / cl_model + np.log(cl_model))
-    return -0.5 * f_sky * np.sum(term)
+    return -0.5 * f_sky * np.sum(term, axis=1)
 
 
 def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
@@ -204,24 +204,21 @@ def estimate_r(cl_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
         Tuple[float, float, float, np.ndarray, np.ndarray]:
             r_best, lower_sigma, upper_sigma, r_grid, likelihood_vals
     """
-    r_grid = np.linspace(-0.003, 0.003, 1000)
-    logL = np.array(
-        [
-            log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky)
-            for r in r_grid
-        ]
-    )
-    L = np.exp(logL - np.max(logL))
-    r_best = r_grid[np.argmax(L)]
+    r_grid = np.linspace(-0.005, 0.005, 1000)
+    logL = log_likelihood(r_grid, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky)
+    finite_logL = logL[np.isfinite(logL)]
+    finite_r = r_grid[np.isfinite(logL)]
+    L = np.exp(finite_logL - np.max(finite_logL))
+    r_best = finite_r[np.argmax(L)]
 
-    rs_pos, L_pos = r_grid[r_grid > r_best], L[r_grid > r_best]
-    rs_neg, L_neg = r_grid[r_grid < r_best], L[r_grid < r_best]
+    rs_pos, L_pos = finite_r[finite_r > r_best], L[finite_r > r_best]
+    rs_neg, L_neg = finite_r[finite_r < r_best], L[finite_r < r_best]
     cum_pos = np.cumsum(L_pos) / np.sum(L_pos)
     cum_neg = np.cumsum(L_neg[::-1]) / np.sum(L_neg)
 
     sigma_pos = rs_pos[np.argmin(np.abs(cum_pos - 0.68))] - r_best if len(rs_pos) > 0 else 0
     sigma_neg = r_best - rs_neg[::-1][np.argmin(np.abs(cum_neg - 0.68))] if len(rs_neg) > 0 else 0
-    return r_best, sigma_neg, sigma_pos, r_grid, L
+    return r_best, sigma_neg, sigma_pos, finite_r, L
 
 
 def get_camb_templates(nside):
@@ -490,8 +487,6 @@ def params_to_maps(run_data):
     T_d = run_data["temp_dust"]
     B_s = run_data["beta_pl"]
 
-    print(f"shape of B_d {B_d.shape} T_d {T_d.shape}")
-
     B_d = B_d.mean(axis=0)[B_d_patches]
     T_d = T_d.mean(axis=0)[T_d_patches]
     B_s = B_s.mean(axis=0)[B_s_patches]
@@ -624,10 +619,17 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
     cl_bb_true = cl_pytree_list[0]["cl_true"]
     ell_range = cl_pytree_list[0]["ell_range"]
+    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
 
-    plt.plot(ell_range, cl_bb_r1, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red", linewidth=2)
     plt.plot(
-        ell_range, cl_bb_true, label=r"$C_\ell^{\mathrm{true}}$", color="purple", linestyle="--"
+        ell_range, cl_bb_r1 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red", linewidth=2
+    )
+    plt.plot(
+        ell_range,
+        cl_bb_true * coeff,
+        label=r"$C_\ell^{\mathrm{true}}$",
+        color="purple",
+        linestyle="--",
     )
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -636,28 +638,28 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         color = colors[i % len(colors)]
         plt.plot(
             ell_range,
-            cl_pytree["cl_bb_obs"],
+            cl_pytree["cl_bb_obs"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{obs}}}}$",
             color=color,
             linestyle="-",
         )
         plt.plot(
             ell_range,
-            cl_pytree["cl_total_res"],
+            cl_pytree["cl_total_res"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
             color=color,
             linestyle="--",
         )
         plt.plot(
             ell_range,
-            cl_pytree["cl_syst_res"],
+            cl_pytree["cl_syst_res"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
             color=color,
             linestyle=":",
         )
         plt.plot(
             ell_range,
-            cl_pytree["cl_stat_res"],
+            cl_pytree["cl_stat_res"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
             color=color,
             linestyle="-.",
@@ -833,6 +835,7 @@ def plot_r_estimator(
     sigma_r_pos,
     sigma_r_true_pos,
     r_grid,
+    r_true_grid,
     L_vals,
     L_vals_true,
     f_sky,
@@ -863,7 +866,7 @@ def plot_r_estimator(
 
     # Plot true likelihood
     plt.plot(
-        r_grid,
+        r_true_grid,
         likelihood_true,
         label=rf"{name} (True) $\hat{{r}} = {r_true:.2e}^{{+{sigma_r_true_pos:.1e}}}_{{-{sigma_r_true_neg:.1e}}}$",  # noqa: E501
         color="black",
@@ -871,10 +874,10 @@ def plot_r_estimator(
         linestyle=":",
     )
     plt.fill_between(
-        r_grid,
+        r_true_grid,
         0,
         likelihood_true,
-        where=(r_grid > r_true - sigma_r_true_neg) & (r_grid < r_true + sigma_r_true_pos),
+        where=(r_true_grid > r_true - sigma_r_true_neg) & (r_true_grid < r_true + sigma_r_true_pos),
         color="black",
         alpha=0.1,
     )
@@ -996,7 +999,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
         cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
     # compute r from true
-    r_true, sigma_r_true_neg, sigma_r_true_pos, _, L_vals_true = estimate_r(
+    r_true, sigma_r_true_neg, sigma_r_true_pos, r_true_grid, L_vals_true = estimate_r(
         cl_true, ell_range, cl_bb_r1, cl_bb_lens, 0.0, f_sky
     )
 
@@ -1010,6 +1013,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
             sigma_r_pos,
             sigma_r_true_pos,
             r_grid,
+            r_true_grid,
             L_vals,
             L_vals_true,
             f_sky,
