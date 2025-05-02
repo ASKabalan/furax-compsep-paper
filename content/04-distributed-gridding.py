@@ -260,9 +260,9 @@ def main():
     # Corresponds to PTEP Table page 82
 
     search_space = {
-        "T_d_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
-        "B_d_patches": jnp.arange(100, 5001, 100),
-        "B_s_patches": jnp.array([1, 5, 20, 30, 50, 60, 70, 80]),
+        "T_d_patches": jnp.array([1, 5, 20, 30, 60, 80]),
+        "B_d_patches": jnp.arange(100, 5001, 500),
+        "B_s_patches": jnp.array([1, 5, 20, 30, 60, 80]),
     }
     search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
 
