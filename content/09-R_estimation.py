@@ -478,7 +478,7 @@ def compute_cl_true_bb(s, ell_range):
 # ============================================
 
 
-def params_to_maps(run_data):
+def params_to_maps(run_data, previous_mask_size):
     B_d_patches = run_data["beta_dust_patches"]
     T_d_patches = run_data["temp_dust_patches"]
     B_s_patches = run_data["beta_pl_patches"]
@@ -498,7 +498,17 @@ def params_to_maps(run_data):
         "beta_pl_patches": B_s_patches,
     }
 
-    return params, patches
+    def normalize_array(arr):
+        unique_vals, indices = np.unique(arr, return_inverse=True)
+        return indices
+
+    patches = jax.tree.map(normalize_array, patches)
+    patches = jax.tree.map(lambda x, p: x + p, patches, previous_mask_size)
+    previous_mask_size = jax.tree.map(
+        lambda x, p: p + np.unique(x).size, patches, previous_mask_size
+    )
+
+    return params, patches, previous_mask_size
 
 
 def plot_params_patches(name, params, patches):
@@ -515,6 +525,7 @@ def plot_params_patches(name, params, patches):
         )
 
     plt.tight_layout()
+    plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
     # Patches on a figure
@@ -545,6 +556,7 @@ def plot_params_patches(name, params, patches):
             cbar=True,
         )
     plt.tight_layout()
+    plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -916,6 +928,12 @@ def plot_results(name, filtered_results, nside, instrument, args):
     cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
     params_list, patches_list = [], []
 
+    previous_mask_size = {
+        "beta_dust_patches": 0,
+        "temp_dust_patches": 0,
+        "beta_pl_patches": 0,
+    }
+
     for folder in filtered_results:
         run_data = dict(np.load(f"{folder}/results.npz"))
         best_params = dict(np.load(f"{folder}/best_params.npz"))
@@ -933,7 +951,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
         wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
 
         if args.plot_illustrations:
-            params, patches = params_to_maps(run_data)
+            params, patches, previous_mask_size = params_to_maps(run_data, previous_mask_size)
             params_list.append(params)
             patches_list.append(patches)
 
