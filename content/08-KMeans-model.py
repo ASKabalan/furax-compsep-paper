@@ -40,7 +40,7 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy import get_clusters, get_cutout_from_mask
+from jax_healpy import get_clusters, get_cutout_from_mask, normalize_by_first_occurrence
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -49,6 +49,7 @@ from instruments import get_instrument
 
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_debug_nans", True)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -192,11 +193,7 @@ def main():
         indices,
         progress_bar=None,
     ):
-        T_d_patches = T_d_patches.squeeze()
-        B_d_patches = B_d_patches.squeeze()
-        B_s_patches = B_s_patches.squeeze()
-
-        patch_indices = {
+        n_regions = {
             "temp_dust_patches": T_d_patches,
             "beta_dust_patches": B_d_patches,
             "beta_pl_patches": B_s_patches,
@@ -206,11 +203,17 @@ def main():
             lambda c, mp: get_clusters(
                 mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
             ),
-            patch_indices,
+            n_regions,
             max_patches,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        # normalize_by_first_occurrence
+        # Normalize the cluster to make indexing more logical
+        guess_clusters = jax.tree.map(
+            lambda g, c, mp: normalize_by_first_occurrence(g, c, mp).astype(jnp.int64),
+            guess_clusters,
+            n_regions,
+            max_patches,
+        )
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
