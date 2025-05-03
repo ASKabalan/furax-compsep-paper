@@ -245,6 +245,7 @@ def main():
                 progress=p,
                 progress_id=noise_id,
                 patch_indices=patch_indices,
+                log_updates=True,
             )
 
         s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices)
@@ -257,6 +258,7 @@ def main():
             final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices
         )
         return {
+            "update_history": final_state.update_history,
             "value": cmb_var,
             "CMB_O": cmb_np,
             "NLL": nll,

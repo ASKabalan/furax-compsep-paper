@@ -339,6 +339,7 @@ def main():
                 N=N,
                 d=noised_d,
                 patch_indices=guess_clusters,
+                log_updates=True,
             )
 
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
@@ -352,6 +353,7 @@ def main():
             )
 
             return {
+                "update_history": final_state.update_history,
                 "value": cmb_var,
                 "CMB_O": cmb_np,
                 "NLL": nll,
