@@ -281,7 +281,7 @@ def main():
         B_d_patches = B_d_patches.squeeze()
         B_s_patches = B_s_patches.squeeze()
 
-        patch_indices = {
+        n_regions = {
             "temp_dust_patches": T_d_patches,
             "beta_dust_patches": B_d_patches,
             "beta_pl_patches": B_s_patches,
@@ -290,10 +290,15 @@ def main():
             lambda c: get_clusters(
                 mask, indices, c, jax.random.key(0), max_centroids=max_centroids
             ),
-            patch_indices,
+            n_regions,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
+        # Normalize the cluster to make indexing more logical
+        guess_clusters = jax.tree.map(
+            lambda g, c: normalize_by_first_occurrence(g, c, max_centroids).astype(jnp.int64),
+            guess_clusters,
+            n_regions,
+        )
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
 
