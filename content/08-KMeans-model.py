@@ -48,7 +48,7 @@ from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, loa
 from instruments import get_instrument
 
 jax.config.update("jax_enable_x64", True)
-
+jax.config.update("jax_debug_nans", True)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -210,6 +210,7 @@ def main():
             max_patches,
         )
         guess_clusters = get_cutout_from_mask(patch_indices, indices)
+        # normalize_by_first_occurrence
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
