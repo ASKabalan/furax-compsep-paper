@@ -39,7 +39,7 @@ from furax.comp_sep import (
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy import get_clusters, get_cutout_from_mask
+from jax_healpy import get_clusters, get_cutout_from_mask, normalize_by_first_occurrence
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -147,16 +147,16 @@ def main():
     dust_nu0 = 160.0
     synchrotron_nu0 = 20.0
     max_centroids = 300
-    patch_indices = {
+    n_regions = {
         "temp_dust_patches": 5,
         "beta_dust_patches": 100,
         "beta_pl_patches": 15,
     }
     get_count = lambda c: c if c is not None else 1  # noqa E731
     params_count = {
-        "beta_dust": get_count(patch_indices["beta_dust_patches"]),
-        "temp_dust": get_count(patch_indices["temp_dust_patches"]),
-        "beta_pl": get_count(patch_indices["beta_pl_patches"]),
+        "beta_dust": get_count(n_regions["beta_dust_patches"]),
+        "temp_dust": get_count(n_regions["temp_dust_patches"]),
+        "beta_pl": get_count(n_regions["beta_pl_patches"]),
     }
 
     mask = get_mask(args.mask)
@@ -164,9 +164,16 @@ def main():
 
     patch_indices = jax.tree.map(
         lambda c: get_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
-        patch_indices,
+        n_regions,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
+    # Normalize the cluster to make indexing more logical
+    masked_clusters = jax.tree.map(
+        lambda g, c: normalize_by_first_occurrence(g, c, max_centroids).astype(jnp.int64),
+        masked_clusters,
+        n_regions,
+    )
+
     masked_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), masked_clusters)
 
     base_params = {
@@ -330,6 +337,7 @@ def main():
             nu=nu,
             d=masked_d,
             guess_clusters=guess_clusters,
+            log_updates=True,
         )
 
         s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
@@ -343,6 +351,7 @@ def main():
         )
 
         return {
+            "update_history": final_state.update_history,
             "value": cmb_var,
             "CMB_O": cmb_np,
             "NLL": nll,
