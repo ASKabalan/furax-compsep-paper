@@ -75,6 +75,12 @@ def parse_args():
         help="Plot illustrations of the results",
     )
     parser.add_argument(
+        "-pv",
+        "--plot-validation-curves",
+        action="store_true",
+        help="Plot validation curves of the results",
+    )
+    parser.add_argument(
         "-ps",
         "--plot-cl-spectra",
         action="store_true",
@@ -545,7 +551,7 @@ def plot_params_patches(name, params, patches):
         shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
         return shuffled_arr.astype(np.float64)
 
-    patches = jax.tree.map(shuffle_labels, patches)
+    # patches = jax.tree.map(shuffle_labels, patches)
 
     for i, (patch_name, patch_map) in enumerate(patches.items()):
         hp.mollview(
@@ -557,6 +563,49 @@ def plot_params_patches(name, params, patches):
         )
     plt.tight_layout()
     plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
+    plt.show()
+
+
+def plot_validation_curves(name, updates_history, value_history):
+    updates_history = np.array(updates_history)
+    value_history = np.array(value_history)
+
+    n_runs = updates_history.shape[0]
+    ncols = 2  # One column for updates, one for values
+    nrows = int(np.ceil(n_runs))  # One row per run
+
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, 4 * nrows))
+
+    if nrows == 1:
+        axs = np.expand_dims(axs, axis=0)  # Ensure 2D indexing
+
+    for i in range(n_runs):
+        updates = updates_history[i].mean(axis=0)
+        values = value_history[i].mean(axis=0)
+
+        # Remove invalid zeros (or could use np.isfinite for NaNs)
+        valid_mask = values != 0.0
+        updates = updates[: len(valid_mask)]
+        values = values[valid_mask]
+        updates = updates[valid_mask]
+        indx = np.arange(len(values))
+
+        axs[i, 0].plot(indx, updates, label=f"Run {i + 1} Updates")
+        axs[i, 0].set_title(f"{name} - Updates History Run {i + 1}")
+        axs[i, 0].set_xlabel("Iteration")
+        axs[i, 0].set_ylabel("Update Norm")
+        axs[i, 0].grid(True)
+        axs[i, 0].legend()
+
+        axs[i, 1].plot(indx, values, label=f"Run {i + 1} NLL")
+        axs[i, 1].set_title(f"{name} - NLL History Run {i + 1}")
+        axs[i, 1].set_xlabel("Iteration")
+        axs[i, 1].set_ylabel("Negative Log-Likelihood")
+        axs[i, 1].grid(True)
+        axs[i, 1].legend()
+
+    plt.tight_layout()
+    # plt.savefig(f"{out_folder}/validation_curves_{name}.pdf", transparent=True, dpi=1200)
     plt.show()
 
 
@@ -631,6 +680,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
     cl_bb_true = cl_pytree_list[0]["cl_true"]
     ell_range = cl_pytree_list[0]["ell_range"]
+    cl_bb_lens = cl_pytree_list[0]["cl_bb_lens"]
     coeff = ell_range * (ell_range + 1) / (2 * np.pi)
 
     plt.plot(
@@ -642,6 +692,13 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         label=r"$C_\ell^{\mathrm{true}}$",
         color="purple",
         linestyle="--",
+    )
+    plt.plot(
+        ell_range,
+        cl_bb_lens * coeff,
+        label=r"$C_\ell^{\mathrm{lens}}$",
+        color="purple",
+        linestyle=":",
     )
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -728,6 +785,8 @@ def plot_all_r_estimation(names, r_pytree_list):
             linestyle="--",
             alpha=0.7,
         )
+
+    plt.axvline(x=0.0, color="black", linestyle="--", alpha=0.7, label="True r=0ip")
 
     plt.title("Likelihood Curves for $r$ (All Runs)")
     plt.xlabel(r"$r$")
@@ -856,7 +915,6 @@ def plot_r_estimator(
 
     # Normalize likelihoods
     likelihood = L_vals / np.max(L_vals)
-    likelihood_true = L_vals_true / np.max(L_vals_true)
 
     # Plot reconstructed likelihood
     plt.plot(
@@ -877,24 +935,7 @@ def plot_r_estimator(
     plt.axvline(r_best, color="purple", linestyle="--", alpha=0.8)
 
     # Plot true likelihood
-    plt.plot(
-        r_true_grid,
-        likelihood_true,
-        label=rf"{name} (True) $\hat{{r}} = {r_true:.2e}^{{+{sigma_r_true_pos:.1e}}}_{{-{sigma_r_true_neg:.1e}}}$",  # noqa: E501
-        color="black",
-        linewidth=2,
-        linestyle=":",
-    )
-    plt.fill_between(
-        r_true_grid,
-        0,
-        likelihood_true,
-        where=(r_true_grid > r_true - sigma_r_true_neg) & (r_true_grid < r_true + sigma_r_true_pos),
-        color="black",
-        alpha=0.1,
-    )
-    plt.axvline(r_true, color="black", linestyle="--", alpha=0.7)
-
+    plt.axvline(0.0, color="purple", linestyle="--", alpha=0.8, label="True r=0")
     # Labels and plot config
     plt.title(f"{name} Likelihood vs $r$")
     plt.xlabel(r"$r$")
@@ -909,7 +950,6 @@ def plot_r_estimator(
 
     # Print
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
-    print(f"Estimated r (True): {r_true:.4e} (+{sigma_r_true_pos:.1e}, -{sigma_r_true_neg:.1e})")
 
 
 def plot_results(name, filtered_results, nside, instrument, args):
@@ -927,6 +967,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
 
     cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
     params_list, patches_list = [], []
+    updates_history, value_history = [], []
 
     previous_mask_size = {
         "beta_dust_patches": 0,
@@ -938,7 +979,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
         run_data = dict(np.load(f"{folder}/results.npz"))
         best_params = dict(np.load(f"{folder}/best_params.npz"))
         mask = np.load(f"{folder}/mask.npy")
-        indices = jnp.where(mask == 1)[0]
+        (indices,) = jnp.where(mask == 1)
 
         # Get best run data
         run_data = jax.tree.map(lambda x: x[0], run_data)
@@ -954,6 +995,10 @@ def plot_results(name, filtered_results, nside, instrument, args):
             params, patches, previous_mask_size = params_to_maps(run_data, previous_mask_size)
             params_list.append(params)
             patches_list.append(patches)
+
+        if args.plot_validation_curves:
+            updates_history.append(run_data["update_history"][..., 0])
+            value_history.append(run_data["update_history"][..., 1])
 
         cmb_recons.append(cmb_recon)
         cmb_maps.append(cmb_true)
@@ -971,6 +1016,13 @@ def plot_results(name, filtered_results, nside, instrument, args):
         params_map = combine_masks(params_list, indices_list, nside)
         patches_map = combine_masks(patches_list, indices_list, nside)
         plot_params_patches(name, params_map, patches_map)
+
+    if args.plot_validation_curves:
+        plot_validation_curves(
+            name,
+            updates_history,
+            value_history,
+        )
 
     s_true = get_sky(64, "c1d1s1").components[0].map.value
 
@@ -1043,6 +1095,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
         "cl_true": cl_true,
         "ell_range": ell_range,
         "cl_bb_obs": cl_bb_obs,
+        "cl_bb_lens": cl_bb_lens,
         "cl_syst_res": cl_syst_res,
         "cl_total_res": cl_total_res,
         "cl_stat_res": cl_stat_res,
@@ -1088,6 +1141,7 @@ def main():
         args.plot_all_cmb_recon = True
         args.plot_all_spectra = True
         args.plot_all_r_estimation = True
+        args.plot_validation_curves = True
 
     results_to_plot = []
     for filt_kw in filter_kw:

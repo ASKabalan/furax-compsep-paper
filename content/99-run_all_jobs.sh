@@ -33,7 +33,7 @@ sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --jo
 # Zone 7 GALACTIC mask
 sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GAL060_L_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GALACTIC -i LiteBIRD
 # =============================================================================
-# multires MODELS
+# Multi MODELS
 # =============================================================================
 # Zone 1 Low galactic represented by GAL020
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_PTEP_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 0 2  -tag c1d1s1 -m GAL020 -i LiteBIRD
@@ -53,16 +53,22 @@ sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --jo
 # =============================================================================
 # KMEANS Patch MODELS
 # =============================================================================
-# Zone 1 Upper mask of GAL020
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_U_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 5 1  -tag c1d1s1 -m GAL020_U -i LiteBIRD
-# Zone 2 Lower mask of GAL020
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_L_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 5 1  -tag c1d1s1 -m GAL020_L -i LiteBIRD
-# Zone 3 Upper mask of GAL040 - GAL020
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL040_U_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 5 5  -tag c1d1s1 -m GAL040_U -i LiteBIRD
-# Zone 4 Lower mask of GAL040 - GAL024
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL040_L_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 50 5  -tag c1d1s1 -m GAL040_L -i LiteBIRD
-# Zone 5 Upper mask of GAL060 - GAL040
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL060_U_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 200 20 1  -tag c1d1s1 -m GAL060_U -i LiteBIRD
-# Zone 6 Lower mask of GAL060 - GAL040
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL060_L_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 300 70 20  -tag c1d1s1 -m GAL060_L -i LiteBIRD
+# Zone 1 mask of GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 5 1  -tag c1d1s1 -m GAL020_U -i LiteBIRD
+# Zone 2 mask of GAL040 - GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL040_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 100 5 5  -tag c1d1s1 -m GAL040_U -i LiteBIRD
+# Zone 3 mask of GAL060 - GAL040
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL060_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 200 20 1  -tag c1d1s1 -m GAL060_U -i LiteBIRD
+# Zone 4 mask of GALACTIC
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GALACTIC_KMEANS_noise-N-a100 99-slurm_runner.slurm 08-KMeans-model.py  -n 64 -ns 100 -nr 1.0 -pc 200 20 1  -tag c1d1s1 -m GALACTIC -i LiteBIRD
 # =============================================================================
+# grid_search MODELS on both parts UPPER and LOWER
+# =============================================================================
+# Zone 1 mask of GAL020
+sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GAL020_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL020 -i LiteBIRD
+# Zone 2 mask of GAL040 - GAL020
+sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GAL040_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL040 -i LiteBIRD
+# Zone 3 mask of GAL060 - GAL0
+sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GAL060_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL060 -i LiteBIRD
+# Zone 4 mask of GALACTIC
+sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GALACTIC_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GALACTIC -i LiteBIRD
