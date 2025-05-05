@@ -259,10 +259,17 @@ def main():
 
     # Corresponds to PTEP Table page 82
 
+    # To be used on half masks
     search_space = {
         "T_d_patches": jnp.array([1, 5, 20, 50, 80]),
         "B_d_patches": jnp.arange(2500, 5001, 500),
         "B_s_patches": jnp.array([1, 5, 20, 50, 80]),
+    }
+    # To be used on full masks
+    search_space = {
+        "T_d_patches": jnp.array([1, 20, 80 , 120,160]),
+        "B_d_patches": jnp.arange(3000, 10001, 1000),
+        "B_s_patches": jnp.array([1, 20, 80 , 120,160]),
     }
     search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
 
