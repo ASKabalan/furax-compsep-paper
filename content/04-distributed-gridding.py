@@ -257,20 +257,21 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
-    # Corresponds to PTEP Table page 82
-
-    # To be used on half masks
     search_space = {
         "T_d_patches": jnp.array([1, 5, 20, 50, 80]),
         "B_d_patches": jnp.arange(2500, 5001, 500),
         "B_s_patches": jnp.array([1, 5, 20, 50, 80]),
     }
-    # To be used on full masks
-    search_space = {
-        "T_d_patches": jnp.array([1, 20, 80, 120, 160]),
-        "B_d_patches": jnp.arange(3000, 10001, 1000),
-        "B_s_patches": jnp.array([1, 20, 80, 120, 160]),
-    }
+
+    if indices.size < 5000:
+        print("10% of the sky mask is used ")
+    elif indices.size < 10000:
+        print("20% of the sky mask is used ")
+        search_space = jax.tree.map(lambda x: x * 2, search_space)
+    else:
+        print("40% of the sky mask is used ")
+        search_space = jax.tree.map(lambda x: x * 4, search_space)
+
     search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
 
     max_count = {
