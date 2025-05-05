@@ -332,11 +332,12 @@ def main():
             N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
             solver = optax.lbfgs()
+            opt = optax.chain(optax.zero_nans(), solver)
             final_params, final_state = optimize(
                 guess_params,
                 negative_log_likelihood_fn,
-                solver,
-                max_iter=200,
+                opt,
+                max_iter=1000,
                 tol=1e-10,
                 progress=progress_bar,
                 progress_id=noise_id,

@@ -48,7 +48,6 @@ from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, loa
 from instruments import get_instrument
 
 jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_debug_nans", True)
 
 
 def parse_args():
@@ -134,9 +133,9 @@ def main():
     mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
 
-    B_dust_patches = args.patch_count[0]
-    T_dust_patches = args.patch_count[1]
-    B_synchrotron_patches = args.patch_count[2]
+    B_dust_patches = min(args.patch_count[0], indices.size)
+    T_dust_patches = min(args.patch_count[1], indices.size)
+    B_synchrotron_patches = min(args.patch_count[2], indices.size)
 
     base_params = {
         "beta_dust": 1.54,
@@ -235,10 +234,11 @@ def main():
             N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
             solver = optax.lbfgs()
+            opt = optax.chain(optax.zero_nans(), solver)
             final_params, final_state = optimize(
                 guess_params,
                 negative_log_likelihood_fn,
-                solver,
+                opt,
                 max_iter=1000,
                 tol=1e-10,
                 progress=progress_bar,
