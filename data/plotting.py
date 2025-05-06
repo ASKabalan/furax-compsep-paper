@@ -12,7 +12,12 @@ import numpy as np
 import seaborn as sns
 from grid_search_data import select_best_params
 from jax_healpy import from_cutout_to_fullmap
+from matplotlib import cycler
+import scienceplots  # noqa: F401
+# Set the style for the plots
+plt.style.use("science")
 
+jax.config.update("jax_enable_x64", True)
 
 def filter_constant_param(input_dict, indx):
     return jax.tree.map(lambda x: x[indx], input_dict)
@@ -24,8 +29,11 @@ def sort_results(results, key):
 
 
 def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot):
-    fig, axs = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
-    colors = plt.cm.viridis(np.linspace(0, 1, len(nb_to_plot)))
+    fig, axs = plt.subplots(2, 1, figsize=(5, 5), sharex=True)
+
+    # Define custom, print-friendly colors
+    colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#4a4a4a"]
+    plt.rc("axes", prop_cycle=cycler(color=colors))
 
     for i, nb in enumerate(nb_to_plot):
         run = filter_constant_param(results, nb)
@@ -37,52 +45,51 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         filtered = sort_results(filtered, "B_d_patches")
 
         x = filtered["B_d_patches"]
-
         y_variance_mean = filtered["value"].mean(axis=1)
         y_variance_std = filtered["value"].std(axis=1)
-
         y_likelihood_mean = -filtered["NLL"].mean(axis=1)
         y_likelihood_std = filtered["NLL"].std(axis=1)
 
         label = f"T_d={T_d:.2f}, B_s={B_s:.2f}"
 
-        # Plot CMB Variance with error bars
+        # CMB Variance plot: line + scatter + error bars
+        axs[0].plot(x, y_variance_mean, "-", alpha=0.7)
         axs[0].errorbar(
             x,
             y_variance_mean,
             yerr=y_variance_std,
-            fmt="o-",
-            color=colors[i],
+            fmt="o",
             label=label,
             capsize=3,
         )
 
-        # Plot Likelihood with error bars
+        # Likelihood plot: line + scatter + error bars
+        axs[1].plot(x, y_likelihood_mean, "-", alpha=0.7)
         axs[1].errorbar(
             x,
             y_likelihood_mean,
             yerr=y_likelihood_std,
-            fmt="o-",
-            color=colors[i],
+            fmt="o",
             label=label,
             capsize=3,
         )
 
+    # Mark best B_d
     best_B_d = best_params["B_d_patches"]
     axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {best_B_d:.2f}")
     axs[1].axvline(best_B_d, color="red", linestyle="--")
 
-    # Labels and titles
+    # Improve axis labels and titles
     axs[0].set_ylabel("Mean CMB Variance")
-    axs[0].set_title("CMB Variance vs B_d_patches")
-    axs[0].legend()
+    axs[0].set_title("Mean CMB Variance vs Dust Index Patches ($K_{\\beta_d}$)")
     axs[0].grid(True)
+    axs[0].legend()
 
-    axs[1].set_xlabel("B_d_patches")
+    axs[1].set_xlabel("Number of Dust Index Patches ($K_{\\beta_d}$)")
     axs[1].set_ylabel("Mean Likelihood")
-    axs[1].set_title("Likelihood vs B_d_patches")
-    axs[1].legend()
+    axs[1].set_title("Mean Log-Likelihood vs Dust Index Patches ($K_{\\beta_d}$)")
     axs[1].grid(True)
+    axs[1].legend()
 
     plt.tight_layout()
     plt.savefig(
@@ -169,7 +176,7 @@ def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
     plt.tight_layout()
     plt.savefig(
         f"{out_folder}/cmb_nll_vs_B_d_patches.png",
-        dpi=600,
+        dpi=1200,
         transparent=True,
     )
 
@@ -197,7 +204,7 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
     )
     plt.savefig(
         f"{out_folder}/best_result_healpix_projection.png",
-        dpi=600,
+        dpi=1200,
         transparent=True,
     )
 
@@ -321,6 +328,6 @@ def plot_grid_search_results(
     plt.tight_layout()
     plt.savefig(
         f"{out_folder}/grid_search_results.png",
-        dpi=600,
+        dpi=1200,
         transparent=True,
     )
