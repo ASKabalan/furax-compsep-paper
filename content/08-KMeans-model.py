@@ -121,7 +121,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    out_folder = f"kmeans_{args.tag}_BD_{args.patch_count[0]}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+    out_folder = f"kmeans_{args.tag}_BD_{args.patch_count[0]}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"  # noqa : E501
     os.makedirs(out_folder, exist_ok=True)
 
     nside = args.nside

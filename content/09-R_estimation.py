@@ -375,34 +375,6 @@ def compute_w(nu, d, results, result_file):
     return W
 
 
-def old_compute_w(nu, d, results, result_file):
-    """
-    Apply the linear component separation operator W to the input sky.
-
-    Args:
-        nu (np.ndarray): Instrument frequencies.
-        d (Stokes): Input sky without CMB.
-        results (dict): Fitted spectral parameters.
-
-    Returns:
-        StokesQU: Reconstructed CMB map.
-    """
-    dust_nu0 = 160.0
-    synchrotron_nu0 = 20.0
-
-    params = {k: results[k] for k in ["beta_dust", "beta_pl", "temp_dust"]}
-    patches = {k: results[k] for k in ["beta_dust_patches", "beta_pl_patches", "temp_dust_patches"]}
-    params = jax.tree.map(lambda x: x.mean(axis=0), params)
-
-    def W(p):
-        N = HomothetyOperator(1.0, _in_structure=d.structure)
-        return sky_signal(
-            p, nu, N, d, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0, patch_indices=patches
-        )["cmb"]
-
-    return W(params)
-
-
 def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
     Compute the BB spectrum of the systematic residual map.
@@ -532,7 +504,6 @@ def plot_params_patches(name, params, patches):
 
     plt.tight_layout()
     plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
 
     # Patches on a figure
     _ = plt.figure(figsize=(12, 8))
@@ -551,7 +522,7 @@ def plot_params_patches(name, params, patches):
         shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
         return shuffled_arr.astype(np.float64)
 
-    # patches = jax.tree.map(shuffle_labels, patches)
+    patches = jax.tree.map(shuffle_labels, patches)
 
     for i, (patch_name, patch_map) in enumerate(patches.items()):
         hp.mollview(
@@ -563,7 +534,6 @@ def plot_params_patches(name, params, patches):
         )
     plt.tight_layout()
     plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 def plot_validation_curves(name, updates_history, value_history):
@@ -605,8 +575,7 @@ def plot_validation_curves(name, updates_history, value_history):
         axs[i, 1].legend()
 
     plt.tight_layout()
-    # plt.savefig(f"{out_folder}/validation_curves_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
+    plt.savefig(f"{out_folder}/validation_curves_{name}.pdf", transparent=True, dpi=1200)
 
 
 # ========== Plot All runs ===================
@@ -667,7 +636,6 @@ def plot_all_cmb(names, cmb_pytree_list):
 
     plt.tight_layout()
     plt.savefig(f"{out_folder}cmb_recon.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
@@ -743,7 +711,6 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.legend(fontsize="small", ncol=2)
     plt.tight_layout()
     plt.savefig(f"{out_folder}/bb_spectra.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 def plot_all_r_estimation(names, r_pytree_list):
@@ -795,7 +762,6 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.legend(fontsize="medium")
     plt.tight_layout()
     plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 # ========== Plot Single Run ===================
@@ -844,7 +810,6 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
     plt.title(f"{name} CMB Reconstruction")
     plt.tight_layout()
     plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 def plot_cl_residuals(
@@ -894,7 +859,6 @@ def plot_cl_residuals(
     plt.legend()
     plt.tight_layout()
     plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
 
 
 def plot_r_estimator(
@@ -946,7 +910,6 @@ def plot_r_estimator(
 
     # Save + Show
     plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood_{name}.pdf", transparent=True, dpi=1200)
-    plt.show()
 
     # Print
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
@@ -1120,6 +1083,28 @@ def plot_results(name, filtered_results, nside, instrument, args):
 # =========================================
 
 
+def parse_filter_kw(kw_string):
+    """
+    Parse a string like 'A_(B|C)_D' into a list of sets (ORs within, AND across).
+    """
+    groups = kw_string.split("_")
+    parsed = []
+    for group in groups:
+        if group.startswith("(") and group.endswith(")"):
+            options = group[1:-1].split("|")
+            parsed.append(set(options))
+        else:
+            parsed.append({group})
+    return parsed
+
+
+def matches_filter(name_parts, filter_groups):
+    """
+    Check if name_parts satisfies the AND-of-OR filter groups.
+    """
+    return all(any(option in name_parts for option in group) for group in filter_groups)
+
+
 def main():
     """
     Entry point for evaluating and plotting r estimation from multiple runs.
@@ -1130,8 +1115,7 @@ def main():
     result_folder = "../results/"
     print("Loading data...")
     results = os.listdir(result_folder)
-    filter_kw = [kw.split("_") for kw in args.runs]
-    results_kw = {kw: kw.split("_") for kw in results}
+    results_kw = {name: name.split("_") for name in results}
 
     os.makedirs(out_folder, exist_ok=True)
 
@@ -1142,19 +1126,21 @@ def main():
         args.plot_all_spectra = True
         args.plot_all_r_estimation = True
         args.plot_validation_curves = True
+        args.plot_illustrations = True
 
     results_to_plot = []
-    for filt_kw in filter_kw:
+    for filter_expr in args.runs:  # args.runs contains strings like "A_(B|C)_D"
+        filter_groups = parse_filter_kw(filter_expr)
         group = []
         for result_name, res_kw in results_kw.items():
-            if all(kw in res_kw for kw in filt_kw):
+            if matches_filter(res_kw, filter_groups):
                 group.append(os.path.join(result_folder, result_name))
-
-        if len(group) > 0:
+        if group:
             results_to_plot.append(group)
 
     print("Results to plot: ", results_to_plot)
     assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
+
     cmb_pytree_list = []
     cl_pytree_list = []
     r_pytree_list = []
@@ -1169,6 +1155,8 @@ def main():
     if args.plot_all_spectra:
         plot_all_cl_residuals(args.titles, cl_pytree_list)
         plot_all_r_estimation(args.titles, r_pytree_list)
+
+    plt.show()
 
 
 if __name__ == "__main__":

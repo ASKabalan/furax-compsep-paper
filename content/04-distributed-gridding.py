@@ -258,19 +258,10 @@ def main():
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
     search_space = {
-        "T_d_patches": jnp.array([1, 5, 20, 50, 80]),
-        "B_d_patches": jnp.arange(2500, 5001, 500),
-        "B_s_patches": jnp.array([1, 5, 20, 50, 80]),
+        "T_d_patches": jnp.array([500, 1000, 1500, 2000, 5000, 10000]),
+        "B_d_patches": jnp.array([7000, 8000, 9000, 10000]),
+        "B_s_patches": jnp.array([500, 1000, 1500, 2000, 5000, 10000]),
     }
-
-    if indices.size < 5000:
-        print("10% of the sky mask is used ")
-    elif indices.size < 10000:
-        print("20% of the sky mask is used ")
-        search_space = jax.tree.map(lambda x: x * 2, search_space)
-    else:
-        print("40% of the sky mask is used ")
-        search_space = jax.tree.map(lambda x: x * 4, search_space)
 
     search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
 
