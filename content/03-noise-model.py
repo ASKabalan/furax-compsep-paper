@@ -49,8 +49,6 @@ from plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
 )
 
-jax.config.update("jax_enable_x64", True)
-
 
 def parse_args():
     parser = argparse.ArgumentParser(

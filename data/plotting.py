@@ -9,15 +9,17 @@ import jax.numpy as jnp
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots  # noqa: F401
 import seaborn as sns
 from grid_search_data import select_best_params
 from jax_healpy import from_cutout_to_fullmap
 from matplotlib import cycler
-import scienceplots  # noqa: F401
+
 # Set the style for the plots
 plt.style.use("science")
 
 jax.config.update("jax_enable_x64", True)
+
 
 def filter_constant_param(input_dict, indx):
     return jax.tree.map(lambda x: x[indx], input_dict)

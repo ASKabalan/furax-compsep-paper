@@ -27,7 +27,11 @@ from jax_healpy import combine_masks
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
+import scienceplots  # noqa: F401
 from instruments import get_instrument
+
+# Set the style for the plots
+plt.style.use("science")
 
 out_folder = "plots/"
 
@@ -491,7 +495,7 @@ def params_to_maps(run_data, previous_mask_size):
 
 def plot_params_patches(name, params, patches):
     # Params on a figure
-    _ = plt.figure(figsize=(12, 8))
+    _ = plt.figure(figsize=(7.5, 13))
 
     for i, (param_name, param_map) in enumerate(params.items()):
         hp.mollview(
@@ -506,7 +510,7 @@ def plot_params_patches(name, params, patches):
     plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
 
     # Patches on a figure
-    _ = plt.figure(figsize=(12, 8))
+    _ = plt.figure(figsize=(7.5, 13))
 
     np.random.seed(0)
 
@@ -638,6 +642,46 @@ def plot_all_cmb(names, cmb_pytree_list):
     plt.savefig(f"{out_folder}cmb_recon.pdf", transparent=True, dpi=1200)
 
 
+def plot_all_variances(names, cmb_pytree_list):
+    _ = plt.figure(figsize=(8, 6))
+
+    for i, (name, cmb_pytree) in enumerate(zip(names, cmb_pytree_list)):
+        # Mask unseen pixels for variance calculation
+        recon_mean_q = cmb_pytree["recon_mean"].q[cmb_pytree["recon_mean"].q != hp.UNSEEN]
+        recon_mean_u = cmb_pytree["recon_mean"].u[cmb_pytree["recon_mean"].u != hp.UNSEEN]
+
+        # Variance of reconstructed CMB (Q + U)
+        variance = np.var(recon_mean_q) + np.var(recon_mean_u)
+
+        # Count of synchrotron patches
+        patches = cmb_pytree["patches_map"]
+        B_s_patches = patches["temp_dust_patches"]
+        B_s_count = np.unique(B_s_patches[B_s_patches != hp.UNSEEN]).size
+
+        # Plot variance vs. number of synchrotron patches
+        plt.scatter(
+            B_s_count,
+            variance,
+            label=f"{name} ({B_s_count})",
+            color="black",
+        )
+        plt.annotate(
+            name,
+            (B_s_count, variance),
+            textcoords="offset points",
+            xytext=(5, 5),
+            ha="left",
+            fontsize=9,
+        )
+
+    plt.xlabel("Number of Synchrotron Patches")
+    plt.ylabel("Variance of Reconstructed CMB (Q + U)")
+    plt.title("CMB Reconstruction Variance vs. Patch Count")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(f"{out_folder}/variance_vs_patches.pdf", transparent=True, dpi=1200)
+
+
 def plot_all_cl_residuals(names, cl_pytree_list):
     _ = plt.figure(figsize=(8, 6))
 
@@ -646,60 +690,65 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         return
 
     cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
-    cl_bb_true = cl_pytree_list[0]["cl_true"]
+    # cl_bb_true = cl_pytree_list[0]["cl_true"]
     ell_range = cl_pytree_list[0]["ell_range"]
     cl_bb_lens = cl_pytree_list[0]["cl_bb_lens"]
     coeff = ell_range * (ell_range + 1) / (2 * np.pi)
 
     plt.plot(
-        ell_range, cl_bb_r1 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red", linewidth=2
-    )
-    plt.plot(
         ell_range,
-        cl_bb_true * coeff,
-        label=r"$C_\ell^{\mathrm{true}}$",
-        color="purple",
-        linestyle="--",
+        cl_bb_r1 * coeff,
+        label=r"$C_\ell^{\mathrm{BB}}(r=1)$",
+        color="black",
+        linewidth=2,
     )
+    # plt.plot(
+    #    ell_range,
+    #    cl_bb_true * coeff,
+    #    label=r"$C_\ell^{\mathrm{true}}$",
+    #    color="purple",
+    #    linestyle="--",
+    # )
     plt.plot(
         ell_range,
         cl_bb_lens * coeff,
         label=r"$C_\ell^{\mathrm{lens}}$",
-        color="purple",
+        color="black",
         linestyle=":",
+        linewidth=2,
     )
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     for i, (name, cl_pytree) in enumerate(zip(names, cl_pytree_list)):
         color = colors[i % len(colors)]
-        plt.plot(
-            ell_range,
-            cl_pytree["cl_bb_obs"] * coeff,
-            label=rf"{name} $C_\ell^{{\mathrm{{obs}}}}$",
-            color=color,
-            linestyle="-",
-        )
-        plt.plot(
-            ell_range,
-            cl_pytree["cl_total_res"] * coeff,
-            label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
-            color=color,
-            linestyle="--",
-        )
+        # plt.plot(
+        #    ell_range,
+        #    cl_pytree["cl_bb_obs"] * coeff,
+        #    label=rf"{name} $C_\ell^{{\mathrm{{obs}}}}$",
+        #    color=color,
+        #    linestyle="-",
+        # )
+        # plt.plot(
+        #    ell_range,
+        #    cl_pytree["cl_total_res"] * coeff,
+        #    label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
+        #    color=color,
+        #    linestyle="--",
+        # )
         plt.plot(
             ell_range,
             cl_pytree["cl_syst_res"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
             color=color,
-            linestyle=":",
+            linestyle="-",
         )
         plt.plot(
             ell_range,
             cl_pytree["cl_stat_res"] * coeff,
             label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
             color=color,
-            linestyle="-.",
+            linestyle=":",
         )
 
     plt.title("BB Power Spectra (All Runs)")
@@ -753,7 +802,7 @@ def plot_all_r_estimation(names, r_pytree_list):
             alpha=0.7,
         )
 
-    plt.axvline(x=0.0, color="black", linestyle="--", alpha=0.7, label="True r=0ip")
+    plt.axvline(x=0.0, color="black", linestyle="--", alpha=0.7, label="True r=0")
 
     plt.title("Likelihood Curves for $r$ (All Runs)")
     plt.xlabel(r"$r$")
@@ -1052,7 +1101,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
             f_sky,
         )
 
-    cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean}
+    cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean, "patches_map": patches_map}
     cl_pytree = {
         "cl_bb_r1": cl_bb_r1,
         "cl_true": cl_true,
@@ -1150,6 +1199,8 @@ def main():
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
 
+    if args.plot_illustrations:
+        plot_all_variances(args.titles, cmb_pytree_list)
     if args.plot_all_cmb_recon:
         plot_all_cmb(args.titles, cmb_pytree_list)
     if args.plot_all_spectra:
