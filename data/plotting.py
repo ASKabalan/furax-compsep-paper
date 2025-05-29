@@ -72,7 +72,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise_3D(results, best_params, out_folder, 
             B_d_grid, realization_grid, nll_grid, cmap=cm.inferno, edgecolor="none"
         )
         ax2.set_title(
-            f"Negative Log-Likelihood vs $K_{{\\beta_d}}$ and Realization\n($T_d$={T_d}, $B_s$={B_s})" # noqa: E501
+            f"Negative Log-Likelihood vs $K_{{\\beta_d}}$ and Realization\n($T_d$={T_d}, $B_s$={B_s})"  # noqa: E501
         )
         ax2.set_xlabel("$K_{\\beta_d}$")
         ax2.set_ylabel("Realization")
