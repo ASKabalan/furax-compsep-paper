@@ -13,7 +13,7 @@ import scienceplots  # noqa: F401
 import seaborn as sns
 from grid_search_data import select_best_params
 from jax_healpy import from_cutout_to_fullmap
-from matplotlib import cycler
+from matplotlib import cm, cycler
 
 # Set the style for the plots
 plt.style.use("science")
@@ -30,8 +30,66 @@ def sort_results(results, key):
     return jax.tree.map(lambda x: x[indices], results)
 
 
+def plot_cmb_nll_vs_B_d_patches_with_noise_3D(results, best_params, out_folder, nb_to_plot):
+    for i, nb in enumerate(nb_to_plot):
+        run = filter_constant_param(results, nb)
+        B_s = run["B_s_patches"]
+        T_d = run["T_d_patches"]
+
+        mask = (results["B_s_patches"] == B_s) & (results["T_d_patches"] == T_d)
+        filtered = filter_constant_param(results, mask)
+        filtered = sort_results(filtered, "B_d_patches")
+
+        x_vals = filtered["B_d_patches"]  # shape (n_configs,)
+        values = filtered["value"]  # shape (n_configs, n_realizations)
+        nll = filtered["NLL"]  # same shape
+
+        # Create meshgrid for realization index and B_d
+        B_d_grid, realization_grid = np.meshgrid(x_vals, np.arange(values.shape[1]), indexing="ij")
+
+        # Transpose data so dimensions match meshgrid
+        variance_grid = values
+        nll_grid = -nll  # Negative log-likelihood
+
+        fig = plt.figure(figsize=(10, 8))
+
+        # --- Variance plot ---
+        ax1 = fig.add_subplot(211, projection="3d")
+        surf1 = ax1.plot_surface(
+            B_d_grid, realization_grid, variance_grid, cmap=cm.viridis, edgecolor="none"
+        )
+        ax1.set_title(
+            f"CMB Variance vs $K_{{\\beta_d}}$ and Realization\n($T_d$={T_d}, $B_s$={B_s})"
+        )
+        ax1.set_xlabel("$K_{\\beta_d}$")
+        ax1.set_ylabel("Realization")
+        ax1.set_zlabel("CMB Variance")
+        fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10)
+
+        # --- NLL plot ---
+        ax2 = fig.add_subplot(212, projection="3d")
+        surf2 = ax2.plot_surface(
+            B_d_grid, realization_grid, nll_grid, cmap=cm.inferno, edgecolor="none"
+        )
+        ax2.set_title(
+            f"Negative Log-Likelihood vs $K_{{\\beta_d}}$ and Realization\n($T_d$={T_d}, $B_s$={B_s})" # noqa: E501
+        )
+        ax2.set_xlabel("$K_{\\beta_d}$")
+        ax2.set_ylabel("Realization")
+        ax2.set_zlabel("Negative Log-Likelihood")
+        fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
+
+        plt.tight_layout()
+        plt.savefig(
+            f"{out_folder}/3d_surface_Td_{T_d}_Bs_{B_s}.pdf",
+            dpi=300,
+            transparent=False,
+        )
+        plt.close(fig)
+
+
 def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot):
-    fig, axs = plt.subplots(2, 1, figsize=(5, 5), sharex=True)
+    fig, axs = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
 
     # Define custom, print-friendly colors
     colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#4a4a4a"]
@@ -52,7 +110,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         y_likelihood_mean = -filtered["NLL"].mean(axis=1)
         y_likelihood_std = filtered["NLL"].std(axis=1)
 
-        label = f"T_d={T_d:.2f}, B_s={B_s:.2f}"
+        label = f"T_d={int(T_d)}, B_s={int(B_s)}"
 
         # CMB Variance plot: line + scatter + error bars
         axs[0].plot(x, y_variance_mean, "-", alpha=0.7)
@@ -78,7 +136,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
 
     # Mark best B_d
     best_B_d = best_params["B_d_patches"]
-    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {best_B_d:.2f}")
+    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {int(best_B_d)}")
     axs[1].axvline(best_B_d, color="red", linestyle="--")
 
     # Improve axis labels and titles

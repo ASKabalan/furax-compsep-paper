@@ -234,8 +234,8 @@ Each element in this grid represents a distinct clustering configuration. For ev
 
 To handle this computational load efficiently, we combine two forms of parallelism:
 \begin{itemize}
-    \item \textbf{Intra-device parallelism} via \texttt{jax.vmap}, enabling batched execution of component separation fits on a single GPU.
-    \item \textbf{Inter-device parallelism} using MPI-style slicing: the global parameter grid is evenly partitioned across all processes, regardless of whether the number of combinations is divisible by the number of workers.
+    \item Intra-device parallelism via \texttt{jax.vmap}, enabling batched execution of component separation fits on a single GPU.
+    \item Inter-device parallelism using MPI-style slicing: the global parameter grid is evenly partitioned across all processes, regardless of whether the number of combinations is divisible by the number of workers.
 \end{itemize}
 
 Formally, for \( P \) total processes, each process \( I \in [0, P-1] \) is assigned a contiguous chunk of the global grid:
@@ -246,12 +246,12 @@ Formally, for \( P \) total processes, each process \( I \in [0, P-1] \) is assi
 This ensures robust workload distribution, load balancing, and fault tolerance. It avoids assumptions about grid divisibility and gracefully handles incomplete or interrupted runs—making it well suited for large-scale HPC deployments.
 
 Each batch is independently evaluated, with results checkpointed to disk for aggregation and analysis. This modular design supports recovery, progress tracking, and reproducibility—all essential for exploratory model selection pipelines.
-
 \subsection{Clustering Objective: Variance Minimization}
 \label{subsec:variance_minimization}
 
-For each clustering configuration in our grid, we perform maximum likelihood estimation of the spectral parameters:
+Let \(\{\mathcal{C}\}\) denote the set of all clustering configurations evaluated in our grid search, and let \(\mathcal{C}_k \in \{\mathcal{C}\}\) denote an individual configuration.
 
+For each clustering configuration in our grid, we perform maximum likelihood estimation of the spectral parameters:
 \begin{equation}
 \label{eq:grid_search}
 \forall\, \mathcal{C}_k \in \{\mathcal{C}\} : \quad \boldsymbol{\beta}_k^* = \arg \max_{\boldsymbol{\beta}_k} \, \mathcal{L}_{\mathrm{spec}}(\boldsymbol{\beta}_k, \mathcal{C}_k)
@@ -264,12 +264,12 @@ Using these parameters, we reconstruct the sky components via:
                  &= W(\mathbf{d})
 \end{align}
 
-
-From the reconstructed components, we extract the CMB signal \( \hat{s}_{\mathrm{CMB}} \). We then evaluate its variance across noise realizations:
+From the reconstructed components, we extract the CMB signal \( \hat{s}_{\mathrm{CMB}} \). We compute its variance across noise realizations and average over sky pixels to obtain the scalar objective:
 \begin{equation}
 \label{eq:min_var}
-    \sigma^2_{\mathrm{CMB}} = \left\langle \mathrm{Var} \left[ \hat{s}_{\mathrm{CMB}}(\hat{n}) \right] \right\rangle_{\text{noise}}
+    \sigma^2_{\mathrm{CMB}} = \left\langle \mathrm{Var}_{i} \left[ \hat{s}^{(i)}_{\mathrm{CMB}} \right] \right\rangle_{\text{pixels}}
 \end{equation}
+
 
 Although the spectral parameters \( \boldsymbol{\beta} \) are defined in a clustered fashion—varying across spatial regions—the reconstructed components \( \hat{\mathbf{s}} \), and hence \( \hat{s}_{\mathrm{CMB}} \), are evaluated as a full-sky solution.
 
@@ -278,9 +278,6 @@ This variance serves as the loss function for selecting the best clustering conf
 Minimizing this variance reduces both statistical uncertainty and systematic leakage in the \( B \)-mode power spectrum. As shown in \citep{Errard2015}, residuals from imperfect foreground modeling propagate into biases on \( C_\ell^{BB} \), making this metric critical for achieving robust and unbiased cosmological constraints.
 
 \subsection{The FURAX Framework}
-
-\wk{PAPER IN PREP}
-
 
 To support this method, we introduce \textsc{FURAX}~\citep{FURAX}---a modular JAX-powered framework to express and optimize parametric component separation likelihoods.
 
@@ -293,7 +290,8 @@ Key features:
     \item Fully vectorized execution across simulation ensembles and clustering grids, leveraging \texttt{JAX}~\citep{JAX} for efficient large-scale computation.
 \end{itemize}
 
-All core computations in FURAX are implemented using memory-efficient \textit{linear operators}, avoiding explicit dense matrices. This symbolic and modular approach allows FURAX to express and optimize large, realistic models without the memory bottlenecks associated with explicit matrix construction.
+All core computations in FURAX are implemented using memory-efficient linear operators, avoiding explicit dense matrices. This symbolic and modular approach allows FURAX to express and optimize large, realistic models without the memory bottlenecks associated with explicit matrix construction. Ongoing companion developments include forthcoming works on HWP modeling (Tsang King Sang et al.), the MegaTop pipeline (Beringue et al.), the ATOP map-maker (Sohn et al.), spherical harmonic tooling (Basyrrov), and extended forecast studies (Villarrubia-Aguilar et al.).
+
 
 In the scope of this paper, we assume isotropic white noise and matched beam resolution. Although advanced treatments (e.g., beam convolution, correlated noise) exist in the literature, they are not our focus here. However, FURAX is designed to make such extensions straightforward in future developments, including applications to map-making, half-wave plate systematics, atmospheric effects, and beyond.
 
@@ -314,17 +312,17 @@ The central task in parametric component separation is the estimation of spectra
 
 Thanks to \texttt{JAX}'s automatic differentiation, gradients of this objective with respect to all free parameters are computed efficiently. This applies even in spatially varying models, where spectral parameters are defined per cluster and must be dispatched to the appropriate sky pixels. Crucially, this indexing and dispatching operation, performed via binary masks, is itself implemented in a differentiable manner. As a result, the likelihood function is compatible with gradient-based optimization.
 
-\textsc{FURAX} performs spectral likelihood maximization using gradient-based optimization from the \texttt{Optax} library~\citep{optax}. The default method is \textbf{L-BFGS}, a limited-memory quasi-Newton optimizer that leverages curvature information from past gradients. Ideally, optimization would proceed via a full Newton step:
+\textsc{FURAX} performs spectral likelihood maximization using gradient-based optimization from the \texttt{Optax} library~\citep{optax}. The default method is L-BFGS, a limited-memory quasi-Newton optimizer that leverages curvature information from past gradients. Ideally, optimization would proceed via a full Newton step:
 \begin{equation}
     \theta_{n+1} = \theta_n - H^{-1} \nabla L(\theta_n),
 \end{equation}
 where \( H \) is the Hessian of the loss. However, computing and inverting this matrix becomes intractable for large-scale clustered models with thousands of parameters. L-BFGS avoids this cost by constructing a low-rank approximation using a limited history of gradients and parameter updates, enabling efficient and memory-scalable updates.
 
-In practice, we observe that L-BFGS in \textsc{FURAX} exhibits superior \textbf{stability and convergence} (see Figure~\ref{fig:runtime_comparison}) compared to earlier approaches such as \textsc{FGBuster}. This is primarily due to two factors: (i) we use exact gradients from automatic differentiation in JAX, ensuring consistent and smooth optimization dynamics; and (ii) we avoid the use of Singular Value Decomposition (SVD)~\citep{SVD}, which \textsc{FGBuster} employs as a performance shortcut at the cost of numerical noise in gradients. These design choices make \textsc{FURAX} robust to initialization and capable of converging reliably even in high-dimensional, highly clustered configurations.
+In practice, we observe that L-BFGS in \textsc{FURAX} exhibits superior stability and convergence (see Figure~\ref{fig:runtime_comparison}) compared to earlier approaches such as \textsc{FGBuster}. This is primarily due to two factors: (i) we use exact gradients from automatic differentiation in JAX, ensuring consistent and smooth optimization dynamics; and (ii) we avoid the use of Singular Value Decomposition (SVD)~\citep{SVD}, which \textsc{FGBuster} employs as a performance shortcut at the cost of numerical noise in gradients. These design choices make \textsc{FURAX} robust to initialization and capable of converging reliably even in high-dimensional, highly clustered configurations.
 
-We also experimented with \textbf{TNC} (Truncated Newton with Constraints)~\citep{TNC}, as used in \textsc{FGBuster}. In our framework, TNC is accessed through \texttt{jaxopt}~\citep{jaxopt}, which wraps \texttt{scipy.optimize.minimize}~\citep{scipy}. However, this implementation runs exclusively on CPU and is incompatible with JAX’s \texttt{jit} compilation or \texttt{vmap} vectorization. More critically, \textbf{TNC does not scale well with parameter count}---as the number of clusters increases, the optimization problem becomes stiff and memory-bound, leading to significantly longer runtimes and poorer convergence behavior.
+We also experimented with TNC (Truncated Newton with Constraints)~\citep{TNC}, as used in \textsc{FGBuster}. In our framework, TNC is accessed through \texttt{jaxopt}~\citep{jaxopt}, which wraps \texttt{scipy.optimize.minimize}~\citep{scipy}. However, this implementation runs exclusively on CPU and is incompatible with JAX’s \texttt{jit} compilation or \texttt{vmap} vectorization. More critically, TNC does not scale well with parameter count---as the number of clusters increases, the optimization problem becomes stiff and memory-bound, leading to significantly longer runtimes and poorer convergence behavior.
 
-First-order optimizers such as \textbf{Adam}~\citep{adam} were also tested, but proved to be ill-suited for this application. Adam applies a uniform learning rate schedule across all parameters, yet in component separation, the physical scales of spectral parameters differ substantially: for instance, \( \beta_d \) varies between 0.5 and 5, \( T_d \) between 10 and 50\,\(\mathrm{K}\), and \( \beta_s \) between \(-6\) and \(-1\).
+First-order optimizers such as Adam~\citep{adam} were also tested, but proved to be ill-suited for this application. Adam applies a uniform learning rate schedule across all parameters, yet in component separation, the physical scales of spectral parameters differ substantially: for instance, \( \beta_d \) varies between 0.5 and 5, \( T_d \) between 10 and 50\,\(\mathrm{K}\), and \( \beta_s \) between \(-6\) and \(-1\).
 
 Moreover, the spectral likelihood typically reaches values on the order of \( 10^8 \) (for example, at nside \( 64 \)), making fixed or scheduled learning rates ineffective. In contrast, L-BFGS employs a line search strategy that dynamically adapts the step size to local curvature, enabling stable convergence even in high-dimensional, multi-scale optimization settings.
 
@@ -350,20 +348,20 @@ All angular power spectra are reported in the standard units:
 To quantify contamination in the recovered CMB, we separate residuals into two components:
 \begin{itemize}
 
-    \item \textbf{Systematic residual power} is obtained by rerunning the full component separation pipeline on foreground-only skies \( d_{\mathrm{ds}} \), which exclude both CMB and instrumental noise. This evaluates the imprint of foreground leakage that cannot be filtered out by the model:
+    \item Systematic residual power is obtained by rerunning the full component separation pipeline on foreground-only skies \( d_{\mathrm{ds}} \), which exclude both CMB and instrumental noise. This evaluates the imprint of foreground leakage that cannot be filtered out by the model:
     \[
     C_\ell^{\mathrm{syst}} = C_\ell \left( W(d_{\mathrm{ds}}) \right),
     \]
     where \( W \) denotes the reconstruction operator as defined in~\eqref{eq:recon_operator}. The resulting residuals capture systematic foreground contamination intrinsic to the modeling assumptions and patch structure.
 
-    \item \textbf{Total residual power} is computed from the full reconstruction error across noise realizations:
+    \item Total residual power is computed from the full reconstruction error across noise realizations:
     \[
     C_\ell^{\mathrm{res}} = \left\langle C_\ell \left( \hat{s}_{\mathrm{CMB}}^{(n)} - s_{\mathrm{CMB}}^{\mathrm{true}} \right) \right\rangle_{n},
     \]
     where \( n \) indexes the noise realizations and \( \hat{s}_{\mathrm{CMB}}^{(n)} \equiv W(d^{(n)}) \).
     This represents the total error power, including residual foregrounds and instrumental noise.
 
-    \item \textbf{Statistical residual power}, due solely to instrumental noise, is extracted by subtraction:
+    \item Statistical residual power, due solely to instrumental noise, is extracted by subtraction:
     \[
     C_\ell^{\mathrm{stat}} = C_\ell^{\mathrm{res}} - C_\ell^{\mathrm{syst}}.
     \]
@@ -737,7 +735,7 @@ In contrast, the \textit{multi-resolution approach} uses HEALPix downgrading to 
 
 \subsection*{Computational Scalability and Pipeline Design}
 
-To support this large-scale scan---\textbf{over 2 million component separation evaluations} across 6 sky zones and 100 noise realizations per region---we leveraged \textit{distributed GPU parallelism} using \texttt{jax-grid-search}. The entire sweep was completed in under 30 hours on 32 A100 GPUs across 4 nodes on the Jean Zay supercomputer.
+To support this large-scale scan---over 2 million component separation evaluations across 6 sky zones and 100 noise realizations per region---we leveraged \textit{distributed GPU parallelism} using \texttt{jax-grid-search}. The entire sweep was completed in under 30 hours on 32 A100 GPUs across 4 nodes on the Jean Zay supercomputer.
 
 This was made possible by the scalable design of \textsc{FURAX}, which includes:
 \begin{itemize}
@@ -756,7 +754,7 @@ All results in this paper were produced using \textit{open-source software} deve
 \texttt{\href{https://github.com/ASKabalan/furax-compsep-paper}{https://github.com/ASKabalan/furax-compsep-paper}}
 \end{center}
 
-This ensures \textbf{transparent and reproducible research}, allowing others to easily re-run, extend, or adapt the pipeline for future use cases.
+This ensures transparent and reproducible research, allowing others to easily re-run, extend, or adapt the pipeline for future use cases.
 
 \subsection*{Limitations and Future Work}
 
