@@ -23,7 +23,7 @@ from furax.comp_sep import (
 )
 from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy import combine_masks
+from jax_healpy import combine_masks, from_cutout_to_fullmap
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -295,6 +295,30 @@ def get_camb_templates(nside):
 # ============================================
 
 
+def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results, result_file):
+    if results.get("CL_BB_SUM") is not None and True:
+        print("Using CL_BB_SUM from results")
+        CL_BB_SUM = results["CL_BB_SUM"]
+        return CL_BB_SUM
+
+    cmb_out_full_sky = from_cutout_to_fullmap(cmb_out, patches, nside, axis=1)
+    cmb_out_full_sky = expand_stokes(cmb_out_full_sky)
+    cmb_out_full_sky = np.stack(
+        [cmb_out_full_sky.i, cmb_out_full_sky.q, cmb_out_full_sky.u], axis=1
+    )
+
+    cl_list = []
+    for i in range(cmb_out_full_sky.shape[0]):
+        cl = hp.anafast(cmb_out_full_sky[i])  # shape (6, lmax+1)
+        cl_list.append(cl[2][ell_range])  # BB only
+
+    CL_BB_SUM = np.sum(cl_list, axis=1) / fsky  # shape (noise realisations,)
+    results_from_file = dict(np.load(result_file))
+    results_from_file["CL_BB_SUM"] = CL_BB_SUM
+    np.savez(result_file, **results_from_file)
+    return CL_BB_SUM
+
+
 def compute_w(nu, d, results, result_file):
     """
     Apply the linear component separation operator W to the input sky.
@@ -421,6 +445,19 @@ def compute_total_res(s_hat, s_true, fsky, ell_range):
     return np.mean(cl_list, axis=0) / fsky  # shape (len(ell_range),)
 
 
+def compute_cl_bb_sum(cmb_out, fsky, ell_range):
+    cmb_out = expand_stokes(cmb_out)
+    cmb_out = np.stack([cmb_out.i, cmb_out.q, cmb_out.u], axis=1)
+
+    cl_list = []
+    for i in range(cmb_out.shape[0]):
+        cl = hp.anafast(cmb_out[i])  # shape (6, lmax+1)
+        cl_list.append(cl[2][ell_range])  # BB only
+
+    CL_BB_SUM = np.sum(cl_list, axis=1) / fsky  # shape (noise realisations,)
+    return CL_BB_SUM
+
+
 def compute_cl_obs_bb(cl_total_res, cl_bb_lens):
     return cl_total_res + cl_bb_lens
 
@@ -497,7 +534,11 @@ def plot_params_patches(name, params, patches):
     # Params on a figure
     _ = plt.figure(figsize=(7.5, 13))
 
-    for i, (param_name, param_map) in enumerate(params.items()):
+    keys = ["beta_dust", "temp_dust", "beta_pl"]
+    names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
+
+    for i, (key, param_name) in enumerate(zip(keys, names)):
+        param_map = params[key]
         hp.mollview(
             param_map,
             title=f"{name} {param_name}",
@@ -528,7 +569,11 @@ def plot_params_patches(name, params, patches):
 
     patches = jax.tree.map(shuffle_labels, patches)
 
-    for i, (patch_name, patch_map) in enumerate(patches.items()):
+    keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
+    names = ["$\\beta_d$ Patches", "$T_d$ Patches", "$\\beta_s$ Patches"]
+
+    for i, (key, patch_name) in enumerate(zip(keys, names)):
+        patch_map = patches[key]
         hp.mollview(
             patch_map,
             title=f"{name} {patch_name}",
@@ -586,40 +631,49 @@ def plot_validation_curves(name, updates_history, value_history):
 # ============================================
 
 
+def get_min_variance(cmb_map):
+    seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
+    cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
+    variance = jax.tree.map(lambda x: jnp.var(x, axis=1), cmb_map_seen)
+    variance = sum(jax.tree.leaves(variance))
+    argmin = jnp.argmin(variance)
+    return jax.tree.map(lambda x: x[argmin], cmb_map)
+
+
 def plot_all_cmb(names, cmb_pytree_list):
     nb_cmb = len(cmb_pytree_list)
 
-    # First, compute global min/max for consistent colorbar scaling
-    diff_q_all, diff_u_all = [], []
+    diff_all = []
 
     for cmb_pytree in cmb_pytree_list:
+        cmb_recon = get_min_variance(cmb_pytree["cmb_recon"])
+
+        diff_q = cmb_pytree["cmb"].q - cmb_recon.q
+        diff_u = cmb_pytree["cmb"].u - cmb_recon.u
+
         unseen_mask_q = cmb_pytree["cmb"].q == hp.UNSEEN
-        diff_q = cmb_pytree["cmb"].q - cmb_pytree["recon_mean"].q
-        diff_q = np.where(unseen_mask_q, np.nan, diff_q)
-        diff_q_all.append(diff_q)
-
         unseen_mask_u = cmb_pytree["cmb"].u == hp.UNSEEN
-        diff_u = cmb_pytree["cmb"].u - cmb_pytree["recon_mean"].u
+
+        diff_q = np.where(unseen_mask_q, np.nan, diff_q)
         diff_u = np.where(unseen_mask_u, np.nan, diff_u)
-        diff_u_all.append(diff_u)
 
-    # Set shared color scale per Stokes component
-    vmin_q = np.nanmin([np.nanmin(diff) for diff in diff_q_all])
-    vmax_q = np.nanmax([np.nanmax(diff) for diff in diff_q_all])
-    vmin_u = np.nanmin([np.nanmin(diff) for diff in diff_u_all])
-    vmax_u = np.nanmax([np.nanmax(diff) for diff in diff_u_all])
+        diff_all.append((diff_q, diff_u))
 
-    # Start figure
+    # Global min/max for shared color scale
+    all_values = [val for pair in diff_all for val in pair]
+    vmin = np.nanmin(all_values)
+    vmax = np.nanmax(all_values)
+
     plt.figure(figsize=(10, 3.5 * nb_cmb))
 
-    for i, (name, diff_q, diff_u) in enumerate(zip(names, diff_q_all, diff_u_all)):
+    for i, (name, (diff_q, diff_u)) in enumerate(zip(names, diff_all)):
         # Q map
         hp.mollview(
             diff_q,
-            title=f"Difference (Q) - {name}",
+            title=f"Difference (Q) - {name} $$\\mu_k$$",
             sub=(nb_cmb, 2, 2 * i + 1),
-            min=vmin_q,
-            max=vmax_q,
+            min=vmin,
+            max=vmax,
             cmap="viridis",
             bgcolor=(0.0,) * 4,
             cbar=True,
@@ -628,10 +682,10 @@ def plot_all_cmb(names, cmb_pytree_list):
         # U map
         hp.mollview(
             diff_u,
-            title=f"Difference (U) - {name}",
+            title=f"Difference (U) - {name} $$\\mu_k$$",
             sub=(nb_cmb, 2, 2 * i + 2),
-            min=vmin_u,
-            max=vmax_u,
+            min=vmin,
+            max=vmax,
             cmap="viridis",
             bgcolor=(0.0,) * 4,
             cbar=True,
@@ -639,47 +693,63 @@ def plot_all_cmb(names, cmb_pytree_list):
         )
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}cmb_recon.pdf", transparent=True, dpi=1200)
+    plt.savefig(f"{out_folder}/cmb_recon.pdf", transparent=True, dpi=1200)
 
 
 def plot_all_variances(names, cmb_pytree_list):
-    _ = plt.figure(figsize=(8, 6))
+    def get_all_variances(cmb_map):
+        seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
+        cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
+        variance = jax.tree.map(lambda x: jnp.var(x, axis=1), cmb_map_seen)
+        variance = sum(jax.tree.leaves(variance))  # shape (100,)
+        return variance
 
-    for i, (name, cmb_pytree) in enumerate(zip(names, cmb_pytree_list)):
-        # Mask unseen pixels for variance calculation
-        recon_mean_q = cmb_pytree["recon_mean"].q[cmb_pytree["recon_mean"].q != hp.UNSEEN]
-        recon_mean_u = cmb_pytree["recon_mean"].u[cmb_pytree["recon_mean"].u != hp.UNSEEN]
+    fig, axs = plt.subplots(3, 1, figsize=(7, 15), sharex=False)
 
-        # Variance of reconstructed CMB (Q + U)
-        variance = np.var(recon_mean_q) + np.var(recon_mean_u)
+    metrics = {
+        "Variance of Reconstructed CMB (Q + U)": [],
+        "Negative Log-Likelihood": [],
+        r"$\sum C_\ell^{BB}$": [],
+    }
+    B_s_counts = {}
 
+    for name, cmb_pytree in zip(names, cmb_pytree_list):
+        metrics["Variance of Reconstructed CMB (Q + U)"].append(
+            (name, get_all_variances(cmb_pytree["cmb_recon"]))
+        )
+        metrics["Negative Log-Likelihood"].append((name, np.array(cmb_pytree["nll_summed"])))
+        metrics[r"$\sum C_\ell^{BB}$"].append((name, np.array(cmb_pytree["cl_bb_sum"])))
         # Count of synchrotron patches
         patches = cmb_pytree["patches_map"]
         B_s_patches = patches["temp_dust_patches"]
         B_s_count = np.unique(B_s_patches[B_s_patches != hp.UNSEEN]).size
+        B_s_counts[name] = B_s_count
 
-        # Plot variance vs. number of synchrotron patches
-        plt.scatter(
-            B_s_count,
-            variance,
-            label=f"{name} ({B_s_count})",
-            color="black",
-        )
-        plt.annotate(
-            name,
-            (B_s_count, variance),
-            textcoords="offset points",
-            xytext=(5, 5),
-            ha="left",
-            fontsize=9,
-        )
+    for ax, (title, entries) in zip(axs, metrics.items()):
+        for i, (name, values) in enumerate(entries):
+            B_s_count = B_s_counts.get(name, 0)
+            # Assign a unique color
+            color = plt.cm.tab10(i % 10)
+            label = f"{name} B_s count {B_s_count}"
+            ax.hist(
+                values,
+                bins=20,
+                alpha=0.5,
+                label=label,
+                color=color,
+                edgecolor="black",
+                histtype="stepfilled",
+            )
+            mean_val = np.mean(values)
+            ax.axvline(mean_val, color=color, linestyle="--", linewidth=2, label=f"Mean of {name}")
+        ax.set_title(title)
+        ax.set_ylabel("Count")
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend(fontsize="small")
 
-    plt.xlabel("Number of Synchrotron Patches")
-    plt.ylabel("Variance of Reconstructed CMB (Q + U)")
-    plt.title("CMB Reconstruction Variance vs. Patch Count")
-    plt.grid(True, linestyle="--", alpha=0.6)
+    axs[-1].set_xlabel("Metric Value")
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/variance_vs_patches.pdf", transparent=True, dpi=1200)
+    plt.savefig(f"{out_folder}/metric_distributions_histogram.pdf", transparent=True, dpi=1200)
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
@@ -817,30 +887,31 @@ def plot_all_r_estimation(names, r_pytree_list):
 # ==============================================
 
 
-def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
+def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon):
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
         return jax.tree.map(lambda x, y: jnp.mean((x - y) ** 2), seen_x, seen_y)
 
-    mse_cmb = mse(cmb_recon_mean, cmb_stokes)
-    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_recon_mean)
+    cmb_recon_min = get_min_variance(cmb_recon)
+    mse_cmb = mse(cmb_recon_min, cmb_stokes)
+    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_recon_min)
     cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
     print("======================")
     print(f"MSE CMB: {mse_cmb}")
     print(f"Reconstructed CMB variance: {cmb_recon_var}")
     print(f"Input CMB variance: {cmb_input_var}")
     print("======================")
-    unseen_mask = cmb_recon_mean.q == hp.UNSEEN
-    diff_q = cmb_recon_mean.q - cmb_stokes.q
+    unseen_mask = cmb_recon_min.q == hp.UNSEEN
+    diff_q = cmb_recon_min.q - cmb_stokes.q
     diff_q = np.where(unseen_mask, hp.UNSEEN, diff_q)
 
-    unseen_mask = cmb_recon_mean.u == hp.UNSEEN
-    diff_u = cmb_recon_mean.u - cmb_stokes.u
+    unseen_mask = cmb_recon_min.u == hp.UNSEEN
+    diff_u = cmb_recon_min.u - cmb_stokes.u
     diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
 
     _ = plt.figure(figsize=(12, 8))
-    hp.mollview(cmb_recon_mean.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_recon_min.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.q, title="Input CMB Map (Q)", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
     hp.mollview(
         diff_q,
@@ -848,7 +919,7 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean):
         sub=(2, 3, 3),
         bgcolor=(0.0,) * 4,
     )
-    hp.mollview(cmb_recon_mean.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_recon_min.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
     hp.mollview(cmb_stokes.u, title="Input CMB Map (U)", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
     hp.mollview(
         diff_u,
@@ -913,16 +984,10 @@ def plot_cl_residuals(
 def plot_r_estimator(
     name,
     r_best,
-    r_true,
     sigma_r_neg,
-    sigma_r_true_neg,
     sigma_r_pos,
-    sigma_r_true_pos,
     r_grid,
-    r_true_grid,
     L_vals,
-    L_vals_true,
-    f_sky,
 ):
     plt.figure(figsize=(12, 8))
 
@@ -977,9 +1042,11 @@ def plot_results(name, filtered_results, nside, instrument, args):
         print("No results")
         return
 
-    cmb_recons, cmb_maps, masks, indices_list, w_d_list = [], [], [], [], []
+    cmb_recons, cmb_maps, masks, NLLs = [], [], [], []
+    indices_list, w_d_list, cl_bb_sum_list = [], [], []
     params_list, patches_list = [], []
     updates_history, value_history = [], []
+    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
     previous_mask_size = {
         "beta_dust_patches": 0,
@@ -992,9 +1059,11 @@ def plot_results(name, filtered_results, nside, instrument, args):
         best_params = dict(np.load(f"{folder}/best_params.npz"))
         mask = np.load(f"{folder}/mask.npy")
         (indices,) = jnp.where(mask == 1)
+        f_sky = mask.sum() / len(mask)
 
         # Get best run data
         run_data = jax.tree.map(lambda x: x[0], run_data)
+        NLL = run_data["NLL"]
 
         cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
         fg_map = Stokes.from_stokes(
@@ -1002,6 +1071,9 @@ def plot_results(name, filtered_results, nside, instrument, args):
         )
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
         wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
+        cl_bb_sum = compute_cl_bb_sum_partial(
+            cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz"
+        )
 
         if args.plot_illustrations:
             params, patches, previous_mask_size = params_to_maps(run_data, previous_mask_size)
@@ -1013,10 +1085,12 @@ def plot_results(name, filtered_results, nside, instrument, args):
             value_history.append(run_data["update_history"][..., 1])
 
         cmb_recons.append(cmb_recon)
+        cl_bb_sum_list.append(cl_bb_sum)
         cmb_maps.append(cmb_true)
         w_d_list.append(wd)
         masks.append(mask)
         indices_list.append(indices)
+        NLLs.append(NLL)
 
     full_mask = np.logical_or.reduce(masks)
 
@@ -1024,10 +1098,18 @@ def plot_results(name, filtered_results, nside, instrument, args):
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
     wd = combine_masks(w_d_list, indices_list, nside)
 
+    NLL_summed = np.sum(NLLs, axis=0)
+
     if args.plot_illustrations:
         params_map = combine_masks(params_list, indices_list, nside)
         patches_map = combine_masks(patches_list, indices_list, nside)
         plot_params_patches(name, params_map, patches_map)
+    else:
+        patches_map = {
+            "beta_dust_patches": np.zeros(hp.nside2npix(nside)),
+            "temp_dust_patches": np.zeros(hp.nside2npix(nside)),
+            "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
+        }
 
     if args.plot_validation_curves:
         plot_validation_curves(
@@ -1038,12 +1120,8 @@ def plot_results(name, filtered_results, nside, instrument, args):
 
     s_true = get_sky(64, "c1d1s1").components[0].map.value
 
-    cmb_recon_mean = jax.tree.map(lambda x: x.mean(axis=0), combined_cmb_recon)
-
     if args.plot_cmb_recon:
-        plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon_mean)
-
-    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
+        plot_cmb_reconsturctions(name, cmb_stokes, combined_cmb_recon)
 
     f_sky = full_mask.sum() / len(full_mask)
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
@@ -1059,6 +1137,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
     cl_bb_obs = compute_cl_obs_bb(cl_total_res, cl_bb_lens)
     # cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon , ell_range)
     # cl_bb_obs = cl_bb_lens + cl_total_res
+    cl_bb_sum = compute_cl_bb_sum(combined_cmb_recon, f_sky, ell_range)
 
     if args.plot_cl_spectra:
         plot_cl_residuals(
@@ -1080,28 +1159,24 @@ def plot_results(name, filtered_results, nside, instrument, args):
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
         cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
     )
-    # compute r from true
-    r_true, sigma_r_true_neg, sigma_r_true_pos, r_true_grid, L_vals_true = estimate_r(
-        cl_true, ell_range, cl_bb_r1, cl_bb_lens, 0.0, f_sky
-    )
 
     if args.plot_cl_spectra:
         plot_r_estimator(
             name,
             r_best,
-            r_true,
             sigma_r_neg,
-            sigma_r_true_neg,
             sigma_r_pos,
-            sigma_r_true_pos,
             r_grid,
-            r_true_grid,
             L_vals,
-            L_vals_true,
-            f_sky,
         )
 
-    cmb_pytree = {"cmb": cmb_stokes, "recon_mean": cmb_recon_mean, "patches_map": patches_map}
+    cmb_pytree = {
+        "cmb": cmb_stokes,
+        "cmb_recon": combined_cmb_recon,
+        "patches_map": patches_map,
+        "cl_bb_sum": cl_bb_sum,
+        "nll_summed": NLL_summed,
+    }
     cl_pytree = {
         "cl_bb_r1": cl_bb_r1,
         "cl_true": cl_true,
@@ -1114,15 +1189,10 @@ def plot_results(name, filtered_results, nside, instrument, args):
     }
     r_pytree = {
         "r_best": r_best,
-        "r_true": r_true,
         "sigma_r_neg": sigma_r_neg,
-        "sigma_r_true_neg": sigma_r_true_neg,
         "sigma_r_pos": sigma_r_pos,
-        "sigma_r_true_pos": sigma_r_true_pos,
         "r_grid": r_grid,
         "L_vals": L_vals,
-        "L_vals_true": L_vals_true,
-        "f_sky": f_sky,
     }
 
     return cmb_pytree, cl_pytree, r_pytree

@@ -33,7 +33,7 @@ sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --jo
 # Zone 7 GALACTIC mask
 sbatch --account=nih@a100 --nodes=4 --gres=gpu:8 --tasks-per-node=8 -C a100 --job-name=GAL060_L_GRID_noise-N-a100 99-slurm_runner.slurm 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GALACTIC -i LiteBIRD
 # =============================================================================
-# Multi MODELS
+# MultiRes MODELS (1)
 # =============================================================================
 # Zone 1 Low galactic represented by GAL020
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_PTEP_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 0 2  -tag c1d1s1 -m GAL020 -i LiteBIRD
@@ -41,6 +41,15 @@ sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --jo
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL040_PTEP_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 4 2  -tag c1d1s1 -m GAL040 -i LiteBIRD
 # Zone 3 High galactic represented by GAL060 - GAL040
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL060_PTEP_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 8 4  -tag c1d1s1 -m GAL060 -i LiteBIRD
+# =============================================================================
+# MultiRes MODELS (2)
+# =============================================================================
+# Zone 1 Low galactic represented by GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL020_PTEP_2_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 0 4  -tag c1d1s1 -m GAL020 -i LiteBIRD
+# Zone 2 Medium galactic represented by GAL040 - GAL020
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL040_PTEP_2_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 4 4  -tag c1d1s1 -m GAL040 -i LiteBIRD
+# Zone 3 High galactic represented by GAL060 - GAL040
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=GAL060_PTEP_2_noise-N-a100 99-slurm_runner.slurm 05-PTEP-model.py  -n 64 -ns 100 -nr 1.0 -ud 64 8 8  -tag c1d1s1 -m GAL060 -i LiteBIRD
 # =============================================================================
 # Single Patch MODELS
 # =============================================================================

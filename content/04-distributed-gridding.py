@@ -258,9 +258,9 @@ def main():
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
     search_space = {
-        "T_d_patches": jnp.array([500, 1000, 1500, 2000, 5000, 10000]),
-        "B_d_patches": jnp.array([7000, 8000, 9000, 10000]),
-        "B_s_patches": jnp.array([500, 1000, 1500, 2000, 5000, 10000]),
+        "T_d_patches": jnp.array([1, 5, 20, 50, 80 , 100 , 500 , 1000 , 2000, 5000, 10000]),
+        "B_d_patches": jnp.arange(5000, 10001, 1000),
+        "B_s_patches": jnp.array([1, 5, 20, 50, 80 , 100 , 500 , 1000 , 2000, 5000, 10000]),
     }
 
     search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
@@ -281,7 +281,6 @@ def main():
         T_d_patches,
         B_d_patches,
         B_s_patches,
-        planck_mask,
         indices,
         progress_bar=None,
     ):
@@ -397,7 +396,6 @@ def main():
                 T_d_patches,
                 B_d_patches,
                 B_s_patches,
-                mask,
                 indices,
                 progress_bar=p,
             )
