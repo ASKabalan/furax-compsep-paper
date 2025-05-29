@@ -670,7 +670,7 @@ def plot_all_cmb(names, cmb_pytree_list):
         # Q map
         hp.mollview(
             diff_q,
-            title=f"Difference (Q) - {name} $$\\mu_k$$",
+            title=rf"Difference (Q) - {name} $\mu_k$",
             sub=(nb_cmb, 2, 2 * i + 1),
             min=vmin,
             max=vmax,
@@ -682,7 +682,7 @@ def plot_all_cmb(names, cmb_pytree_list):
         # U map
         hp.mollview(
             diff_u,
-            title=f"Difference (U) - {name} $$\\mu_k$$",
+            title=rf"Difference (U) - {name} $\mu_k$",
             sub=(nb_cmb, 2, 2 * i + 2),
             min=vmin,
             max=vmax,
@@ -767,8 +767,8 @@ def plot_all_cl_residuals(names, cl_pytree_list):
 
     plt.plot(
         ell_range,
-        cl_bb_r1 * coeff,
-        label=r"$C_\ell^{\mathrm{BB}}(r=1)$",
+        cl_bb_r1 * coeff * 1e-3,
+        label=r"$C_\ell^{\mathrm{BB}}(r=10^{-3})$",
         color="black",
         linewidth=2,
     )
