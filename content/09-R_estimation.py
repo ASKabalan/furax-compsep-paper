@@ -32,6 +32,18 @@ from instruments import get_instrument
 
 # Set the style for the plots
 plt.style.use("science")
+font_size = 14
+plt.rcParams.update(
+    {
+        "font.size": font_size,
+        "axes.labelsize": font_size,
+        "xtick.labelsize": font_size,
+        "ytick.labelsize": font_size,
+        "legend.fontsize": font_size,
+        "axes.titlesize": font_size,
+        "font.family": "serif",  # or 'Times New Roman' to match LaTeX
+    }
+)
 
 out_folder = "plots/"
 
@@ -531,58 +543,68 @@ def params_to_maps(run_data, previous_mask_size):
 
 
 def plot_params_patches(name, params, patches):
-    # Params on a figure
-    _ = plt.figure(figsize=(7.5, 13))
+    with plt.rc_context(
+        {
+            "font.size": font_size * 1.6,
+            "axes.labelsize": font_size * 1.6,
+            "xtick.labelsize": font_size * 1.6,
+            "ytick.labelsize": font_size * 1.6,
+            "legend.fontsize": font_size * 1.6,
+            "axes.titlesize": font_size * 1.6,
+        }
+    ):
+        # Params on a figure
+        _ = plt.figure(figsize=(7.5, 13))
 
-    keys = ["beta_dust", "temp_dust", "beta_pl"]
-    names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
+        keys = ["beta_dust", "temp_dust", "beta_pl"]
+        names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
 
-    for i, (key, param_name) in enumerate(zip(keys, names)):
-        param_map = params[key]
-        hp.mollview(
-            param_map,
-            title=f"{name} {param_name}",
-            sub=(3, 1, i + 1),
-            bgcolor=(0.0,) * 4,
-            cbar=True,
-        )
+        for i, (key, param_name) in enumerate(zip(keys, names)):
+            param_map = params[key]
+            hp.mollview(
+                param_map,
+                title=f"{name} {param_name}",
+                sub=(3, 1, i + 1),
+                bgcolor=(0.0,) * 4,
+                cbar=True,
+            )
 
-    plt.tight_layout()
-    plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
+        plt.tight_layout()
+        plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
 
-    # Patches on a figure
-    _ = plt.figure(figsize=(7.5, 13))
+        # Patches on a figure
+        _ = plt.figure(figsize=(7.5, 13))
 
-    np.random.seed(0)
+        np.random.seed(0)
 
-    # Shuffle labels in each patch
-    def shuffle_labels(arr):
-        unique_vals = np.unique(arr[arr != hp.UNSEEN])  # Ignore UNSEEN
-        shuffled_vals = np.random.permutation(unique_vals)
+        # Shuffle labels in each patch
+        def shuffle_labels(arr):
+            unique_vals = np.unique(arr[arr != hp.UNSEEN])  # Ignore UNSEEN
+            shuffled_vals = np.random.permutation(unique_vals)
 
-        # Create mapping dict
-        mapping = dict(zip(unique_vals, shuffled_vals))
+            # Create mapping dict
+            mapping = dict(zip(unique_vals, shuffled_vals))
 
-        # Vectorized mapping
-        shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
-        return shuffled_arr.astype(np.float64)
+            # Vectorized mapping
+            shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
+            return shuffled_arr.astype(np.float64)
 
-    patches = jax.tree.map(shuffle_labels, patches)
+        patches = jax.tree.map(shuffle_labels, patches)
 
-    keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
-    names = ["$\\beta_d$ Patches", "$T_d$ Patches", "$\\beta_s$ Patches"]
+        keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
+        names = ["$\\beta_d$ Patches", "$T_d$ Patches", "$\\beta_s$ Patches"]
 
-    for i, (key, patch_name) in enumerate(zip(keys, names)):
-        patch_map = patches[key]
-        hp.mollview(
-            patch_map,
-            title=f"{name} {patch_name}",
-            sub=(3, 1, i + 1),
-            bgcolor=(0.0,) * 4,
-            cbar=True,
-        )
-    plt.tight_layout()
-    plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
+        for i, (key, patch_name) in enumerate(zip(keys, names)):
+            patch_map = patches[key]
+            hp.mollview(
+                patch_map,
+                title=f"{name} {patch_name}",
+                sub=(3, 1, i + 1),
+                bgcolor=(0.0,) * 4,
+                cbar=True,
+            )
+        plt.tight_layout()
+        plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
 
 
 def plot_validation_curves(name, updates_history, value_history):
@@ -693,8 +715,8 @@ def plot_all_cmb(names, cmb_pytree_list):
         )
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/cmb_recon.pdf", transparent=True, dpi=1200)
-
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
 
 def plot_all_variances(names, cmb_pytree_list):
     def get_all_variances(cmb_map):
@@ -704,14 +726,13 @@ def plot_all_variances(names, cmb_pytree_list):
         variance = sum(jax.tree.leaves(variance))  # shape (100,)
         return variance
 
-    fig, axs = plt.subplots(3, 1, figsize=(7, 15), sharex=False)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=False)
 
     metrics = {
         "Variance of Reconstructed CMB (Q + U)": [],
         "Negative Log-Likelihood": [],
         r"$\sum C_\ell^{BB}$": [],
     }
-    B_s_counts = {}
 
     for name, cmb_pytree in zip(names, cmb_pytree_list):
         metrics["Variance of Reconstructed CMB (Q + U)"].append(
@@ -719,18 +740,11 @@ def plot_all_variances(names, cmb_pytree_list):
         )
         metrics["Negative Log-Likelihood"].append((name, np.array(cmb_pytree["nll_summed"])))
         metrics[r"$\sum C_\ell^{BB}$"].append((name, np.array(cmb_pytree["cl_bb_sum"])))
-        # Count of synchrotron patches
-        patches = cmb_pytree["patches_map"]
-        B_s_patches = patches["temp_dust_patches"]
-        B_s_count = np.unique(B_s_patches[B_s_patches != hp.UNSEEN]).size
-        B_s_counts[name] = B_s_count
 
     for ax, (title, entries) in zip(axs, metrics.items()):
         for i, (name, values) in enumerate(entries):
-            B_s_count = B_s_counts.get(name, 0)
-            # Assign a unique color
             color = plt.cm.tab10(i % 10)
-            label = f"{name} B_s count {B_s_count}"
+            label = f"{name}"
             ax.hist(
                 values,
                 bins=20,
@@ -742,14 +756,22 @@ def plot_all_variances(names, cmb_pytree_list):
             )
             mean_val = np.mean(values)
             ax.axvline(mean_val, color=color, linestyle="--", linewidth=2, label=f"Mean of {name}")
-        ax.set_title(title)
-        ax.set_ylabel("Count")
+        
+        ax.set_title(title, fontsize=14)
+        ax.set_ylabel("Count", fontsize=12)
+        ax.tick_params(axis='both', labelsize=10)
         ax.grid(True, linestyle="--", alpha=0.6)
-        ax.legend(fontsize="small")
+        ax.legend(fontsize="small", loc='best')
 
-    axs[-1].set_xlabel("Metric Value")
-    plt.tight_layout()
-    plt.savefig(f"{out_folder}/metric_distributions_histogram.pdf", transparent=True, dpi=1200)
+        # Optional: Rotate x-tick labels for better readability if needed
+        for label in ax.get_xticklabels():
+            label.set_rotation(30)
+
+    axs[-1].set_xlabel("Metric Value", fontsize=12)
+
+    plt.tight_layout(pad=2.0)
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/metric_distributions_histogram_{name}.pdf", transparent=True, dpi=300)
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
@@ -821,7 +843,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
             linestyle=":",
         )
 
-    plt.title("BB Power Spectra (All Runs)")
+    plt.title(None)
     plt.xlabel(r"Multipole $\ell$")
     plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
     plt.xscale("log")
@@ -829,7 +851,8 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.grid(True, which="both", ls="--", alpha=0.4)
     plt.legend(fontsize="small", ncol=2)
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra.pdf", transparent=True, dpi=1200)
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
 
 
 def plot_all_r_estimation(names, r_pytree_list):
@@ -880,7 +903,8 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.grid(True, which="both", ls=":")
     plt.legend(fontsize="medium")
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood.pdf", transparent=True, dpi=1200)
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/bb_spectra_and_r_likelihood_{name}.pdf", transparent=True, dpi=1200)
 
 
 # ========== Plot Single Run ===================
@@ -1277,7 +1301,7 @@ def main():
         plot_all_cl_residuals(args.titles, cl_pytree_list)
         plot_all_r_estimation(args.titles, r_pytree_list)
 
-    plt.show()
+    #plt.show()
 
 
 if __name__ == "__main__":

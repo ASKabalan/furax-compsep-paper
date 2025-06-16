@@ -231,3 +231,6 @@ data/**/*.npz
 # MacOS
 .DS_Store
 apssampNotes.bib
+
+# Custom
+plots
