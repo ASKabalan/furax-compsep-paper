@@ -26,6 +26,7 @@ plt.rcParams.update({
     "legend.fontsize": font_size,
     "axes.titlesize": font_size,
     "font.family": "serif",  # or 'Times New Roman' to match LaTeX
+    "legend.frameon": True,  # Add boxed legends
 })
 jax.config.update("jax_enable_x64", True)
 
@@ -126,7 +127,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         axs[0].errorbar(
             x,
             y_variance_mean,
-            yerr=y_variance_std,
+            yerr=y_variance_std / np.sqrt(100),
             fmt="o",
             label=label,
             capsize=3,
@@ -137,7 +138,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         axs[1].errorbar(
             x,
             y_likelihood_mean,
-            yerr=y_likelihood_std,
+            yerr=y_likelihood_std / np.sqrt(100),
             fmt="o",
             label=label,
             capsize=3,

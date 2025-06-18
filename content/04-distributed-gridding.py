@@ -349,8 +349,10 @@ def main():
             )
 
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
-            cmb = s["cmb"]
+            cmb = s["cmb"] 
+            # Variance of the CMB map
             cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+            # This is equivalent to jnp.var(cmb.q) + jnp.var(cmb.u)
 
             cmb_np = jnp.stack([cmb.q, cmb.u])
 
