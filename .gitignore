@@ -233,4 +233,4 @@ data/**/*.npz
 apssampNotes.bib
 
 # Custom
-plots
+plots*
