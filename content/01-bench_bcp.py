@@ -1,4 +1,28 @@
-# Necessary imports
+#!/usr/bin/env python3
+"""
+Benchmark Component Separation Methods: FGBuster vs FURAX
+
+This script benchmarks the performance and accuracy of different component separation
+frameworks and optimization methods for CMB analysis. It compares FGBuster (baseline)
+against FURAX (JAX-native) implementations across different HEALPix resolutions.
+
+Benchmarking Categories:
+    1. Log-likelihood evaluation performance
+    2. Component separation solver performance (TNC, L-BFGS)
+    3. Weak scaling analysis across different map resolutions
+
+Usage:
+    python 01-bench_bcp.py -n 64 128 256 -s -l    # Benchmark solvers and likelihood
+    python 01-bench_bcp.py -p                     # Plot existing results only
+
+Output:
+    - Performance timing data saved to runs/*.csv
+    - Scaling plots generated as PNG files
+    - Comparative analysis between frameworks
+
+Author: FURAX Team
+"""
+
 import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
@@ -29,7 +53,7 @@ from fgbuster import (
 )
 from fgbuster.algebra import _build_bound_inv_logL_and_logL_dB
 from furax import HomothetyOperator
-from furax.comp_sep import negative_log_likelihood
+from furax.obs import negative_log_likelihood
 from furax.obs.landscapes import Stokes
 from jax_grid_search import optimize
 from jax_hpc_profiler import Timer
@@ -42,17 +66,44 @@ jax.config.update("jax_enable_x64", True)
 
 
 def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
-    """Run FGBuster log-likelihood."""
+    """
+    Benchmark FGBuster log-likelihood evaluation performance.
+
+    This function evaluates the log-likelihood computation using FGBuster's
+    traditional numpy-based implementation. It builds the mixing matrix and
+    differential operators, then times the likelihood evaluation.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter (nside)
+    freq_maps : array_like, shape (n_freq, 3, n_pix)
+        Frequency maps with Stokes I, Q, U components
+    components : list
+        List of FGBuster component objects (CMB, Dust, Synchrotron)
+    nu : array_like
+        Frequency array in GHz
+    numpy_timer : Timer
+        Performance timing object for numpy-based functions
+
+    Notes
+    -----
+    Times both JIT compilation and execution phases to measure
+    realistic performance characteristics.
+    """
     print(f"Running FGBuster Log Likelihood with nside={nside} ...")
 
+    # Step 1: Build mixing matrix and derivative evaluators
     A = MixingMatrix(*components)
     A_ev = A.evaluator(nu)
     A_dB_ev = A.diff_evaluator(nu)
     data = freq_maps.T
 
+    # Step 2: Construct bounded log-likelihood function
     logL, _, _ = _build_bound_inv_logL_and_logL_dB(A_ev, data, None, A_dB_ev, A.comp_of_dB)
     x0 = np.array([x for c in components for x in c.defaults])
 
+    # Step 3: Time compilation and execution
     numpy_timer.chrono_jit(logL, x0)
     for _ in range(2):
         numpy_timer.chrono_fun(logL, x0)
@@ -61,11 +112,48 @@ def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
 def run_jax_negative_log_prob(
     nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
 ):
-    """Run JAX-based negative log-likelihood."""
+    """
+    Benchmark FURAX JAX-based negative log-likelihood evaluation.
+
+    This function evaluates the negative log-likelihood using FURAX's
+    JAX-native implementation, which enables GPU acceleration and
+    automatic differentiation.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter
+    freq_maps : array_like, shape (n_freq, 3, n_pix)
+        Multi-frequency sky maps (I, Q, U Stokes parameters)
+    best_params : dict
+        Dictionary containing spectral parameters:
+        - temp_dust: Dust temperature (K)
+        - beta_dust: Dust spectral index
+        - beta_pl: Synchrotron spectral index
+    nu : array_like
+        Frequency array in GHz
+    dust_nu0 : float
+        Dust reference frequency in GHz
+    synchrotron_nu0 : float
+        Synchrotron reference frequency in GHz
+    jax_timer : Timer
+        Performance timing object for JAX functions
+
+    Notes
+    -----
+    Uses JAX's JIT compilation for optimal performance. The negative
+    log-likelihood is the objective function minimized during component
+    separation parameter estimation.
+    """
     print(f"Running Furax Log Likelihood nside={nside} ...")
+
+    # Step 1: Convert frequency maps to Stokes data structure
     d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
+
+    # Step 2: Create identity noise operator (simplified for benchmarking)
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
 
+    # Step 3: Construct negative log-likelihood function with fixed parameters
     nll = partial(
         negative_log_likelihood,
         nu=nu,
@@ -75,6 +163,7 @@ def run_jax_negative_log_prob(
         synchrotron_nu0=synchrotron_nu0,
     )
 
+    # Step 4: Time JIT compilation and execution
     jax_timer.chrono_jit(nll, best_params)
 
     for _ in range(2):
@@ -231,16 +320,25 @@ def parse_args():
 
 
 def main():
+    """
+    Main execution function for component separation benchmarking.
+
+    Orchestrates the benchmarking workflow across different modes:
+    likelihood evaluation, solver performance, and result plotting.
+    """
+    # Step 1: Parse command line arguments and setup parameters
     args = parse_args()
     instrument = get_instrument("LiteBIRD")
     nu = instrument["frequency"].values
-    # stokes_type = 'IQU'
-    dust_nu0, synchrotron_nu0 = 150.0, 20.0
+
+    # Step 2: Initialize physical parameters for component separation
+    dust_nu0, synchrotron_nu0 = 150.0, 20.0  # Reference frequencies in GHz
     components = [CMB(), Dust(dust_nu0), Synchrotron(synchrotron_nu0)]
     best_params = {"temp_dust": 20.0, "beta_dust": 1.54, "beta_pl": -3.0}
 
-    jax_timer = Timer(save_jaxpr=False, jax_fn=True)
-    numpy_timer = Timer(save_jaxpr=False, jax_fn=False)
+    # Step 3: Initialize performance timers for different frameworks
+    jax_timer = Timer(save_jaxpr=False, jax_fn=True)  # For JAX/FURAX functions
+    numpy_timer = Timer(save_jaxpr=False, jax_fn=False)  # For NumPy/FGBuster functions
 
     if args.likelihood and not args.plot_only:
         for nside in args.nsides:

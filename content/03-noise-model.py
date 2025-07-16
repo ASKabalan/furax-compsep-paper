@@ -31,7 +31,7 @@ import jax.random
 import numpy as np
 import optax
 from furax._instruments.sky import get_noise_sigma_from_instrument
-from furax.comp_sep import (
+from furax.obs import (
     negative_log_likelihood,
     sky_signal,
     spectral_cmb_variance,

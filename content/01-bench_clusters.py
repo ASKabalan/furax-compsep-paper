@@ -22,7 +22,7 @@ from fgbuster import (
     get_instrument,
 )
 from furax import HomothetyOperator
-from furax.comp_sep import negative_log_likelihood, spectral_cmb_variance
+from furax.obs import negative_log_likelihood, spectral_cmb_variance
 from furax.obs.stokes import Stokes
 from jax_grid_search import optimize
 from jax_healpy import get_clusters

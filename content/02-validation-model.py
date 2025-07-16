@@ -13,7 +13,7 @@ import numpy as np
 import optax
 from furax import HomothetyOperator
 from furax._instruments.sky import FGBusterInstrument
-from furax.comp_sep import (
+from furax.obs import (
     negative_log_likelihood,
     sky_signal,
     spectral_cmb_variance,

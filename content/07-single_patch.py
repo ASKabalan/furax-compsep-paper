@@ -14,7 +14,7 @@ import jax.random
 import numpy as np
 import optax
 from furax._instruments.sky import get_noise_sigma_from_instrument
-from furax.comp_sep import negative_log_likelihood, sky_signal
+from furax.obs import negative_log_likelihood, sky_signal
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes

@@ -17,7 +17,7 @@ import numpy as np
 import optax
 from fgbuster import get_sky
 from furax import HomothetyOperator
-from furax.comp_sep import (
+from furax.obs import (
     negative_log_likelihood,
     sky_signal,
 )
@@ -50,6 +50,7 @@ plt.rcParams.update(
 out_folder = "plots/"
 
 jax.config.update("jax_enable_x64", True)
+
 
 def parse_args():
     """
@@ -554,7 +555,7 @@ def plot_params_patches(name, params, patches):
         }
     ):
         # Params on a figure
-        _ = plt.figure(figsize=(7.5, 13))
+        _ = plt.figure(figsize=(12, 8))
 
         keys = ["beta_dust", "temp_dust", "beta_pl"]
         names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
@@ -564,7 +565,7 @@ def plot_params_patches(name, params, patches):
             hp.mollview(
                 param_map,
                 title=f"{name} {param_name}",
-                sub=(3, 1, i + 1),
+                sub=(1, 3, i + 1),
                 bgcolor=(0.0,) * 4,
                 cbar=True,
             )
@@ -573,7 +574,7 @@ def plot_params_patches(name, params, patches):
         plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
 
         # Patches on a figure
-        _ = plt.figure(figsize=(7.5, 13))
+        _ = plt.figure(figsize=(12, 8))
 
         np.random.seed(0)
 
@@ -599,7 +600,7 @@ def plot_params_patches(name, params, patches):
             hp.mollview(
                 patch_map,
                 title=f"{name} {patch_name}",
-                sub=(3, 1, i + 1),
+                sub=(1, 3, i + 1),
                 bgcolor=(0.0,) * 4,
                 cbar=True,
             )
@@ -718,6 +719,7 @@ def plot_all_cmb(names, cmb_pytree_list):
     name = "_".join(names)
     plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
 
+
 def plot_all_variances(names, cmb_pytree_list):
     def get_all_variances(cmb_map):
         seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
@@ -756,12 +758,12 @@ def plot_all_variances(names, cmb_pytree_list):
             )
             mean_val = np.mean(values)
             ax.axvline(mean_val, color=color, linestyle="--", linewidth=2, label=f"Mean of {name}")
-        
+
         ax.set_title(title, fontsize=14)
         ax.set_ylabel("Count", fontsize=12)
-        ax.tick_params(axis='both', labelsize=10)
+        ax.tick_params(axis="both", labelsize=10)
         ax.grid(True, linestyle="--", alpha=0.6)
-        ax.legend(fontsize="small", loc='best')
+        ax.legend(fontsize="small", loc="best")
 
         # Optional: Rotate x-tick labels for better readability if needed
         for label in ax.get_xticklabels():
@@ -771,7 +773,9 @@ def plot_all_variances(names, cmb_pytree_list):
 
     plt.tight_layout(pad=2.0)
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/metric_distributions_histogram_{name}.pdf", transparent=True, dpi=300)
+    plt.savefig(
+        f"{out_folder}/metric_distributions_histogram_{name}.pdf", transparent=True, dpi=300
+    )
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
@@ -916,10 +920,9 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
     # {name: color}
     colors = {}
 
-
     import itertools
 
-    color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+    color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         patches = cmb_pytree["patches_map"]
@@ -929,12 +932,18 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
             existing_r_values = method_dict[n_clusters]["r_best"]
             if r_data["r_best"] > existing_r_values:
                 continue
-        
+
         if name not in colors:
             color = next(color_cycle)
             colors[name] = color
 
-        method_dict[n_clusters] = {"name": name, "r_best": r_data["r_best"], "color": colors[name], "sigma_r_neg": r_data["sigma_r_neg"], "sigma_r_pos": r_data["sigma_r_pos"]}
+        method_dict[n_clusters] = {
+            "name": name,
+            "r_best": r_data["r_best"],
+            "color": colors[name],
+            "sigma_r_neg": r_data["sigma_r_neg"],
+            "sigma_r_pos": r_data["sigma_r_pos"],
+        }
 
     plt.figure(figsize=(8, 6))
     labeled_dict = []
@@ -948,7 +957,7 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
         if name not in labeled_dict:
             labeled_dict.append(name)
             # Plot error bars for the best-fit r
-            #plt.errorbar(
+            # plt.errorbar(
             #    n_clusters,
             #    r_best,
             #    yerr=[[sigma_r_neg], [sigma_r_pos]],
@@ -958,19 +967,19 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
             #    capsize=5,
             #    elinewidth=1,
             #    markeredgewidth=1,
-            #)
+            # )
             plt.scatter(n_clusters, r_best, label=name, color=color)
         else:
-           #plt.errorbar(
-           #    n_clusters,
-           #    r_best,
-           #    yerr=[[sigma_r_neg], [sigma_r_pos]],
-           #    fmt='o',
-           #    color=color,
-           #    capsize=5,
-           #    elinewidth=1,
-           #    markeredgewidth=1,
-           #)
+            # plt.errorbar(
+            #    n_clusters,
+            #    r_best,
+            #    yerr=[[sigma_r_neg], [sigma_r_pos]],
+            #    fmt='o',
+            #    color=color,
+            #    capsize=5,
+            #    elinewidth=1,
+            #    markeredgewidth=1,
+            # )
             plt.scatter(n_clusters, r_best, color=color)
 
     plt.xlabel("Number of Clusters ($Beta_{pl}$))")
@@ -980,7 +989,6 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
     plt.legend()
     plt.tight_layout()
     plt.savefig(f"{out_folder}/r_vs_clusters.pdf", transparent=True, dpi=300)
-
 
 
 # ========== Plot Single Run ===================
@@ -1370,9 +1378,7 @@ def main():
         r_pytree_list.append(r_pytree)
 
     if args.plot_illustrations:
-        plot_r_vs_clusters(
-            args.titles, cmb_pytree_list, r_pytree_list
-        )
+        plot_r_vs_clusters(args.titles, cmb_pytree_list, r_pytree_list)
         plot_all_variances(args.titles, cmb_pytree_list)
     if args.plot_all_cmb_recon:
         plot_all_cmb(args.titles, cmb_pytree_list)
@@ -1380,7 +1386,8 @@ def main():
         plot_all_cl_residuals(args.titles, cl_pytree_list)
         plot_all_r_estimation(args.titles, r_pytree_list)
 
-    plt.show()
+    # plt.show()
+    plt.close()
 
 
 if __name__ == "__main__":
