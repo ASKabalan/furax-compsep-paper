@@ -1,3 +1,36 @@
+#!/usr/bin/env python3
+"""
+K-Means Clustering for Adaptive CMB Component Separation
+
+This script implements the main contribution of the FURAX framework: adaptive K-means
+clustering for optimizing parametric component separation in CMB polarization analysis.
+The method uses spherical K-means to partition the sky based on spatial coordinates,
+then performs variance-based model selection to determine optimal cluster configurations.
+
+Key Innovation:
+    - Spherical K-means clustering using RA/Dec coordinates with 3D Cartesian averaging
+    - Variance-based selection to minimize CMB reconstruction contamination
+    - Distributed grid search across clustering configurations
+    - Adaptive sky partitioning for spatially-varying spectral parameters
+
+Usage:
+    python 08-KMeans-model.py -n 64 -pc 100 5 1 -tag c1d1s1 -m GAL020 -i LiteBIRD
+
+Parameters:
+    -pc: Number of clusters for [dust_temp, dust_beta, sync_beta] parameters
+    -tag: Sky simulation configuration tag
+    -m: Galactic mask (GAL020, GAL040, GAL060)
+    -i: Instrument specification
+
+Output:
+    Results saved to results/kmeans_{config}_{instrument}_{mask}_{samples}/
+    - best_params.npz: Optimized spectral parameters per cluster
+    - results.npz: Full clustering and component separation results
+    - mask.npy: Sky mask used for analysis
+
+Author: FURAX Team
+"""
+
 import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
@@ -32,7 +65,7 @@ import optax
 from furax._instruments.sky import (
     get_noise_sigma_from_instrument,
 )
-from furax.comp_sep import (
+from furax.obs import (
     negative_log_likelihood,
     sky_signal,
 )
@@ -51,8 +84,24 @@ jax.config.update("jax_enable_x64", True)
 
 
 def parse_args():
+    """
+    Parse command-line arguments for K-means clustering component separation.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing:
+        - nside: HEALPix resolution parameter
+        - noise_sim: Number of noise simulations for MC analysis
+        - noise_ratio: Noise level relative to signal
+        - tag: Sky simulation configuration identifier
+        - mask: Galactic mask choice (GAL020, GAL040, GAL060)
+        - instrument: Instrument configuration (LiteBIRD, Planck)
+        - patch_count: Target cluster counts for [dust_beta, dust_temp, sync_beta]
+        - best_only: Flag to only compute optimal configuration
+    """
     parser = argparse.ArgumentParser(
-        description="Benchmark FGBuster and Furax Component Separation Methods"
+        description="K-Means Clustering for Adaptive CMB Component Separation"
     )
 
     parser.add_argument(
@@ -60,28 +109,28 @@ def parse_args():
         "--nside",
         type=int,
         default=64,
-        help="The nside of the map",
+        help="HEALPix nside parameter determining map resolution (nside=64 → ~55 arcmin pixels)",
     )
     parser.add_argument(
         "-ns",
         "--noise-sim",
         type=int,
         default=50,
-        help="Number of noise simulations",
+        help="Number of Monte Carlo noise realizations for statistical analysis",
     )
     parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
         default=0.2,
-        help="Noise ratio",
+        help="Noise level as fraction of signal RMS (0.2 = 20%% noise)",
     )
     parser.add_argument(
         "-tag",
         "--tag",
         type=str,
         default="c1d1s1",
-        help="Tag for the observation",
+        help="Sky simulation tag: c(CMB)d(dust)s(synchrotron) with 0/1 for off/on",
     )
     parser.add_argument(
         "-m",
@@ -89,7 +138,7 @@ def parse_args():
         type=str,
         default="GAL020_U",
         choices=MASK_CHOICES,
-        help="Mask to use",
+        help="Galactic mask: GAL020/040/060 (20%%/40%%/60%% sky coverage), _U/_L for upper/lower",
     )
     parser.add_argument(
         "-i",
@@ -97,6 +146,7 @@ def parse_args():
         type=str,
         default="LiteBIRD",
         choices=["LiteBIRD", "Planck", "default"],
+        help="Instrument configuration with frequency bands and noise characteristics",
     )
     parser.add_argument(
         "-pc",
@@ -119,26 +169,45 @@ def parse_args():
 
 
 def main():
+    """
+    Main execution function for K-means clustering component separation.
+
+    Implements the adaptive clustering algorithm that partitions the sky into
+    regions with spatially-varying spectral parameters. Uses variance-based
+    model selection to determine optimal cluster configurations.
+
+    Algorithm Steps:
+    1. Initialize sky masks and clustering parameters
+    2. Load CMB and foreground simulations
+    3. Perform spherical K-means clustering on sky coordinates
+    4. Optimize spectral parameters within each cluster
+    5. Evaluate CMB reconstruction variance for model selection
+    6. Save optimal clustering configuration and parameters
+    """
+    # Step 1: Parse arguments and setup output directory
     args = parse_args()
 
     patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}"
     out_folder = (
-        f"kmeans_{args.tag}_{patches}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"  # noqa : E501
+        f"kmeans_{args.tag}_{patches}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
     )
     os.makedirs(out_folder, exist_ok=True)
 
+    # Step 2: Initialize physical and computational parameters
     nside = args.nside
     nb_noise_sim = args.noise_sim
     noise_ratio = args.noise_ratio
-    dust_nu0 = 160.0
-    synchrotron_nu0 = 20.0
+    dust_nu0 = 160.0  # Dust reference frequency (GHz)
+    synchrotron_nu0 = 20.0  # Synchrotron reference frequency (GHz)
 
+    # Step 3: Load galactic mask and extract valid pixel indices
     mask = get_mask(args.mask)
-    (indices,) = jnp.where(mask == 1)
+    (indices,) = jnp.where(mask == 1)  # Get indices of unmasked pixels
 
-    B_dust_patches = min(args.patch_count[0], indices.size)
-    T_dust_patches = min(args.patch_count[1], indices.size)
-    B_synchrotron_patches = min(args.patch_count[2], indices.size)
+    # Step 4: Determine maximum cluster counts (limited by available pixels)
+    B_dust_patches = min(args.patch_count[0], indices.size)  # Dust spectral index clusters
+    T_dust_patches = min(args.patch_count[1], indices.size)  # Dust temperature clusters
+    B_synchrotron_patches = min(args.patch_count[2], indices.size)  # Synchrotron index clusters
 
     base_params = {
         "beta_dust": 1.54,

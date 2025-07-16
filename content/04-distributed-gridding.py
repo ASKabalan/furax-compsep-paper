@@ -1,3 +1,28 @@
+#!/usr/bin/env python3
+"""
+Distributed Grid Search for CMB Component Separation Parameter Optimization
+
+WARNING: This script performs an exhaustive grid search across different sky regions
+and can take SEVERAL HOURS to complete, especially when running on multiple GPUs.
+Designed for HPC environments with SLURM scheduling.
+
+This script implements distributed grid search optimization to find optimal spectral
+parameters for CMB component separation across different galactic mask zones. It uses
+JAX for GPU acceleration and distributed computing to efficiently explore parameter
+space for dust and synchrotron foreground components.
+
+Usage:
+    python 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL020 -i LiteBIRD
+
+Key Features:
+    - Distributed execution across multiple GPUs using JAX
+    - Grid search over dust temperature, dust spectral index, and synchrotron index
+    - Automatic sky region partitioning based on galactic masks
+    - Results saved in structured format for analysis
+
+Author: FURAX Team
+"""
+
 import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
@@ -33,7 +58,7 @@ import optax
 from furax._instruments.sky import (
     get_noise_sigma_from_instrument,
 )
-from furax.comp_sep import (
+from furax.obs import (
     negative_log_likelihood,
     sky_signal,
 )
@@ -349,7 +374,7 @@ def main():
             )
 
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
-            cmb = s["cmb"] 
+            cmb = s["cmb"]
             # Variance of the CMB map
             cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
             # This is equivalent to jnp.var(cmb.q) + jnp.var(cmb.u)

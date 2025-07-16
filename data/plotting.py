@@ -18,16 +18,18 @@ from matplotlib import cm, cycler
 # Set the style for the plots
 plt.style.use("science")
 font_size = 12
-plt.rcParams.update({
-    "font.size": font_size,
-    "axes.labelsize": font_size,
-    "xtick.labelsize": font_size,
-    "ytick.labelsize": font_size,
-    "legend.fontsize": font_size,
-    "axes.titlesize": font_size,
-    "font.family": "serif",  # or 'Times New Roman' to match LaTeX
-    "legend.frameon": True,  # Add boxed legends
-})
+plt.rcParams.update(
+    {
+        "font.size": font_size,
+        "axes.labelsize": font_size,
+        "xtick.labelsize": font_size,
+        "ytick.labelsize": font_size,
+        "legend.fontsize": font_size,
+        "axes.titlesize": font_size,
+        "font.family": "serif",  # or 'Times New Roman' to match LaTeX
+        "legend.frameon": True,  # Add boxed legends
+    }
+)
 jax.config.update("jax_enable_x64", True)
 
 
