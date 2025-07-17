@@ -19,6 +19,24 @@
 \usepackage{amssymb}
 \usepackage{natbib}
 \usepackage{svg}
+\usepackage{listings}
+\usepackage{xcolor} % Make sure xcolor is loaded before listings for color definitions
+
+% Define a custom style for Python code
+\lstdefinestyle{custompy}{
+    language=Python,
+    basicstyle=\footnotesize\ttfamily, % Use a small, monospaced font
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{purple},
+    commentstyle=\color{gray},
+    numbers=none,
+    showstringspaces=false,
+    breaklines=true, % Automatically break long lines
+    frame=none, % No frame around the code
+    backgroundcolor=\color{white}, % Set a background color if needed
+    tabsize=2
+}
+
 \newlist{arrowlist}{itemize}{1}
 \setlist[arrowlist]{label=$\resizebox{!}{5pt}{\textbullet}$}
 \newcommand{\highlight}[1]{\textbf{\textcolor{red}{#1}}}
@@ -84,7 +102,6 @@
 }
 %%% Eye Cacther %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 {
-    Eye Catcher, empty if option eyecatcher=false - unused
 }
 %%% Title %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 {\sf\bf
@@ -140,10 +157,10 @@
 
 \vspace{0.1cm}
 }
-
 \headerbox{\textbf{Parametric Component Separation}}{name=parametric,column=0,below=motivation}{
 \vspace{0.1cm}
 
+% Begin two-column layout
 \textbf{Data Model:}
 \begin{equation}
     \mathbf{d} = \mathbf{A}(\boldsymbol{\beta})\,\mathbf{s} + \mathbf{n}
@@ -161,8 +178,14 @@ where $\mathbf{d}$ is observed data, $\mathbf{s}$ are sky components, $\mathbf{A
 \end{equation}
 
 \textbf{Key Innovation:} Data-driven optimization of spatial clustering rather than fixed patching schemes.
+\centering % Center all content within this column
 
-\vspace{0.1cm}
+\vspace{0.5cm} % Creates a clean separation between the snippet and the plot
+% --- FURAX Code Snippet ---
+\textbf{FURAX Implementation:}
+\fbox{\includegraphics[width=0.8\linewidth]{figures/snippet.png}}
+\vspace{0.5cm} % Creates a clean separation between the snippet and the plot
+
 }
 
 \headerbox{\textbf{Spatial Variability}}{name=spatial,column=0,below=parametric}{
@@ -192,32 +215,53 @@ where $\mathbf{d}$ is observed data, $\mathbf{s}$ are sky components, $\mathbf{A
 \vspace{0.1cm}
 }
 
+
 % =============================================================================
 % RIGHT COLUMN
 % =============================================================================
 
-\headerbox{\textbf{The FURAX Framework}}{name=furax,column=1,row=0}{
-\vspace{0.3cm}
 
-\begin{center}
-\includesvg[width=0.40\textwidth]{figures/FURAX-CS.svg}
-\captionof{figure}{FURAX pipeline: Grid search over clustering configurations, spectral parameter optimization, and CMB variance minimization for model selection}
-\end{center}
+\headerbox{\textbf{The FURAX Framework}}{name=furax,column=1,row=0,span=1}{
 
-\textbf{Framework Features:}
-\begin{itemize}[leftmargin=0.5cm] \compresslist
-    \item[\ding{227}] \textbf{JAX-Native}: End-to-end differentiability and GPU acceleration
-    \item[\ding{227}] \textbf{Modular Design}: Composable algebraic operators for mixing matrix, noise weighting
-    \item[\ding{227}] \textbf{Memory Efficient}: Linear operators avoid explicit matrix construction
-    \item[\ding{227}] \textbf{Scalable}: Distributed execution across GPU clusters
-\end{itemize}
+\vspace{0.1cm}
 
-\textbf{Grid Search}: Configuration space $\mathcal{G} = \{K_{\beta_d}\} \times \{K_{T_d}\} \times \{K_{\beta_s}\}$ evaluated across 1.92M component separation runs.
+\begin{minipage}{0.45\textwidth}
+    
+    \begin{itemize}[leftmargin=0.5cm] \compresslist
+
+        \item[\ding{227}] \textbf{JAX-Native}: Differentiable \& GPU accelerated
+        \item[\ding{227}] \textbf{Modular Design}: Composable algebraic operators
+        \item[\ding{227}] \textbf{Memory Efficient}: Matrix-free linear operators
+        \item[\ding{227}] \textbf{Scalable}: Multi-GPU execution
+
+    \end{itemize}
+
+
+    \textbf{Grid Search}: Configuration space $\mathcal{G} = \{K_{\beta_d}\} \times \{K_{T_d}\} \times \{K_{\beta_s}\}$ evaluated across 1.92M component separation runs.
+
+    \vspace{0.3cm} % Creates a clean separation between the snippet and the plot
+    % --- Runtime Comparison Plot ---
+    \includegraphics[width=\linewidth]{figures/runtime_comparison.pdf}
+    \captionof{figure}{Runtime comparison of FURAX Component Separation}
+
+\end{minipage}
+\hfill
+\begin{minipage}{0.45\textwidth}
+    \begin{center}
+        \includesvg[width=0.9\textwidth]{figures/FURAX-CS.svg}
+        
+        \captionof{figure}{FURAX pipeline: Grid search over clustering configurations, spectral parameter optimization, and CMB variance minimization for model selection}
+    \end{center}
+    \end{minipage}    
+
 
 \vspace{0.2cm}
-}
 
-\headerbox{\textbf{Likelihood and Variance Analysis}}{name=analysis,column=0,below=spatial}{
+} 
+
+
+
+\headerbox{\textbf{Likelihood and Variance Analysis}}{name=analysis,column=1,below=furax}{
 \vspace{0.3cm}
 
 \textbf{Selection Criterion - CMB Variance Minimization:}
@@ -226,7 +270,7 @@ where $\mathbf{d}$ is observed data, $\mathbf{s}$ are sky components, $\mathbf{A
 \end{equation}
 
 \begin{center}
-\includegraphics[width=0.80\textwidth]{variance_likelihood_distributions.pdf}
+\includegraphics[width=1.0\textwidth]{variance_likelihood_distributions.pdf}
 \captionof{figure}{Distribution of CMB variance, spectral likelihood, and B-mode power for different spatial modeling approaches. K-means clustering achieves optimal balance.}
 \end{center}
 
@@ -235,33 +279,28 @@ where $\mathbf{d}$ is observed data, $\mathbf{s}$ are sky components, $\mathbf{A
 \vspace{0.2cm}
 }
 
-\headerbox{\textbf{Results}}{name=results,column=1,below=furax}{
+\headerbox{\textbf{Results}}{name=results,column=1,below=analysis,span=1}{
 \vspace{0.3cm}
 
-\textbf{Tensor-to-Scalar Ratio Constraints:}
+\begin{minipage}{0.48\textwidth}
 
-\begin{center}
-\includegraphics[width=0.65\textwidth]{r_likelihood_distribution.pdf}
-\captionof{figure}{$r$ likelihood distributions: K-means clustering (blue) yields $\hat{r} = 4.55 \times 10^{-4}$ with lowest bias and tightest constraints compared to multi-resolution approaches}
-\end{center}
+    \textbf{Tensor-to-Scalar Ratio Constraints:}
 
-\vspace{0.1cm}
+    \begin{center}
+    \includegraphics[width=1.0\textwidth]{r_likelihood_distribution.pdf}
+    \captionof{figure}{$r$ likelihood distributions: K-means clustering (blue) yields $\hat{r} = 4.55 \times 10^{-4}$ with lowest bias and tightest constraints compared to multi-resolution approaches}
+    \end{center}
 
-\textbf{Residual B-mode Spectra:}
-\begin{center}
-\includegraphics[width=0.65\textwidth]{bb_residual_spectra.pdf}
-\captionof{figure}{Residual B-mode power spectra: K-means clustering (blue) achieves significantly lower systematic residuals compared to multi-resolution approaches, falling below target sensitivity levels}
-\end{center}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
 
-\vspace{0.1cm}
-
-\textbf{Performance Comparison:}
-\begin{itemize}[leftmargin=0.5cm] \compresslist
-    \item[\ding{227}] \textbf{K-means clustering}: Lowest bias, tightest constraints on $r$
-    \item[\ding{227}] \textbf{Multi-resolution}: Shows positive bias and broader uncertainty
-    \item[\ding{227}] \textbf{40× speedup}: Compared to previous CPU-based frameworks
-    \item[\ding{227}] \textbf{Adaptive}: Clustering re-optimized per noise realization
-\end{itemize}
+    \textbf{Residual B-mode Spectra:}
+    \begin{center}
+    \includegraphics[width=1.0\textwidth]{bb_residual_spectra.pdf}
+    \captionof{figure}{Residual B-mode power spectra: K-means clustering (blue) achieves significantly lower systematic residuals compared to multi-resolution approaches, falling below target sensitivity levels}
+    \end{center}
+\end{minipage}
 
 \vspace{0.2cm}
 }
@@ -270,7 +309,7 @@ where $\mathbf{d}$ is observed data, $\mathbf{s}$ are sky components, $\mathbf{A
 % BOTTOM SECTION - REFERENCES
 % =============================================================================
 
-\headerbox{\textbf{References \& Acknowledgements}}{name=references,column=0,below=spatial,span=2,below=results}{
+\headerbox{\textbf{References \& Acknowledgements}}{name=references,column=0,below=results,span=2,below=spatial}{
 \vspace{0.4em}
 
 \textbf{Key References:}
