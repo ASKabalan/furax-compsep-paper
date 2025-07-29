@@ -1,0 +1,87 @@
+Page 1, Line 57, Col 11: Chanial et al., 2025, in prep
+Page 2, Line 44, Col 5: \rm{dust}
+Page 3, Line 63, Col 5: We should probably say we explore other loss functions as well
+Page 3, Line 66, Col 11: which?
+Page 3, Line 106, Col 10: The key features are:
+Page 3, Line 73, Col 12: I don't think that paper exists actually :/
+Page 3, Line 153, Col 13: 
+Page 3, Line 153, Col 13: 
+Page 4, Line 66, Col 8: or other loss function?
+Page 4, Line 74, Col 1: Bazyrov et al., in prep
+Page 4, Line 18, Col 4: ref
+Page 4, Line 88, Col 7: at an Healpix (ref) nside= 64
+Page 5, Line 78, Col 1: this probably does not deserve a numbered paragraph
+Page 5, Line 112, Col 1: Eq. (7)
+Page 5, Line 132, Col 1: \equiv 
+(for definition)
+Page 5, Line 156, Col 1: \equiv
+Page 5, Line 182, Col 1: C^model ? 
+(this is what is being used in later equations)
+Page 5, Line 15, Col 3: add a ref to Planck masks (like ESA data base = where to find them)
+Page 5, Line 123, Col 5: ref to PTEP
+Page 5, Line 166, Col 4: not sure what you mean here
+Page 6, Line 14, Col 1: add units [uK^2]?
+Page 6, Line 26, Col 2: for the notation of the number of clusters, don't you prefer to use notation at the beginning of section 2.3, e.g. K_{T_d} ? (to avoid confusion with the value of Td)
+Page 6, Line 49, Col 8: 
+Page 6, Line 49, Col 8: 
+Page 6, Line 60, Col 1: could you add error bars corresponding to the scatter of the map variance across noise simulations ?
+Page 6, Line 85, Col 2: construct/build/define?
+Page 6, Line 87, Col 1: common?
+Page 6, Line 99, Col 1: sure this is what they do?
+Page 6, Line 108, Col 4: 
+Page 6, Line 119, Col 8: je pense que "Group" n'est pas le bon nom pour cette citation
+Page 6, Line 126, Col 5: not needed I think because already said
+Page 6, Line 21, Col 5: and frequencies 
+maybe just say "LiteBIRD-like"
+Page 6, Line 104, Col 9: similarly to what is done in PTEP (2023)
+Page 6, Line 118, Col 17: not sure this sentence is necessary?
+Page 6, Line 114, Col 2: 
+Page 6, Line 98, Col 12: should these two lines be merged in the two other bullet points on the left? not sure why they are separated at the moment
+Page 6, Line 94, Col 2: why not calling it multi-Healpix instead? or multi-nside? 
+(because the Kmeans do also lead to "multiresolution" maps anyway ..)
+Page 6, Line 99, Col 1: oh this is the PTEP paper? 
+it may be better if it reads "The LiteBIRD collaboration, 2022"
+Page 6, Line 76, Col 3: 
+Page 6, Line 76, Col 1: this paragraph can be rationalized a bit more -- there are a few repetitions
+Page 6, Line 124, Col 4: this is actually central for the paper. d1s1 is what sets the complexity of the input foregrounds. We may want to say something about it: which level of variation is there, on which scales, etc. ? or point to a paper where such characteristics are presented
+Page 7, Line 95, Col 6: runs?
+Page 7, Line 97, Col 1: ref
+Page 7, Line 124, Col 8: the full grid was scanned under ... ?
+Page 7, Line 44, Col 4: this should probably go earlier when simulations are detailed
+Page 7, Line 64, Col 10: the optimal pixel clustering -- obtained after minimizing variance?
+Page 7, Line 65, Col 9: obtained for a single noise realization
+Page 7, Line 79, Col 20: find ? 
+(other verbs are at the present tense I believe)
+Page 7, Line 104, Col 7: to be introduced maybe, I think this is the first time it appears
+Page 7, Line 112, Col 6: B-modes angular power spectrum of residuals?
+Page 8, Line 30, Col 2: but isn't the multiresolution case also obtained by minimizing the variance of the CMB map ?
+Page 8, Line 22, Col 8: you used r=0.001 in the figure
+Page 9, Line 10, Col 11: Table~(5)
+Page 9, Line 14, Col 13: this is uK_CMB^2 ?
+Page 9, Line 13, Col 15: do we understand how that can be the case? isn't Kmeans bound to always do better than healpix ?
+Page 10, Line 58, Col 1: this seems to contradict your earlier observation when you said that K-means was slightly noisier
+Page 10, Line 12, Col 1: can you find more explicit naming? (since this is the figure that people will take out of context when refering to your work ...)
+Page 10, Line 18, Col 1: "This work (optimal Kmeans technique)"
+or something like that ? 
+with a red color ?
+Page 10, Line 75, Col 6: optimally dealing with?
+Page 10, Line 68, Col 11: C'est peut-être ici où Arianna pourrait insérer un nouveau paragraphe 5.8 
+"post-clustering optimization" ?
+Page 10, Line 78, Col 18: which shows important numerical improvement compared to previous implementations such as fgbuster
+Page 10, Line 80, Col 13: ?
+Page 10, Line 74, Col 11: careful with the repetitions with the conclusions ...
+Page 11, Line 35, Col 3: I don't think this figure was referred to nor commented  in the main text -- I think this is an important result!
+Page 12, Line 38, Col 1: here we'll be adding something about Arianna's further optimization
+Page 12, Line 57, Col 20: coming from e.g. external data sets
+Page 12, Line 61, Col 10: that's now touched with Arianna's approach
+Page 13, Line 126, Col 6: why 2 citations?
+Page 13, Line 130, Col 12: same
+Page 13, Line 7, Col 7: 
+Page 13, Line 7, Col 9: touched by Arianna now. But we could mention that we may want to explore different shapes of masks for instance
+Page 13, Line 44, Col 12: 
+Page 13, Line 31, Col 7: not sure what you mean here. 
+Sum(ClBB) is sensitive to residuals in general -- not more statistical than systematics
+Page 13, Line 41, Col 1: a better way to address this would be to fit for r directly! 
+and the loss function would be given by r + sigma(r) for instance. 
+In that case, no need to adjust results by hand
+Page 14, Line 18, Col 4: aren't these like repetition?
