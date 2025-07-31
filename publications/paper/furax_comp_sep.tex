@@ -16,16 +16,18 @@
 \usepackage{subcaption}
 \usepackage{xcolor}
 \usepackage{placeins}  % For \FloatBarrier
-\newcommand{\ar}[1]{\textcolor{blue}{#1}}
+\usepackage[normalem]{ulem}
+\newcommand{\ar}[1]{\textcolor{red}{#1}}
 \newcommand{\je}[1]{\textcolor{orange}{#1}}
+\newcommand{\wk}[1]{\textcolor{green}{#1}}
 
 % Title of the paper
-\title[Optimized Clustering for CMB Component Separation]{A novel approach to optimize clustering of parametric map-based component separation for upcoming CMB polarization satellites}
+\title[Optimized Clustering for CMB Component Separation]{A novel approach to optimize clustering \ar{for \sout{of}} parametric map-based component separation for upcoming CMB polarization satellites}
 
 % Author list
 \author[W. Kabalan et al.]{
 Wassim Kabalan$^{1}$\thanks{Contact: \href{mailto:wassim@apc.in2p3.fr}{wassim@apc.in2p3.fr}}, 
-Arianna Rizzieri,
+Arianna Rizzieri$^{2}$,
 Wuhyun Sohn$^{1}$,
 Benjamin Beringue$^{1}$,
 Artem Basyrov$^{1}$,
@@ -34,7 +36,8 @@ Pierre Chanial$^{1}$,
 Alexandre Boucaud$^{1}$,
 Josquin Errard$^{1}$\thanks{Contact: \href{mailto:josquin@apc.in2p3.fr}{josquin@apc.in2p3.fr}}
 \\
-$^{1}$Université Paris Cité, CNRS, Astroparticule et Cosmologie, F-75013 Paris, France
+$^{1}$Université Paris Cité, CNRS, Astroparticule et Cosmologie, F-75013 Paris, France\\
+$^{2}$Department of Physics, University of Oxford, Denys Wilkinson Building, Keble Road, Oxford OX1 3RH, United Kingdom
 }
 %Comment
 
@@ -49,7 +52,9 @@ $^{1}$Université Paris Cité, CNRS, Astroparticule et Cosmologie, F-75013 Paris
 \maketitle
 
 \begin{abstract}
-We present a novel \texttt{JAX}-powered parametric component separation approach that optimizes the degrees of freedom in the component separation parametrization, achieving minimum variance after foreground cleaning. This work is the first to incorporate an algorithm for optimizing the clustering of sky regions where the frequency scaling laws are assumed constant. Our technique is particularly applied to the challenging large angular scales encountered in future CMB space missions—illustrated here with a LiteBIRD-like instrument targeting the measurement of primordial gravitational waves down to \( r < 0.001 \). Furthermore, our efficient and modular framework paves the way for the extension of traditional component separation techniques.
+We present a novel \texttt{JAX}-powered parametric component separation approach that optimizes the degrees of freedom in the \ar{foreground frequency scaling \sout{component separation}} parameterizations \ar{to account for their spatial variability \sout{,}.
+This optimization is based on minimizing the variance \sout{achieving minimum variance}} \ar{in the reconstructed cleaned CMB map \sout{after foreground cleaning}}. 
+This work is the first to incorporate an algorithm for optimizing the clustering of sky regions where the frequency scaling laws are assumed constant. Our technique is particularly applied to the challenging large angular scales encountered in future CMB space missions—illustrated here with a LiteBIRD-like instrument targeting the measurement of primordial gravitational waves down to \( r < 0.001 \). Furthermore, our efficient and modular framework paves the way for the extension of traditional component separation techniques.
 \end{abstract}
 
 % Select between one and six entries from the list of approved keywords.
@@ -222,7 +227,7 @@ From the reconstructed components, we extract the CMB signal \( \hat{s}_{\mathrm
     \sigma^2_{\mathrm{CMB}} = \left\langle \mathrm{Var}_{i} \left[ \hat{s}^{(i)}_{\mathrm{CMB}} \right] \right\rangle_{\text{pixels}}
 \end{equation}
 
-\je{We should probably say we explore other loss functions as well}
+\je{We should probably say we explore other loss functions and other figures of merit as well}
 
 Although the spectral parameters \( \boldsymbol{\beta} \) are defined in a clustered fashion—varying across spatial regions—the reconstructed components \( \hat{\mathbf{s}} \), and hence \( \hat{s}_{\mathrm{CMB}} \), are evaluated as a full-sky solution.
 
@@ -621,6 +626,8 @@ These results illustrate the benefits of spatially adaptive modeling; however, a
     \label{fig:cmb_qu_comparison}
 \end{figure*}
 
+\je{Il faut ajouter des unités dans la figure aussi}
+
 \subsubsection*{Residual \( B \)-Mode Power Spectra}
 \label{subsec:residual_bb_spectra}
 
@@ -660,6 +667,7 @@ In contrast, the single-patch model produces a deceptively tight constraint but 
 This behavior reflects the dominance of coherent residuals, which shift the likelihood peak while artificially reducing the inferred uncertainty.
 These trends mirror those observed in the residual \( B \)-mode spectra and further demonstrate the importance of flexible spatial modeling to achieve unbiased and robust cosmological inference.
 
+\je{this should be a paragram without title}
 \paragraph{Summary of Results.}
 \begin{itemize}
     \item \textbf{K-means clustering} achieves the tightest and most unbiased constraints on \( r \).
@@ -671,6 +679,7 @@ These trends mirror those observed in the residual \( B \)-mode spectra and furt
     \centering
     \includegraphics[width=1\linewidth]{figures/variance_likelihood_distributions.pdf}
     \caption{
+    \je{I don't think this figure was referred to nor commented  in the main text -- I think this is an important result!}
     Distribution of evaluation metrics for three spatial modeling strategies: K-means clustering (see Fig.~\protect\ref{fig:furax_patches}), MultiRes-1 (Table~\protect\ref{tab:multires_config}, Fig.~\protect\ref{fig:multires_patches}), and MultiRes-2 (Table~\protect\ref{tab:validation_config}, shown in green). 
     Metrics shown are: W variance of the reconstructed CMB ($Q + U$), (center) negative log-likelihood, and (right) total $C_\ell^{BB}$ power. 
     Dashed vertical lines indicate the mean of each distribution. 
