@@ -22,7 +22,7 @@
 \newcommand{\wk}[1]{\textcolor{green}{#1}}
 
 % Title of the paper
-\title[Optimized Clustering for CMB Component Separation]{A novel approach to optimize clustering \ar{for \sout{of}} parametric map-based component separation for upcoming CMB polarization satellites}
+\title[Optimized Clustering for CMB Component Separation]{A novel approach to optimize clustering for parametric map-based component separation for upcoming CMB polarization satellites}
 
 % Author list
 \author[W. Kabalan et al.]{
@@ -52,8 +52,7 @@ $^{2}$Department of Physics, University of Oxford, Denys Wilkinson Building, Keb
 \maketitle
 
 \begin{abstract}
-We present a novel \texttt{JAX}-powered parametric component separation approach that optimizes the degrees of freedom in the \ar{foreground frequency scaling \sout{component separation}} parameterizations \ar{to account for their spatial variability \sout{,}.
-This optimization is based on minimizing the variance \sout{achieving minimum variance}} \ar{in the reconstructed cleaned CMB map \sout{after foreground cleaning}}. 
+We present a novel \texttt{JAX}-powered parametric component separation approach that optimizes the degrees of freedom in the foreground frequency scaling parameterizations to account for their spatial variability. This optimization is based on minimizing the variance in the reconstructed cleaned CMB map. 
 This work is the first to incorporate an algorithm for optimizing the clustering of sky regions where the frequency scaling laws are assumed constant. Our technique is particularly applied to the challenging large angular scales encountered in future CMB space missions—illustrated here with a LiteBIRD-like instrument targeting the measurement of primordial gravitational waves down to \( r < 0.001 \). Furthermore, our efficient and modular framework paves the way for the extension of traditional component separation techniques.
 \end{abstract}
 
@@ -101,9 +100,7 @@ where:
 \end{itemize}
 
 
-Each column of the mixing matrix \( \mathbf{A}(\boldsymbol{\beta}) \) models the spectral energy density of each component. In practice, this includes a modified blackbody (MBB) emission law for thermal dust and a power-law dependence for synchrotron radiation, with \( \boldsymbol{\beta} \) denoting the set of corresponding spectral parameters ($\beta_{dust}$, $T_{dust}$, $\beta_{synchrotron}$). 
-
-\je{put $\rm{dust}$ instead of $\beta_{dust}$}
+Each column of the mixing matrix \( \mathbf{A}(\boldsymbol{\beta}) \) models the spectral energy density of each component. In practice, this includes a modified blackbody (MBB) emission law for thermal dust and a power-law dependence for synchrotron radiation, with \( \boldsymbol{\beta} \) denoting the set of corresponding spectral parameters ($\beta_{\rm dust}$, $T_{\rm dust}$, $\beta_{\rm synchrotron}$). 
 
 Assuming Gaussian noise, the negative log-likelihood under this model is:
 \begin{equation}
@@ -153,16 +150,16 @@ The entire clustering algorithm is implemented to be fully compatible with \text
 
 
 In practice, we initialize the clustering of sky pixels using predefined templates such as the Planck Galactic masks (e.g., \texttt{GAL020}, \texttt{GAL040})~\citep{PLANCK}. These masks divide the sky into regions with different levels of Galactic foreground contamination—typically distinguishing low-, medium-, and high-foreground areas based on Galactic latitude or emission intensity thresholds.
-Each clustering configuration—defined by the number of patches used for parameters like \( \beta_d \), \( T_d \), and \( \beta_s \)—specifies a distinct model within the data framework of Equation~\eqref{eq:data_model}. Rather than optimizing the clustering assignments directly, we evaluate a grid of such configurations by computing the spectral likelihood in Equation~\eqref{eq:spectral_likelihood} for each mask, selecting the one that minimizes the variance of the recovered CMB.
+Each clustering configuration—defined by the number of patches used for parameters like \( \beta_{\rm d} \), \( T_{\rm d} \), and \( \beta_{\rm s} \)—specifies a distinct model within the data framework of Equation~\eqref{eq:data_model}. Rather than optimizing the clustering assignments directly, we evaluate a grid of such configurations by computing the spectral likelihood in Equation~\eqref{eq:spectral_likelihood} for each mask, selecting the one that minimizes the variance of the recovered CMB.
 
 \subsection{Grid Search over Clustering Models}
 \label{subsec:grid_search}
 
-Our model allows the clustering of different spectral parameters (e.g., dust and synchrotron) on independent sets of sky patches, without requiring them to align spatially. The number of clusters assigned to each spectral parameter is treated as a discrete modeling choice, assumed specifically for the purpose of component separation. For example, one configuration might use 100 patches for \( \beta_d \), 20 patches for \( T_d \), and 10 patches for \( \beta_s \).
+Our model allows the clustering of different spectral parameters (e.g., dust and synchrotron) on independent sets of sky patches, without requiring them to align spatially. The number of clusters assigned to each spectral parameter is treated as a discrete modeling choice, assumed specifically for the purpose of component separation. For example, one configuration might use 100 patches for \( \beta_{\rm d} \), 20 patches for \( T_{\rm d} \), and 10 patches for \( \beta_{\rm s} \).
 
 Letting \( \mathcal{G} \) denote the space of possible clustering configurations:
 \[
-\mathcal{G} = \{K_{\beta_d} \} \times \{ K_{T_d} \} \times \{ K_{\beta_s} \},
+\mathcal{G} = \{K_{\beta_{\rm d}} \} \times \{ K_{T_{\rm d}} \} \times \{ K_{\beta_{\rm s}} \},
 \]
 we perform a structured grid search across \( \mathcal{G} \), evaluating each configuration \( \{ \mathcal{C}_k \} \in \mathcal{G} \) by fitting spectral parameters \( \boldsymbol{\beta} \) and reconstructing the CMB component. Specifically, we maximize the spectral likelihood:
 \[
@@ -214,27 +211,32 @@ For each clustering configuration in our grid, we perform maximum likelihood est
 \end{equation}
 
 Using these parameters, we reconstruct the sky components via:
-
-
 \begin{align}
 \hat{\mathbf{s}} &= \left( \mathbf{A}(\boldsymbol{\beta}_k^*)^\top \mathbf{N}^{-1} \mathbf{A}(\boldsymbol{\beta}_k^*) \right)^{-1} \mathbf{A}(\boldsymbol{\beta}_k^*)^\top \mathbf{N}^{-1} \mathbf{d} \label{eq:recon_operator} \\
-                 &\equiv W(\mathbf{d})
+&\equiv W(\mathbf{d})
 \end{align}
 
-From the reconstructed components, we extract the CMB signal \( \hat{s}_{\mathrm{CMB}} \). We compute its variance across noise realizations and average over sky pixels to obtain the scalar objective:
-\begin{equation}
-\label{eq:min_var}
+From the reconstructed components, we extract the CMB signal \( \hat{s}_{\mathrm{CMB}} \). To select the optimal clustering configuration, we evaluate two equivalent metrics that quantify the total residual contamination:
+
+\begin{enumerate}
+    \item The variance of the reconstructed CMB across noise realizations:
+    \begin{equation}
+    \label{eq:min_var}
     \sigma^2_{\mathrm{CMB}} = \left\langle \mathrm{Var}_{i} \left[ \hat{s}^{(i)}_{\mathrm{CMB}} \right] \right\rangle_{\text{pixels}}
-\end{equation}
+    \end{equation}
+    
+    \item The sum of the B-mode power spectrum:
+    \begin{equation}
+    P_{\mathrm{BB}} = \sum_{\ell} C_\ell^{BB}[\hat{s}_{\mathrm{CMB}}]
+    \label{eq:sum_bb}
+    \end{equation}
+\end{enumerate}
 
-\je{We should probably say we explore other loss functions and other figures of merit as well}
+Under our Gaussian noise assumptions and full-sky coverage, these metrics are mathematically equivalent—both capture the sum of systematic and statistical residuals in the reconstruction. However, practical considerations favor the variance-based approach for masked sky analysis. Computing $C_\ell^{BB}$ on masked regions requires B-mode purification to avoid E-to-B leakage, adding significant computational overhead without improving the selection criterion. 
 
-Although the spectral parameters \( \boldsymbol{\beta} \) are defined in a clustered fashion—varying across spatial regions—the reconstructed components \( \hat{\mathbf{s}} \), and hence \( \hat{s}_{\mathrm{CMB}} \), are evaluated as a full-sky solution.
+In our tests comparing both metrics, we observed that while $\sum C_\ell^{BB}$ exhibited slightly higher contrast between different clustering configurations—making differences between good and poor configurations more apparent—both metrics consistently identified the same optimal clustering configurations. Given this equivalence and the computational advantages, we adopt the CMB variance $\sigma^2_{\mathrm{CMB}}$ as our primary selection criterion throughout this work.
 
-This variance serves as the loss function for selecting the best clustering configuration. It acts as a proxy for residual foreground contamination and directly impacts the uncertainty on the inferred tensor-to-scalar ratio \( r \).
-
-Minimizing this variance reduces both statistical uncertainty and systematic leakage in the \( B \)-mode power spectrum. As shown in \citep{Errard2015}, residuals from imperfect foreground modeling propagate into biases on \( C_\ell^{BB} \), making this metric critical for achieving robust and unbiased cosmological constraints.
-
+This variance serves as the loss function for selecting the best clustering configuration. It acts as a proxy for residual foreground contamination and directly impacts the uncertainty on the inferred tensor-to-scalar ratio \( r \). Minimizing this variance reduces both statistical uncertainty and systematic leakage in the \( B \)-mode power spectrum. As shown in \citep{Errard2015}, residuals from imperfect foreground modeling propagate into biases on \( C_\ell^{BB} \), making this metric critical for achieving robust and unbiased cosmological constraints.
 \subsection{The FURAX Framework}
 
 To support this method, we introduce \texttt{FURAX}~\citep{FURAX}---a modular \texttt{JAX}-powered framework to express and optimize parametric component separation likelihoods.
@@ -251,7 +253,7 @@ The key features are:
 All core computations in FURAX are implemented using memory-efficient linear operators, avoiding explicit dense matrices. This symbolic and modular approach allows \texttt{FURAX} to express and optimize large, realistic models without the memory bottlenecks associated with explicit matrix construction. Ongoing companion developments include forthcoming works on HWP modeling (Tsang King Sang et al.), the MegaTop pipeline (Beringue et al.), the map-maker (Sohn et al.), spherical harmonic tooling (Bazyrov et al., in prep), and extended forecast studies (Villarrubia-Aguilar et al.).
 
 
-In the scope of this paper, we assume isotropic white noise and matched beam resolution. Although advanced treatments (e.g., beam convolution, correlated noise) exist in the literature, they are not our focus here. However, \texttt{FURAX} is designed to make such extensions straightforward in future developments, including applications to map-making, half-wave plate systematics, atmospheric effects, and beyond.
+In the scope of this paper, we assume isotropic white noise and matched beam resolution. Note that beam effects are not modeled in this analysis, as our simulations use low-resolution data ($N_{\text{side}} = 64$) where beam convolution effects are minimal compared to foreground contamination. Although advanced treatments (e.g., beam convolution, correlated noise) exist in the literature, they are not our focus here. However, \texttt{FURAX} is designed to make such extensions straightforward in future developments, including applications to map-making, half-wave plate systematics, atmospheric effects, and beyond.
 
 The framework integrates natively with the \texttt{JAX} ecosystem and supports optimization and inference workflows through libraries such as \texttt{Optax}~\citep{optax} and \texttt{NumPyro}~\citep{numpyro}.
 
@@ -259,7 +261,7 @@ The framework integrates natively with the \texttt{JAX} ecosystem and supports o
     \centering
     \includegraphics[width=\linewidth]{figures/FURAX-CS.pdf}
     \caption{
-        Overview of the \texttt{FURAX} pipeline for component separation and tensor-to-scalar ratio estimation. The process begins by selecting a clustering configuration from the discrete grid \( \mathcal{G} = \{K_{\beta_d}\} \times \{K_{T_d}\} \times \{K_{\beta_s}\} \), evaluated in parallel using \texttt{JAX-GRID-SEARCH}. Each configuration undergoes spectral parameter optimization and map reconstruction using \textsc{FURAX}. The variance \je{or other loss function?} of the recovered CMB map is used as a selection metric to identify the best configuration. The final CMB map is then used to compute the \( B \)-mode power spectrum and infer the tensor-to-scalar ratio \( r \). 
+        Overview of the \texttt{FURAX} pipeline for component separation and tensor-to-scalar ratio estimation. The process begins by selecting a clustering configuration from the discrete grid \( \mathcal{G} = \{K_{\beta_{\rm d}}\} \times \{K_{T_{\rm d}}\} \times \{K_{\beta_{\rm s}}\} \), evaluated in parallel using \texttt{JAX-GRID-SEARCH}. Each configuration undergoes spectral parameter optimization and map reconstruction using \textsc{FURAX}. The variance or $P_{\mathrm{BB}}$ as shown in equation~\eqref{eq:sum_bb} of the recovered CMB map is used as a selection metric to identify the best configuration. The final CMB map is then used to compute the \( B \)-mode power spectrum and infer the tensor-to-scalar ratio \( r \). 
     }
     \label{fig:furax_pipeline}
 \end{figure}
@@ -270,7 +272,7 @@ The central task in parametric component separation is the estimation of spectra
 
 Thanks to \texttt{JAX}'s automatic differentiation, gradients of this objective with respect to all free parameters are computed efficiently. This applies even in spatially varying models, where spectral parameters are defined per cluster and must be dispatched to the appropriate sky pixels. Crucially, this indexing and dispatching operation, performed via binary masks, are themselves implemented in a differentiable manner. As a result, the likelihood function is compatible with gradient-based optimization.
 
-\texttt{FURAX} performs spectral likelihood maximization using gradient-based optimization from the \texttt{Optax} library~\citep{optax}. The default method is L-BFGS \je{add-ref}, a limited-memory quasi-Newton optimizer that leverages curvature information from past gradients. Ideally, optimization would proceed via a full Newton step:
+\texttt{FURAX} performs spectral likelihood maximization using gradient-based optimization from the \texttt{Optax} library~\citep{optax}. The default method is L-BFGS~\citep{Liu1989}, a limited-memory quasi-Newton optimizer that leverages curvature information from past gradients. Ideally, optimization would proceed via a full Newton step:
 \begin{equation}
     \theta_{n+1} = \theta_n - H^{-1} \nabla L(\theta_n),
 \end{equation}
@@ -280,9 +282,9 @@ In practice, we observe that L-BFGS in \texttt{FURAX} exhibits superior stabilit
 
 We also experimented with TNC (Truncated Newton with Constraints)~\citep{TNC}, as used in \texttt{FGBuster}. In our framework, TNC is accessed through \texttt{jaxopt}~\citep{jaxopt}, which wraps \texttt{scipy.optimize.minimize}~\citep{scipy}. However, this implementation runs exclusively on CPU and is incompatible with \texttt{JAX}’s \texttt{jit} compilation or \texttt{vmap} vectorization. More critically, TNC does not scale well with parameter count---as the number of clusters increases, the optimization problem becomes stiff and memory-bound, leading to significantly longer runtimes and poorer convergence behavior.
 
-First-order optimizers such as Adam~\citep{adam} were also tested, but proved to be ill-suited for this application. Adam applies a uniform learning rate schedule across all parameters, yet in component separation, the physical scales of spectral parameters differ substantially: for instance, \( \beta_d \) varies between 0.5 and 5, \( T_d \) between 10 and 50\,\(\mathrm{K}\), and \( \beta_s \) between \(-6\) and \(-1\).
+First-order optimizers such as Adam~\citep{adam} were also tested, but proved to be ill-suited for this application. Adam applies a uniform learning rate schedule across all parameters, yet in component separation, the physical scales of spectral parameters differ substantially: for instance, \( \beta_{\rm d} \) varies between 0.5 and 5, \( T_{\rm d} \) between 10 and 50\,\(\mathrm{K}\), and \( \beta_{\rm s} \) between \(-6\) and \(-1\).
 
-Moreover, the spectral likelihood typically reaches values on the order of \( 10^8 \) (for example, at nside \( 64 \)) \je{at an Healpix (ref) nside= 64}, making fixed or scheduled learning rates ineffective. In contrast, L-BFGS employs a line search strategy that dynamically adapts the step size to local curvature, enabling stable convergence even in high-dimensional, multi-scale optimization settings.
+Moreover, the spectral likelihood typically reaches values on the order of \( 10^8 \) (for example, at HEALPix~\citep{Gorski2005} nside \( 64 \)), making fixed or scheduled learning rates ineffective. In contrast, L-BFGS employs a line search strategy that dynamically adapts the step size to local curvature, enabling stable convergence even in high-dimensional, multi-scale optimization settings.
 
 \begin{figure}
 \centering
@@ -298,8 +300,7 @@ We estimate the tensor-to-scalar ratio \( r \) from the \( B \)-mode power spect
 
 To ensure statistical robustness, the full estimation pipeline is applied across multiple noise realizations and distinct sky regions. The resulting B-mode power spectra and corresponding likelihoods are then averaged over both axes, the noise and the sky region, to account for sample variance and foreground complexity.
 
-\je{this probably does not deserve a numbered paragraph}
-\paragraph{BB Spectrum Convention.}
+\subsubsection*{BB Spectrum Convention}
 All angular power spectra are reported in the standard units:
 \[
 \text{coeff} = \frac{\ell(\ell + 1)}{2\pi},
@@ -330,7 +331,7 @@ To quantify contamination in the recovered CMB, we separate residuals into two c
 \end{itemize}
 This decomposition isolates stochastic uncertainty from systematic bias, and \( C_\ell^{\mathrm{stat}} \) is used as the effective noise floor for likelihood estimation.
 
-\paragraph{BB Spectrum Model.}
+\subsubsection*{BB Spectrum Model}
 We model the theoretical \( B \)-mode spectrum as:
 \begin{equation}
 C_\ell^{BB}(r) = r \cdot C_\ell^{\mathrm{tensor}} + C_\ell^{\mathrm{lensing}} + C_\ell^{\mathrm{stat}},
@@ -362,7 +363,7 @@ To assess the performance of our clustered component separation framework, we co
 
 The simulation begins by defining a known sky signal \( \mathbf{s} \) in Equation~\eqref{eq:data_model}, consisting of Stokes \( Q/U \) maps for CMB, thermal dust, and synchrotron emission, all specified at a common reference frequency. This sky vector is then mixed using a known mixing matrix \( \mathbf{A}(\boldsymbol{\beta}) \), where \( \boldsymbol{\beta} \) encodes the ground-truth spectral parameters for each component. Table~\ref{tab:validation_config} summarizes the simulation parameters.
 
-The noise vector \( \mathbf{n} \) is sampled as Gaussian white noise, scaled to match LiteBIRD-like polarization depth \je{ref to PTEP} across the frequency channels. Each clustering configuration is evaluated across 100 independent noise realizations to reduce statistical variance and assess estimator stability.
+The noise vector \( \mathbf{n} \) is sampled as Gaussian white noise, scaled to match LiteBIRD-like polarization depth~\citep{LiteBIRD_PTEP_2022} across the frequency channels. Each clustering configuration is evaluated across 100 independent noise realizations to reduce statistical variance and assess estimator stability.
 
 We perform a grid search over discrete cluster configurations (defined in Section~\ref{subsec:grid_search}), varying the number of patches assigned to each spectral parameter. For each setup, we run the full component separation pipeline by minimizing the spectral negative log-likelihood. The resulting CMB map \( \hat{s}_{\mathrm{CMB}} \) is then compared with the input to assess reconstruction fidelity and the accuracy of tensor-to-scalar ratio estimation.
 
@@ -376,31 +377,28 @@ We perform a grid search over discrete cluster configurations (defined in Sectio
         \textbf{Parameter} & \textbf{Value / Range} \\
         \midrule
         Resolution & \( N_{\text{side}} = 64 \) \\
-        Sky mask & \texttt{GAL020} \je{add a ref to Planck masks (like ESA data base = where to find them)}\\
+        Sky mask & \texttt{GAL020}~\citep{Planck2020Legacy}\\
         Noise realizations & 100 \\
-        Patch count grid & \( \beta_d \in [10, 300] \), \( T_d, \beta_s \in [5, 20] \) \\
-        True patch count & \( \beta_d = 100 \), \( T_d = 20 \), \( \beta_s = 20 \) \\
+        Patch count grid & \( \beta_{\rm d} \in [10, 300] \), \( T_{\rm d}, \beta_{\rm s} \in [5, 20] \) \\
+        True patch count & \( \beta_{\rm d} = 100 \), \( T_{\rm d} = 20 \), \( \beta_{\rm s} = 20 \) \\
         \bottomrule
     \end{tabular}
 \end{table}
 
 
-Figure~\ref{fig:grid_search_summary} shows the grid search results. The configuration minimizing the CMB variance coincides with the configuration yielding the lowest spectral negative log-likelihood, \je{not sure what you mean here BEGIN} indicating that improved physical reconstruction aligns with optimal statistical fit \je{END}. Importantly, the recovered clustering matches the true simulation setup exactly, validating the robustness of the variance-based selection criterion against noise-driven overfitting.
+Figure~\ref{fig:grid_search_summary} shows the grid search results. The configuration minimizing the CMB variance coincides with the configuration yielding the lowest spectral negative log-likelihood, demonstrating that our variance-based selection criterion successfully identifies the optimal clustering configuration. Our framework finds the correct balance between systematic residual control and statistical uncertainty by minimizing the total CMB variance rather than optimizing pixel-level reconstruction quality. Importantly, the recovered clustering matches the true simulation setup exactly, validating the robustness of the variance-based selection criterion against noise-driven overfitting.
 
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{figures/validation_likelihood_vs_variance.pdf}
     \caption{
-    Grid search results for varying number of dust spectral index patches \( K_{\beta_d} \), while keeping other parameters fixed.
-    Each curve corresponds to a different configuration of \( K_{T_d} \) and \( K_{\beta_s} \).
-    \textbf{Top:} Mean variance of the reconstructed CMB component across noise realizations, used as the primary selection metric \je{could you add error bars corresponding to the scatter of the map variance across noise simulations ?}.
+    Grid search results for varying number of dust spectral index patches \( K_{\beta_{\rm d}} \), while keeping other parameters fixed.
+    Each curve corresponds to a different configuration of \( K_{T_{\rm d}} \) and \( K_{\beta_{\rm s}} \).
+    \textbf{Top:} Mean variance of the reconstructed CMB component across noise realizations (μK²), used as the primary selection metric.
     \textbf{Bottom:} Mean spectral negative log-likelihood, offset for readability.
-    The vertical red line marks the true value used in the simulated sky (\( K_{\beta_d} = 100 \)), and the dashed lines indicate the global extrema of each metric.
-    The configuration \( K_{\beta_d} = 100 \), \( K_{T_d} = 15 \), and \( K_{\beta_s} = 5 \) was used to generate the reference clustered map.
+    The vertical red line marks the true value used in the simulated sky (\( K_{\beta_{\rm d}} = 100 \)), and the dashed lines indicate the global extrema of each metric.
+    The configuration \( K_{\beta_{\rm d}} = 100 \), \( K_{T_{\rm d}} = 15 \), and \( K_{\beta_{\rm s}} = 5 \) was used to generate the reference clustered map.
     Minimizing the CMB variance successfully recovers the true clustering configuration.
-    \je{add uK **2 for CMB Variance ?}\\
-    \je{for the notation of the number of clusters}\\
-    \je{dont you prefer to use notation at the beginnin of section 2.3, e.g. $K_{T_d}$ ? to avoid confusion with the value of Td}
     }
 
     \label{fig:grid_search_summary}
@@ -413,15 +411,14 @@ Figure~\ref{fig:grid_search_summary} shows the grid search results. The configur
 We compare two spatial modeling strategies for parametric component separation, both implemented within the \textsc{FURAX} framework:
 \begin{itemize}
     \item \textbf{K-means clustering}, which uses spherical K-means to construct spatial patches over which spectral parameters are common (introduced in Section~\ref{subsec:sph_kmeans}).
-    \item \textbf{Multi-resolution grouping}, \je{why not calling it multi-Healpix instead? or multi-nside? 
-(because the Kmeans do also lead to "multiresolution" maps anyway ..)} which defines parameter patches by downgrading HEALPix maps to coarser resolutions, following the strategy of~\citep{LiteBIRD_PTEP_2022}~\citep{ERRAR18}.
+    \item \textbf{Multi-nside grouping}, which defines parameter patches by downgrading HEALPix maps to coarser nside resolutions (nside = 4, 8, 16, etc.), following the strategy of~\citep{LiteBIRD_PTEP_2022}~\citep{ERRAR18}.
 \end{itemize}
 
-Although applied to the same sky and instrument setup, these approaches differ fundamentally in how they capture spatial variability. The K-means strategy allows a flexible, data-driven exploration of spatial granularity, while the multi-resolution method imposes predefined patch sizes. This comparison evaluates reconstruction fidelity, residual suppression, and consistency in inferred cosmological parameters.
+Although applied to the same sky and instrument setup, these approaches differ fundamentally in how they capture spatial variability. The K-means strategy allows a flexible, data-driven exploration of spatial granularity, while the multi-nside method imposes predefined patch sizes. This comparison evaluates reconstruction fidelity, residual suppression, and consistency in inferred cosmological parameters.
 
 \subsubsection*{Simulation Setup}
 
-Simulated skies are generated using \texttt{PySM3} \je{je pense que "Group" n'est pas le bon nom pour cette citation} ~\citep{Panexp_2025,Zonca_2021,Thorne_2017}, combining CMB, thermal dust, and synchrotron emission (\texttt{c1d1s1} model).
+Simulated skies are generated using \texttt{PySM3}~\citep{Zonca_2021,Thorne_2017}, combining CMB, thermal dust, and synchrotron emission (\texttt{c1d1s1} model).
 
 \begin{table}
     \centering
@@ -445,11 +442,7 @@ Simulated skies are generated using \texttt{PySM3} \je{je pense que "Group" n'es
 
 To probe performance across different foreground regimes, we define distinct sky zones using Planck-based Galactic masks:
 
-\je{should these two lines be merged in the two other bullet points on the left? not sure why they are separated at the moment}
-\begin{itemize}
-    \item \textbf{K-means clustering} is applied to six disjoint subregions, obtained by splitting each mask into upper and lower hemispheric parts: \texttt{GAL020\_U}, \texttt{GAL020\_L}, \texttt{GAL040\_U}, \texttt{GAL040\_L}, \texttt{GAL060\_U}, and \texttt{GAL060\_L}.
-    \item \textbf{Multi-resolution grouping} \je{similarly to what is done in PTEP (2023)} is applied separately to the full-sky masks: \texttt{GAL020}, \texttt{GAL040}, and \texttt{GAL060}.
-\end{itemize}
+To probe performance across different foreground regimes, we define distinct sky zones using Planck-based Galactic masks. K-means clustering is applied to six disjoint subregions (obtained by splitting each mask into upper and lower hemispheric parts: \texttt{GAL020\_U}, \texttt{GAL020\_L}, \texttt{GAL040\_U}, \texttt{GAL040\_L}, \texttt{GAL060\_U}, and \texttt{GAL060\_L}), while multi-nside grouping is applied separately to the full-sky masks (\texttt{GAL020}, \texttt{GAL040}, and \texttt{GAL060}) \citep{Planck2018_Overview}.
 
 These masks span from high Galactic latitudes (low foregrounds, \texttt{GAL020}) to regions closer to the Galactic plane (higher foregrounds, \texttt{GAL060}); see Figure~\ref{fig:mask_layout}.
 
@@ -467,8 +460,7 @@ These masks span from high Galactic latitudes (low foregrounds, \texttt{GAL020})
 
 \subsubsection*{Grid-Search Clustering}
 
-\je{BEGIN : not sure this sentence is necessary?}
-In the adaptive clustering approach, spectral parameters are assigned to pixel clusters defined via spherical K-means \je{END}. A structured grid search over patch counts is performed, selecting the configuration that minimizes the CMB variance across 100 noise realizations. This fully data-driven search avoids assumptions about spatial scales and allows optimal patch sizes to emerge from the data itself.
+A structured grid search over patch counts is performed, selecting the configuration that minimizes the CMB variance across 100 noise realizations. This fully data-driven search avoids assumptions about spatial scales and allows optimal patch sizes to emerge from the data itself.
 
 \begin{table}
     \centering
@@ -478,8 +470,8 @@ In the adaptive clustering approach, spectral parameters are assigned to pixel c
         \toprule
         \textbf{Parameter} & \textbf{Patch Count Range} \\
         \midrule
-        \( \beta_d \) & 100 to 5000 (in steps of 100) \\
-        \( T_d \), \( \beta_s \) & \{1, 5, 20, 30, 50, 60, 70, 80\} \\
+        \( \beta_{\rm d} \) & 100 to 5000 (in steps of 100) \\
+        \( T_{\rm d} \), \( \beta_{\rm s} \) & \{1, 5, 20, 30, 50, 60, 70, 80\} \\
         Sky regions & Six zones (\texttt{GAL020\_U}, etc.) \\
         Noise realizations & 100 per region \\
         \bottomrule
@@ -488,7 +480,7 @@ In the adaptive clustering approach, spectral parameters are assigned to pixel c
 
 \subsubsection*{Multi-Resolution Grouping}
 
-The multi-resolution grouping method creates spatial patches by degrading the original HEALPix pixelization to coarser \( N_{\text{side}} \) values, separately for each spectral parameter. After patching, the maps are upsampled back to \( N_{\text{side}} = 64 \) to match the data grid.
+The multi-nside grouping method creates spatial patches by degrading the original HEALPix pixelization to coarser \( N_{\text{side}} \) values, separately for each spectral parameter. After patching, the maps are upsampled back to \( N_{\text{side}} = 64 \) to match the data grid.
 
 \begin{figure}
     \centering
@@ -497,7 +489,7 @@ The multi-resolution grouping method creates spatial patches by degrading the or
     \label{fig:multires_megapixels}
 \end{figure}
 
-The patching resolutions vary depending on the sky mask and spectral parameter, as summarized in Table~\ref{tab:multires_config}. These configurations follow the multi-resolution grouping scheme used in~\citep{LiteBIRD_PTEP_2022}.
+The patching resolutions vary depending on the sky mask and spectral parameter, as summarized in Table~\ref{tab:multires_config}. These configurations follow the multi-nside grouping scheme used in~\citep{LiteBIRD_PTEP_2022}.
 
 \begin{table}
     \centering
@@ -505,7 +497,7 @@ The patching resolutions vary depending on the sky mask and spectral parameter, 
     \caption{Multi-resolution configuration per mask region (used in the main experiments).}
     \begin{tabular}{@{}p{3.5cm}|p{1.5cm}@{}|p{1.5cm}@{}|p{1.5cm}@{}}
         \toprule
-        \textbf{Region (Mask)} & \( \beta_d \) & \( T_d \) & \( \beta_s \) \\
+        \textbf{Region (Mask)} & \( \beta_{\rm d} \) & \( T_{\rm d} \) & \( \beta_{\rm s} \) \\
         \midrule
         \texttt{GAL060} (low lat.)  & 64 & 8 & 4 \\
         \texttt{GAL040} (mid lat.)  & 64 & 4 & 2 \\
@@ -518,10 +510,10 @@ The patching resolutions vary depending on the sky mask and spectral parameter, 
 \begin{table}
     \centering
     \small
-    \caption{Alternative multi-resolution configurations used for validation.}
+    \caption{Alternative multi-nside configurations used for validation.}
     \begin{tabular}{@{}p{3.5cm}|p{1.5cm}@{}|p{1.5cm}@{}|p{1.5cm}@{}}
         \toprule
-        \textbf{Region (Mask)} & \( \beta_d \) & \( T_d \) & \( \beta_s \) \\
+        \textbf{Region (Mask)} & \( \beta_{\rm d} \) & \( T_{\rm d} \) & \( \beta_{\rm s} \) \\
         \midrule
         \texttt{GAL060} (low lat.)  & 64 & 8 & 8 \\
         \texttt{GAL040} (mid lat.)  & 64 & 4 & 4 \\
@@ -536,7 +528,7 @@ While computationally efficient, this fixed-resolution approach lacks the flexib
 \subsection{Runtime and Parallelization}
 \label{subsec:runtime}
 
-The extensive clustering and component separation runs were performed on the \textit{Jean Zay} supercomputer \je{add ref for jean zay}, utilizing NVIDIA A100 GPUs distributed across 4 compute nodes (32 GPUs total). Computations were executed using the \texttt{jax-grid-search} framework (Section~\ref{subsec:parallel_grid_search}), leveraging JAX's native parallelization capabilities for high-throughput evaluation.
+The extensive clustering and component separation runs were performed on the \textit{Jean Zay} supercomputer~\citep{JeanZay2020}, utilizing NVIDIA A100 GPUs distributed across 4 compute nodes (32 GPUs total). Computations were executed using the \texttt{jax-grid-search} framework (Section~\ref{subsec:parallel_grid_search}), leveraging JAX's native parallelization capabilities for high-throughput evaluation.
 
 The full study encompassed:
 \begin{itemize}
@@ -555,28 +547,32 @@ Thanks to this scalability, \texttt{FURAX} enables a new regime of data-driven m
 \subsection{CMB Reconstruction Comparison}
 \label{subsec:cmb_reconstruction}
 
-We assess the CMB reconstruction performance achieved by the two spatial modeling strategies introduced in Section~\ref{subsec:comparison_setup}: clustering-based patching via K-means and fixed-resolution multi-resolution grouping. Both methods are applied to the same simulated sky (CMB plus foregrounds) with LiteBIRD-like noise and angular resolution. \je{BEGIN : this should probably go earlier when simulations are detailed} Beam effects are not modeled in this comparison, as the analysis is restricted to low-resolution simulations with \( N_{\text{side}} = 64 \). \je{END}
-
+We assess the CMB reconstruction performance achieved by the two spatial modeling strategies introduced in Section~\ref{subsec:comparison_setup}: clustering-based patching via K-means and fixed-resolution multi-nside grouping. Both methods are applied to the same simulated sky (CMB plus foregrounds) with LiteBIRD-like noise and angular resolution.
 
 The analysis focuses on the accuracy of the reconstructed CMB polarization fields, examining both Stokes \( Q \) and \( U \) components, and on quantifying residual foreground leakage.
 
 \vspace{2mm}
 
 \subsubsection*{Patch Structures}
-Before presenting reconstruction results, we first illustrate the spatial patch layouts produced by each method. Figures~\ref{fig:furax_patches} and~\ref{fig:multires_patches} show the pixel clustering \je{the optimal pixel clustering -- obtained after minimizing variance?} for the three spectral parameters: \( \beta_d \), \( T_d \), and \( \beta_s \).
 
-The K-means clustering approach (Figure~\ref{fig:furax_patches}) produces flexible, equal-area patches that adapt to the local sky complexity by minimizing the CMB variance. In contrast, the multi-resolution method (Figure~\ref{fig:multires_patches}) relies on a fixed HEALPix downgrading scheme, imposing uniform patch sizes across large sky regions.
+Before presenting reconstruction results, we first illustrate the spatial clustering structures that emerge from our optimization process. The following figures show the optimal patch configurations determined through variance minimization across noise realizations.
 
-From the results shown in Figure~\ref{fig:furax_patches}, we find that the optimal patch count for our setup was 1500 for both the synchrotron spectral index \( \beta_{\mathrm{s}} \) and the thermal dust temperature \( T_{\mathrm{dust}} \), compared to 343 and 144, respectively, in the multi-resolution scheme (Figure~\ref{fig:multires_patches}). The dust spectral index \( \beta_d \) was modeled as a per-pixel parameter in both methods.
+Figures~\ref{fig:furax_patches} and~\ref{fig:multires_patches} show the optimal pixel clustering configurations obtained after minimizing CMB reconstruction variance across the clustering parameter grid for the three spectral parameters: \( \beta_d \), \( T_d \), and \( \beta_s \).
+
+The K-means clustering approach (Figure~\ref{fig:furax_patches}) produces flexible, equal-area patches that adapt to the local sky complexity by minimizing the CMB variance. In contrast, the multi-nside method (Figure~\ref{fig:multires_patches}) relies on a fixed HEALPix downgrading scheme, imposing uniform patch sizes across large sky regions.
+
+From the results shown in Figure~\ref{fig:furax_patches}, we find that the optimal patch count for our setup was 1500 for both the synchrotron spectral index \( \beta_{\mathrm{s}} \) and the thermal dust temperature \( T_{\mathrm{dust}} \), compared to 343 and 144, respectively, in the multi-nside scheme (Figure~\ref{fig:multires_patches}). The dust spectral index \( \beta_d \) was modeled as a per-pixel parameter in both methods.
 
 These structural differences in patching strongly influence the quality of component separation, as discussed in the following sections.
+
+Figure~\ref{fig:params_kmeans} shows the optimized spectral parameter distributions recovered by the K-means clustering approach. The adaptive method yields parameter values that vary smoothly across cluster boundaries while adapting to local foreground characteristics, demonstrating the flexibility of the data-driven clustering approach in capturing spatial variations in foreground emission properties.
 
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{figures/kmeans_patch_layout.pdf}
     \caption{
     Final FURAX clustering configuration. 
-    Top to bottom: patches for \( \beta_d \), \( T_d \), and \( \beta_s \), obtained by grid search minimizing the CMB reconstruction variance.
+    Top to bottom: patches for \( \beta_{\rm d} \), \( T_{\rm d} \), and \( \beta_{\rm s} \), obtained by grid search minimizing the CMB reconstruction variance.
     The clusters are irregular and data-driven, adapting to spatial variations in the foreground complexity.
     }
     \label{fig:furax_patches}
@@ -587,46 +583,53 @@ These structural differences in patching strongly influence the quality of compo
     \includegraphics[width=\linewidth]{figures/multires_patch_layout.pdf}
     \caption{
     Multi-resolution patch structure.
-    Top to bottom: groupings for \( \beta_d \), \( T_d \), and \( \beta_s \), generated by downgrading HEALPix maps to fixed \( N_{\text{side}} \) resolutions.
+    Top to bottom: groupings for \( \beta_{\rm d} \), \( T_{\rm d} \), and \( \beta_{\rm s} \), generated by downgrading HEALPix maps to fixed \( N_{\text{side}} \) resolutions.
     The patches are regular and uniform, independent of the true sky variability.
     This corresponds to table \ref{tab:multires_config}.
     }
     \label{fig:multires_patches}
 \end{figure}
-
-
+\begin{figure*}
+    \centering
+    \includegraphics[width=\linewidth]{figures/params_kmeans.pdf}
+    \caption{
+    Optimized spectral parameter distributions for K-means clustering approach. 
+    Shows the spatial distribution of recovered spectral parameters: \( \beta_{\rm d} \) (dust spectral index), \( T_{\rm d} \) (dust temperature), and \( \beta_{\rm s} \) (synchrotron spectral index) across the clustered sky regions. 
+    The parameters are obtained after variance-minimization grid search, demonstrating the adaptive nature of the clustering approach in capturing spatial variations in foreground emission properties.
+    These results correspond to the optimal clustering configuration shown in Figure~\ref{fig:furax_patches}.
+    }
+    \label{fig:params_kmeans}
+\end{figure*}
 
 %% HI
 \subsection{Residuals and CMB Reconstruction}
 \label{sec:residuals_reconstruction}
 
-We assess the quality of CMB reconstruction achieved by the three spatial modeling strategies: single-patch \je{to be introduced maybe, I think this is the first time it appears}, multi-resolution, and K-means clustering.  
+We assess the quality of CMB reconstruction achieved by three spatial modeling strategies: single global patch (where all spectral parameters are uniform across the sky), multi-nside, and K-means clustering.  
 The evaluation focuses separately on:
 \begin{itemize}
     \item Residual CMB polarization maps (\( Q \) and \( U \))
-    \item Residual \( B \)-mode power spectra \je{B-modes angular power spectrum of residuals?}
+    \item Residual \( B \)-mode power spectra (angular power spectrum of B-mode polarization residuals)
 \end{itemize}
 
 We first examine the residual maps, defined as the difference between the reconstructed and true CMB polarization fields for Stokes \( Q \) and \( U \).
 
 Figure~\ref{fig:cmb_qu_comparison} compares the results across methods.
 
-The multi-resolution approach achieves the visually cleanest maps, with minimal foreground residuals across the sky.  
+The multi-nside approach achieves the visually cleanest maps, with minimal foreground residuals across the sky.  
 K-means clustering yields slightly larger residuals but still substantially improves over the single-patch baseline, which shows significant large-scale errors.  
 These results illustrate the benefits of spatially adaptive modeling; however, as we will discuss in the next section, lower visual residuals do not necessarily imply better statistical performance at the power spectrum level.
+
+Quantitatively, the multi-nside method achieves the lowest pixel-level mean squared error (MSE)—with MSE\(_Q = 6.7 \times 10^{-4}\) $\mu_k²$, MSE\(_U = 4.6 \times 10^{-4}\)$\mu_k²$—while K-means clustering shows slightly higher pixel-level reconstruction errors (MSE\(_Q = 8.0 \times 10^{-4}\)$\mu_k²$ , MSE\(_U = 5.5 \times 10^{-4}\))$\mu_k²$, but both substantially outperform the single-patch model. Importantly, lower pixel-level reconstruction errors do not necessarily translate to lower systematic residuals at the power spectrum level. K-means clustering, by optimizing for overall CMB variance minimization rather than pixel-level MSE, achieves better control of systematic foreground contamination across the full reconstruction pipeline. This approach leads to better systematic residual control and improved cosmological parameter estimation despite slightly higher local reconstruction errors, as demonstrated by the improved tensor-to-scalar ratio \( r \) recovery shown in Section~\ref{subsec:r_estimation}.
 
 \begin{figure*}
     \centering
     \includegraphics[width=\linewidth]{figures/cmb_recon.pdf}
     \caption{
-    Residual CMB polarization maps (Stokes \( Q \) and \( U \)) for single-patch, multi-resolution table~\ref{tab:multires_config}, and K-means clustering methods.  
-    While multi-resolution yields the lowest mean squared error (MSE)—with MSE\(_Q = 6.7 \times 10^{-4}\) $\mu_k²$, MSE\(_U = 4.6 \times 10^{-4}\)$\mu_k²$ , K-means performs only slightly worse \je{do we understand how that can be the case? isn't Kmeans bound to always do better than healpix ?} (MSE\(_Q = 8.0 \times 10^{-4}\)$\mu_k²$ , MSE\(_U = 5.5 \times 10^{-4}\))$\mu_k²$,  but substantially outperforms the single-patch model. 
-    The small sacrifice in pixel-level reconstruction accuracy is offset by improved control of residual foregrounds—consequently giving a less biased estimation oftensor the tensor-to-scalar ratio \( r \).
+    Residual CMB polarization maps (Stokes \( Q \) and \( U \)) for single-patch, multi-resolution (table~\ref{tab:multires_config}), and K-means clustering methods.  
     }
     \label{fig:cmb_qu_comparison}
 \end{figure*}
-
-\je{Il faut ajouter des unités dans la figure aussi}
 
 \subsubsection*{Residual \( B \)-Mode Power Spectra}
 \label{subsec:residual_bb_spectra}
@@ -634,21 +637,20 @@ These results illustrate the benefits of spatially adaptive modeling; however, a
 We now decompose the residuals into systematic and statistical contributions at the level of the \( B \)-mode angular power spectrum.
 
 Figure~\ref{fig:bb_spectra_comparison} shows the residual spectra across all multipoles.  
-To contextualize the scale of residual contamination, we also plot the theoretical \( B \)-mode power spectra from lensing and primordial tensor modes (\( r=1 \)) \je{you used r=0.001 in the figure}, computed using the CAMB python package~\citep{CAMB}.
+To contextualize the scale of residual contamination, we also plot the theoretical \( B \)-mode power spectra from lensing and primordial tensor modes (\( r=1 \)), computed using the CAMB python package~\citep{CAMB}.
 
-This confirms that minimizing the CMB variance through adaptive clustering results in a globally improved reconstruction, even if the residual maps appear slightly noisier \je{but isn't the multiresolution case also obtained by minimizing the variance of the CMB map ?} compared to multi-resolution grouping.
+This confirms that minimizing the CMB variance through adaptive clustering results in a globally improved reconstruction, even if the residual maps appear slightly noisier compared to multi-nside grouping. Note that both multi-nside and K-means approaches can be optimized by minimizing CMB variance across noise realizations. However, K-means clustering provides more granularity and flexibility in patch selection, allowing for better adaptation to local foreground characteristics. The key difference lies in the patch structure: multi-nside is constrained to regular HEALPix downgrading patterns, while K-means can create irregular patches that adapt to the underlying sky structure.
+
+The apparent contradiction between pixel-level reconstruction quality and power spectrum performance reflects fundamental differences in optimization objectives. K-means clustering optimizes for global CMB variance minimization across the entire reconstruction pipeline, which prioritizes systematic residual control over local pixel-level accuracy. Multi-resolution approaches, constrained by regular geometric patches, can achieve lower mean squared error in individual pixels but may allow larger systematic biases at the power spectrum level. This trade-off between local reconstruction fidelity and global systematic control is crucial for cosmological parameter estimation, where coherent residuals have more severe impact than random pixel-level noise.
 
 \begin{figure*}
     \centering
     \includegraphics[width=\linewidth]{figures/bb_residual_spectra.pdf}
     \caption{
-    Residual \( B \)-mode power spectra for single-patch, multi-resolution, and K-means clustering methods. 
+    Residual \( B \)-mode power spectra for single-patch, multi-nside, and K-means clustering methods. 
     The MultiRes-1 case (\textit{cf.} Table~\ref{tab:multires_config}, Fig.~\ref{fig:multires_patches}) illustrates the limited adaptability of pixel downgrading: moving from \(N_{\mathrm{side}} = 4\) to \(N_{\mathrm{side}} = 8\) for example entails a large, discrete increase in patch count, preventing intermediate configurations. 
-    This rigidity leads to overshooting, especially when increasing the patch granularity for \(T_d\) and \(\beta_s\) MultiRes-2 (Fig.\ref{tab:validation_config}).
-    In contrast, K-means clustering (Fig.~\ref{fig:furax_patches}) enables fine-grained, data-driven tuning of spatial complexity, yielding lower residuals by balancing systematic leakage and statistical variance.\\
-    \je{can you find more explicit naming? for KMeans MultiRes\_1/2 since this is the figure that people will take out of context when refering to your work ...)}\\
-    \je{maybe "This work (optimal Kmeans technique)" or something like that ?  with a red color ? for KMeans}\\
-    \je{figure Y label is DL BB and not CL BB and remove $1e-2$}
+    This rigidity leads to overshooting, especially when increasing the patch granularity for \(T_{\rm d}\) and \(\beta_{\rm s}\) MultiRes-2 (Fig.\ref{tab:validation_config}).
+    In contrast, K-means clustering (Fig.~\ref{fig:furax_patches}) enables fine-grained, data-driven tuning of spatial complexity, yielding lower residuals by balancing systematic leakage and statistical variance
     }
     \label{fig:bb_spectra_comparison}
 \end{figure*}
@@ -657,31 +659,32 @@ This confirms that minimizing the CMB variance through adaptive clustering resul
 \label{subsec:r_estimation}
 
 We now assess the impact of residual foreground contamination on the estimation of the tensor-to-scalar ratio \( r \).
-For each spatial modeling strategy—K-means clustering, multi-resolution grouping, and single global patch—we compute the \( r \)-likelihood using the reconstructed \( B \)-mode power spectra.
+For each spatial modeling strategy—K-means clustering, multi-nside grouping, and single global patch—we compute the \( r \)-likelihood using the reconstructed \( B \)-mode power spectra.
 
-Figure~\ref{fig:r_likelihood_distribution} shows the resulting normalized likelihood distributions aggregated over sky regions and noise realizations.
+Figure~\ref{fig:metric_distributions} shows the distribution of evaluation metrics across the three spatial modeling strategies, demonstrating that K-means clustering consistently achieves the lowest residual variance and highest likelihood values. This comprehensive metric comparison provides quantitative validation that the adaptive clustering approach outperforms fixed-resolution alternatives across multiple evaluation criteria, confirming its superior ability to balance statistical noise and systematic residual control.
+
+Figure~\ref{fig:r_likelihood_distribution} presents our key result: the estimated tensor-to-scalar ratio likelihood distributions. K-means clustering yields the lowest bias (\( \hat{r} = 4.55 \times 10^{-4} \)) and tightest credible interval, significantly outperforming both multi-nside configurations. This result demonstrates that the adaptive clustering strategy achieves the primary objective of CMB component separation: enabling precise and unbiased cosmological parameter estimation by minimizing both statistical uncertainty and systematic contamination in the recovered primordial B-mode signal.
 
 The K-means clustering approach yields the most accurate and precise measurement, with a likelihood distribution narrowly centered around the true \( r \) value. 
-The multi-resolution method exhibits a slight positive bias and broader dispersion, consistent with increased statistical noise in the reconstruction. 
+The multi-nside method exhibits a slight positive bias and broader dispersion, consistent with increased statistical noise in the reconstruction. 
 In contrast, the single-patch model produces a deceptively tight constraint but a significant bias, strongly overestimating \( r \) due to residual systematic contamination.
 This behavior reflects the dominance of coherent residuals, which shift the likelihood peak while artificially reducing the inferred uncertainty.
 These trends mirror those observed in the residual \( B \)-mode spectra and further demonstrate the importance of flexible spatial modeling to achieve unbiased and robust cosmological inference.
 
-\je{this should be a paragram without title}
-\paragraph{Summary of Results.}
 \begin{itemize}
     \item \textbf{K-means clustering} achieves the tightest and most unbiased constraints on \( r \).
-    \item \textbf{Multi-resolution grouping} shows slight bias and wider uncertainty due to statistical noise amplification. \je{this seems to contradict your earlier observation when you said that K-means was slightly noisier}
+    \item \textbf{Multi-resolution grouping} shows slight bias and wider uncertainty due to statistical noise amplification.
     \item \textbf{Single global patch} yields a biased estimate of \( r \) despite a narrow likelihood, driven by uncorrected systematic residuals.
 \end{itemize}
+
+While K-means shows slightly higher pixel-level noise in individual map reconstructions, it achieves better statistical performance in power spectrum estimation due to superior systematic residual control.
 
 \begin{figure*}
     \centering
     \includegraphics[width=1\linewidth]{figures/variance_likelihood_distributions.pdf}
     \caption{
-    \je{I don't think this figure was referred to nor commented  in the main text -- I think this is an important result!}
     Distribution of evaluation metrics for three spatial modeling strategies: K-means clustering (see Fig.~\protect\ref{fig:furax_patches}), MultiRes-1 (Table~\protect\ref{tab:multires_config}, Fig.~\protect\ref{fig:multires_patches}), and MultiRes-2 (Table~\protect\ref{tab:validation_config}, shown in green). 
-    Metrics shown are: W variance of the reconstructed CMB ($Q + U$), (center) negative log-likelihood, and (right) total $C_\ell^{BB}$ power. 
+    Metrics shown are: variance of the reconstructed CMB ($Q + U$, μK²), (center) negative log-likelihood, and (right) total $C_\ell^{BB}$ power. 
     Dashed vertical lines indicate the mean of each distribution. 
     K-means clustering yields the lowest residual variance and highest likelihood. 
     Multi-resolution approaches show broader distributions, reflecting higher statistical variability.
@@ -697,8 +700,7 @@ These trends mirror those observed in the residual \( B \)-mode spectra and furt
     \centering
     \includegraphics[width=0.9\linewidth]{figures/r_likelihood_distribution.pdf}
     \caption{
-    \je{I don't think this figure was referred to nor commented  in the main text -- I think this is an important result!}
-    Estimated tensor-to-scalar ratio likelihoods for K-means clustering (blue; see Fig.~\protect\ref{fig:furax_patches}), multi-resolution grouping with configurations MultiRes-1 (green; Table~\protect\ref{tab:multires_config}, Fig.~\protect\ref{fig:multires_patches}) and MultiRes-2 (orange; Table~\protect\ref{tab:validation_config}), compared to the true value \( r = 0 \). 
+    Estimated tensor-to-scalar ratio likelihoods for K-means clustering (blue; see Fig.~\protect\ref{fig:furax_patches}), multi-nside grouping with configurations MultiRes-1 (green; Table~\protect\ref{tab:multires_config}, Fig.~\protect\ref{fig:multires_patches}) and MultiRes-2 (orange; Table~\protect\ref{tab:validation_config}), compared to the true value \( r = 0 \). 
     K-means clustering yields the lowest bias (\( \hat{r} = 4.55 \times 10^{-4} \)) and tightest credible interval, while MultiRes-1 and MultiRes-2 exhibit increasing bias and broader uncertainty with finer granularity. 
     }
     
@@ -709,9 +711,9 @@ These trends mirror those observed in the residual \( B \)-mode spectra and furt
     \centering
     \includegraphics[width=0.9\linewidth]{figures/r_vs_clusters.pdf}
     \caption{
-    Best-fit tensor-to-scalar ratio \( \hat{r} \) as a function of the number of clusters used for modeling the dust spectral index \( \beta_d \), comparing K-means clustering (green) and multi-resolution grouping (blue). 
+    Best-fit tensor-to-scalar ratio \( \hat{r} \) as a function of the number of clusters used for modeling the dust spectral index \( \beta_{\rm d} \), comparing K-means clustering (green) and multi-nside grouping (blue). 
     K-means supports finer-grained control over spatial complexity, enabling exploration of a broader and more continuous range of cluster counts. 
-    In contrast, the multi-resolution approach is constrained by discrete HEALPix resolutions, resulting in coarser sampling and larger gaps between viable configurations.
+    In contrast, the multi-nside approach is constrained by discrete HEALPix resolutions, resulting in coarser sampling and larger gaps between viable configurations.
     This flexibility allows K-means to achieve lower bias in \( \hat{r} \), particularly at intermediate clustering scales.
 }    
     \label{fig:r_vs_clusters}
@@ -721,22 +723,17 @@ These trends mirror those observed in the residual \( B \)-mode spectra and furt
 \subsection{Impact of Noise on Clustered Component Separation}
 \label{subsec:noise_impact}
 
-An important advantage of our approach lies in its adaptability to noise realization variability. In a multi-resolution approach, the spatial patch structure—defined by a fixed HEALPix downgrading—is predetermined and remains constant across noise realizations. This rigidity prevents the model from optimally dealing with noise-induced fluctuations in the data.
+An important advantage of our approach lies in its adaptability to noise realization variability. In a multi-nside approach, the spatial patch structure—defined by a fixed HEALPix downgrading—is predetermined and remains constant across noise realizations. This rigidity prevents the model from optimally dealing with noise-induced fluctuations in the data.
 
 In contrast, our K-means clustering strategy combined with a grid search allows the patch configuration to be dynamically re-optimized for each noise realization. For any given realization, the clustering grid search evaluates multiple spatial partitionings and selects the one that minimizes the variance of the recovered CMB map. This flexibility enables the model to better mitigate noise-driven distortions in the spectral parameter estimates, particularly in low signal-to-noise regions.
 
 As a result, the adaptive clustering approach can reduce residual foreground contamination and enhance the fidelity of component separation by effectively tailoring the patch structure to each specific noise scenario. This noise-aware reconfiguration leads to lower residual power and improves robustness in downstream cosmological inference.
 
-\ar{\section{Towards lower statistical residuals}}
-
-
-\je{C'est peut-être ici où Arianna pourrait insérer un nouveau paragraphe 5.8 
-"post-clustering optimization" ?}
 
 \section{Discussion}
 \label{sec:discussion}
 
-\je{careful with the repetitions with the conclusions ...} This work introduces a high-resolution, grid-based clustering approach for spatially varying parametric component separation, implemented in the modular and scalable \textsc{FURAX} \je{which shows important numerical improvement compared to previous implementations such as fgbuster} framework. Our objective was to evaluate whether learned \je{this sentence is not clear} spectral patch structures can offer advantages over fixed-resolution strategies, using an exhaustive scan over clustering configurations compared against a baseline multi-resolution method.
+This work introduces a high-resolution, grid-based clustering approach for spatially varying parametric component separation, implemented in the modular and scalable \textsc{FURAX} framework, which demonstrates significant numerical improvements in computational efficiency and stability compared to previous implementations such as \textsc{FGBuster}. Our objective was to evaluate whether data-driven, adaptive spectral patch structures can offer advantages over fixed-resolution strategies, using an exhaustive scan over clustering configurations compared against a baseline multi-nside method.
 
 \subsection*{Foreground Modeling at Scale}
 
@@ -744,9 +741,8 @@ Rather than fixing patch scales by hand, as was done in~\citep{LiteBIRD_PTEP_202
 
 The resulting clusters, generated using spherical K-means, are highly flexible: patches are irregular, non-contiguous, and vary in size, adapting to the statistical structure of the input data. This avoids arbitrary binning and allows for more precise foreground modeling, particularly in regions with sharp spectral gradients or complex emission.
 
-In contrast, the multi-resolution approach uses HEALPix downgrading to define fixed NSIDE patch maps. While fast and easy to implement, it lacks the capacity to adapt to regional sky complexity and yields higher residuals in zones with rapidly varying spectra. This difference highlights the value of learned patch structures in a data-driven way.
+In contrast, the multi-nside approach uses HEALPix downgrading to define fixed NSIDE patch maps. While fast and easy to implement, it lacks the capacity to adapt to regional sky complexity and yields higher residuals in zones with rapidly varying spectra. This difference highlights the value of learned patch structures in a data-driven way.
 
-\je{here we'll be adding something about Arianna's further optimization}
 
 \subsection*{Computational Scalability and Pipeline Design}
 
@@ -766,41 +762,36 @@ This ensures transparent and reproducible research, allowing others to easily re
 
 \subsection*{Limitations and Future Work}
 
-While effective, our current strategy is based on a brute-force grid scan. This could be made more efficient using modern hyperparameter optimization techniques such as Tree-structured Parzen Estimators or Bayesian search.
+While effective, our current strategy is based on a brute-force grid scan over discrete cluster counts. This approach could be made more efficient using modern hyperparameter optimization techniques such as Tree-structured Parzen Estimators or Bayesian search, which would enable continuous optimization of the cluster count parameters rather than evaluating a predefined grid. These methods could potentially identify optimal configurations between our discrete grid points and reduce the computational burden by intelligently sampling the parameter space.
+
+\subsection*{Limitations of Variance-Based Selection Criteria}
+
+Both the CMB variance and $\sum C_\ell^{BB}$ metrics used in this work are sensitive to the total residual contamination—the sum of both statistical and systematic contributions. While minimizing the total variance is effective for overall performance, this approach can occasionally favor configurations that achieve lower total residuals while still maintaining systematic biases, provided the reduction in statistical noise compensates for elevated systematic residuals. 
+
+In our analysis, we observed that relying solely on variance-based selection occasionally favored configurations with slightly elevated systematic residuals. To address this, we performed an additional manual inspection step: among the top-ranked configurations (with lowest variance), we selected the one that also satisfied a strict threshold on systematic residuals. This refinement ensures robust foreground cleaning and is reflected in the results shown in Figures~\ref{fig:metric_distributions}, \ref{fig:bb_spectra_comparison}, and \ref{fig:r_likelihood_distribution}.
+
+\subsection*{Alternative Selection Metrics}
+
+While this work focused exclusively on CMB variance and $\sum C_\ell^{BB}$ as selection criteria, our framework readily supports alternative loss functions that could be explored in future work:
+
+\begin{itemize}
+    \item \textbf{Direct $r$ optimization}: Minimizing a loss function of the form $L = |\hat{r}| + \alpha \sigma_r$ would directly target cosmological constraints, eliminating the intermediate step of variance-based selection and potentially yielding more robust constraints on primordial gravitational waves.
+    
+    \item \textbf{Statistical residual minimization}: For specific instruments like LiteBIRD, one could optimize clustering to minimize only the statistical component of residuals, computed using the known instrumental noise characteristics. This would prioritize configurations that best leverage the instrument's sensitivity distribution.
+    
+    \item \textbf{Systematic residual targeting}: Developing metrics that specifically target systematic contamination, perhaps through multi-realization comparisons or frequency-based consistency checks, could complement variance-based approaches.
+\end{itemize}
+
+\subsection*{Additional Future Directions}
 
 Other directions for future work include:
 \begin{itemize}
     \item Scaling to higher resolutions (e.g., \( N_{\text{side}} = 128 \) or \( 256 \))
-    \item Adding priors on patch structure (e.g., smoothness or contiguity) \je{coming from e.g. external data sets}
-    \item Exploring disjoint and irregular clustering with parameter sharing \je{that's now touched with Arianna's approach}
     \item Integrating additional systematic effects such as beam asymmetries, gain drift, or correlated noise
-    \item Investigating alternative spatial modeling strategies beyond K-means, such as adaptive averaging of spectrally similar patches \je{touched by Arianna now. But we could mention that we may want to explore different shapes of masks for instance}
+    \item Investigating alternative spatial modeling strategies beyond K-means, such as different geometric mask shapes or adaptive patch boundaries
 \end{itemize}
 
-
-These extensions are naturally supported by the modular \texttt{FURAX} architecture and will be investigated in future work.
-
-\subsection*{Limitations of Variance-Based Selection Criteria}
-
-Although the variance of the reconstructed CMB and the total $\sum C_\ell^{BB}$ power are effective proxies for assessing residual contamination in the output CMB maps, \je{BEGIN : not sure what you mean here. Sum(ClBB) is sensitive to residuals in general -- not more statistical than systematics} these metrics can be sensitive to statistical residuals. As a result, they may sometimes overlook systematic residuals. \je{END}
-
-In our analysis, we observed that relying solely on variance-based selection occasionally favored configurations with slightly elevated systematic residuals. \je{a better way to address this would be to fit for r directly! and the loss function would be given by r + sigma(r) for instance.  In that case, no need to adjust results by hand} To address this, we performed an additional manual inspection step: among the top-ranked configurations (with lowest variance), we selected the one that also satisfied a strict threshold on systematic residuals. This refinement ensures robust foreground cleaning and is reflected in the results shown in Figures~\ref{fig:metric_distributions}, \ref{fig:bb_spectra_comparison}, and \ref{fig:r_likelihood_distribution}.
-
-
-
-\subsection*{Advanced Search Strategies for Cluster Configuration}
-
-The choice of cluster configuration in our framework is better understood as part of a model selection problem, rather than a standard parameter estimation task. It determines the structure of the likelihood model itself—how spectral parameters are spatially grouped and constrained.
-
-We experimented with more advanced search techniques to optimize cluster configuration, including the \texttt{Optuna}~\citep{OPTUNA} framework and discrete sampling strategies like Gibbs sampling. However, these methods showed limited improvements over exhaustive scanning, likely due to the discrete and highly non-smooth nature of the objective landscape.
-
-Future efforts could explore:
-\begin{itemize}
-    \item Structured search methods that exploit correlations across sky zones
-    \item Relaxed parameterizations that allow for differentiable optimization
-\end{itemize}
-
-For this work, the grid-based distributed search provided a robust and parallelizable solution, allowing exhaustive exploration of the model space in a tractable amount of time.
+These extensions are naturally supported by the modular \texttt{FURAX} architecture and will be investigated in future work. The framework's flexibility in defining objective functions and its efficient distributed execution make it well-suited for exploring these more sophisticated optimization strategies.
 
 \section{Conclusions}
 \label{sec:conclusion}

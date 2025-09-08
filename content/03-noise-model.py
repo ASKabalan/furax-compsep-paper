@@ -133,7 +133,7 @@ def main():
         mask = np.load(f"{out_folder}/mask.npy", allow_pickle=True)
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot)
+        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot, args.noise_sim)
         # plot_healpix_projection_with_noise(
         #    mask, args.nside, results, best_params, out_folder, args.noise_sim
         # )

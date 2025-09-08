@@ -1,5 +1,5 @@
-git+https://github.com/CMBSciPol/furax@3-multi-patch-component-separation
-git+https://github.com/CMBSciPol/jax-healpy@ASKabalan_patch
+git+https://github.com/CMBSciPol/furax
+git+https://github.com/CMBSciPol/jax-healpy
 jax_hpc_profiler
 git+https://github.com/ASKabalan/jax-grid-search
 jaxopt

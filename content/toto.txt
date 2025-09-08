@@ -1,0 +1,25 @@
+ 
+python 09-R_estimation.py -r kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000 kmeans_BD5000 kmeans_BD2000 kmeans_BS10000 kmeans_BS1000 kmeans_BS500 PTEP1 PTEP2 PTEP3 -t kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000 kmeans_BD5000 kmeans_BD2000 kmeans_BS10000 kmeans_BS1000 kmeans_BS500 PTEP1 PTEP2 PTEP3 -a
+
+python 09-R_estimation.py -r PTEP1 PTEP2 PTEP3 kmeans_BS500 kmeans_BS1000 kmeans_BD2000 -t MultiRes MultiRes MultiRes KMeans KMeans KMeans -a
+
+
+python 09-R_estimation.py -r kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000 kmeans_BD5000 kmeans_BD2000 kmeans_BS10000 kmeans_BS1000 kmeans_BS500 PTEP1 PTEP2 PTEP3 -t kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000 kmeans_BD5000 kmeans_BD2000 kmeans_BS10000 kmeans_BS1000 kmeans_BS500 PTEP1 PTEP2 PTEP3 -a
+
+
+ 
+python 09-R_estimation.py -r kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 -t kmeans_BD_9500 kmeans_BD_9000 kmeans_BD_8000 -a
+python 09-R_estimation.py -r kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000 -t kmeans_BD_7500 kmeans_BD_7000 kmeans_BD7000  -a
+python 09-R_estimation.py -r kmeans_BD5000 kmeans_BD2000 kmeans_BS10000 -t kmeans_BD5000 kmeans_BD2000 kmeans_BS10000  -a
+python 09-R_estimation.py -r kmeans_BS1000 kmeans_BS500 -t kmeans_BS1000 kmeans_BS500  -a
+python 09-R_estimation.py -r PTEP1 PTEP2 PTEP3 -t PTEP1 PTEP2 PTEP3 -a
+
+eans_c1d1s1_BD10000_TD10000_BS10000_LiteBIRD_GAL020_100  kmeans_c1d1s1_BD7000_TD7000_BS7000_LiteBIRD_GAL020_100  PTEP2_c1d1s1_LiteBIRD_GAL060_100
+kmeans_c1d1s1_BD10000_TD10000_BS10000_LiteBIRD_GAL040_100  kmeans_c1d1s1_BD7000_TD7000_BS7000_LiteBIRD_GAL040_100  PTEP3_c1d1s1_LiteBIRD_GAL020_100
+kmeans_c1d1s1_BD10000_TD10000_BS10000_LiteBIRD_GAL060_100  kmeans_c1d1s1_BD7000_TD7000_BS7000_LiteBIRD_GAL060_100  PTEP3_c1d1s1_LiteBIRD_GAL040_100
+kmeans_c1d1s1_BD10000_TD1000_BS1000_LiteBIRD_GAL020_100    kmeans_c1d1s1_BD_7500_LiteBIRD_GAL020_100		  PTEP3_c1d1s1_LiteBIRD_GAL060_100
+kmeans_c1d1s1_BD10000_TD1000_BS1000_LiteBIRD_GAL040_100    kmeans_c1d1s1_BD_7500_LiteBIRD_GAL040_100		  PTEP_c1d1s1_LiteBIRD_GAL020_100
+kmeans_c1d1s1_BD10000_TD1000_BS1000_LiteBIRD_GAL060_100    kmeans_c1d1s1_BD_7500_LiteBIRD_GAL060_100		  PTEP_c1d1s1_LiteBIRD_GAL040_100
+kmeans_c1d1s1_BD10000_TD500_BS500_LiteBIRD_GAL020_100	  kmeans_c1d1s1_BD_8000_LiteBIRD_GAL020_100		  PTEP_c1d1s1_LiteBIRD_GAL060_100
+kmeans_c1d1s1_BD10000_TD500_BS500_LiteBIRD_GAL040_100	  kmeans_c1d1s1_BD_8000_LiteBIRD_GAL040_100		  runs
+kmeans_c1d1s1_BD10000_TD500_BS500_LiteBIRD_GAL060_100	
