@@ -543,7 +543,7 @@ def params_to_maps(run_data, previous_mask_size):
     return params, patches, previous_mask_size
 
 
-def plot_params_patches(name, params, patches):
+def plot_params_patches(name, params, patches, plot_vertical=True):
     with plt.rc_context(
         {
             "font.size": font_size * 1.6,
@@ -554,8 +554,15 @@ def plot_params_patches(name, params, patches):
             "axes.titlesize": font_size * 1.6,
         }
     ):
-        # Params on a figure
-        _ = plt.figure(figsize=(12, 8))
+        # Params on a figure  
+        if plot_vertical:
+            fig_size = (8, 16)
+            subplot_args = (3, 1, lambda i: i + 1)  # 3 rows, 1 column
+        else:
+            fig_size = (16, 8)
+            subplot_args = (1, 3, lambda i: i + 1)  # 1 row, 3 columns
+            
+        _ = plt.figure(figsize=fig_size)
 
         keys = ["beta_dust", "temp_dust", "beta_pl"]
         names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
@@ -565,16 +572,23 @@ def plot_params_patches(name, params, patches):
             hp.mollview(
                 param_map,
                 title=f"{name} {param_name}",
-                sub=(1, 3, i + 1),
+                sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
                 bgcolor=(0.0,) * 4,
                 cbar=True,
             )
 
         plt.tight_layout()
         plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
+        # Create params_dict 
+        params_dict = {
+            "beta_dust": params["beta_dust"],
+            "temp_dust": params["temp_dust"],
+            "beta_pl": params["beta_pl"],
+        }
+        np.savez(f"{out_folder}/params_{name}.npz", **params_dict)
 
         # Patches on a figure
-        _ = plt.figure(figsize=(12, 8))
+        _ = plt.figure(figsize=fig_size)
 
         np.random.seed(0)
 
@@ -590,6 +604,13 @@ def plot_params_patches(name, params, patches):
             shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
             return shuffled_arr.astype(np.float64)
 
+        # Create patches_dict
+        patches_dict = {
+            "beta_dust_patches": patches["beta_dust_patches"],
+            "temp_dust_patches": patches["temp_dust_patches"],
+            "beta_pl_patches": patches["beta_pl_patches"],
+        }
+        np.savez(f"{out_folder}/patches_{name}.npz", **patches_dict)
         patches = jax.tree.map(shuffle_labels, patches)
 
         keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
@@ -600,7 +621,7 @@ def plot_params_patches(name, params, patches):
             hp.mollview(
                 patch_map,
                 title=f"{name} {patch_name}",
-                sub=(1, 3, i + 1),
+                sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
                 bgcolor=(0.0,) * 4,
                 cbar=True,
             )
@@ -693,7 +714,7 @@ def plot_all_cmb(names, cmb_pytree_list):
         # Q map
         hp.mollview(
             diff_q,
-            title=rf"Difference (Q) - {name} $\mu_k$",
+            title=rf"Difference (Q) - {name} ($\mu$K²)",
             sub=(nb_cmb, 2, 2 * i + 1),
             min=vmin,
             max=vmax,
@@ -705,7 +726,7 @@ def plot_all_cmb(names, cmb_pytree_list):
         # U map
         hp.mollview(
             diff_u,
-            title=rf"Difference (U) - {name} $\mu_k$",
+            title=rf"Difference (U) - {name} ($\mu$K²)",
             sub=(nb_cmb, 2, 2 * i + 2),
             min=vmin,
             max=vmax,
@@ -793,8 +814,8 @@ def plot_all_cl_residuals(names, cl_pytree_list):
 
     plt.plot(
         ell_range,
-        cl_bb_r1 * coeff * 1e-3,
-        label=r"$C_\ell^{\mathrm{BB}}(r=10^{-3})$",
+        cl_bb_r1 * coeff,
+        label=r"$C_\ell^{\mathrm{BB}}(r=1)$",
         color="black",
         linewidth=2,
     )
@@ -817,7 +838,21 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     for i, (name, cl_pytree) in enumerate(zip(names, cl_pytree_list)):
-        color = colors[i % len(colors)]
+        # Use specific colors based on method name for better distinction
+        if "This work" in name or "K-means" in name:
+            color = "red"
+            linewidth = 2
+        elif "Multi-nside" in name:
+            if "(1)" in name:
+                color = "blue"
+            elif "(2)" in name:
+                color = "green"
+            else:
+                color = "blue"  # default for multi-resolution
+            linewidth = 1.5
+        else:
+            color = colors[i % len(colors)]  # fallback to default colors
+            linewidth = 1
         # plt.plot(
         #    ell_range,
         #    cl_pytree["cl_bb_obs"] * coeff,
@@ -838,6 +873,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
             label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
             color=color,
             linestyle="-",
+            linewidth=linewidth,
         )
         plt.plot(
             ell_range,
@@ -845,11 +881,12 @@ def plot_all_cl_residuals(names, cl_pytree_list):
             label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
             color=color,
             linestyle=":",
+            linewidth=linewidth,
         )
 
     plt.title(None)
     plt.xlabel(r"Multipole $\ell$")
-    plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
+    plt.ylabel(r"$D_\ell^{BB}$ [$\mu K^2$]")
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True, which="both", ls="--", alpha=0.4)
@@ -1019,19 +1056,19 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon):
     diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
 
     _ = plt.figure(figsize=(12, 8))
-    hp.mollview(cmb_recon_min.q, title="Reconstructed CMB (Q)", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
-    hp.mollview(cmb_stokes.q, title="Input CMB Map (Q)", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_recon_min.q, title=r"Reconstructed CMB (Q) [$\mu$K]", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_stokes.q, title=r"Input CMB Map (Q) [$\mu$K]", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
     hp.mollview(
         diff_q,
-        title="Difference (Q)",
+        title=r"Difference (Q) [$\mu$K]",
         sub=(2, 3, 3),
         bgcolor=(0.0,) * 4,
     )
-    hp.mollview(cmb_recon_min.u, title="Reconstructed CMB (U)", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
-    hp.mollview(cmb_stokes.u, title="Input CMB Map (U)", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_recon_min.u, title=r"Reconstructed CMB (U) [$\mu$K]", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_stokes.u, title=r"Input CMB Map (U) [$\mu$K]", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
     hp.mollview(
         diff_u,
-        title="Difference (U)",
+        title=r"Difference (U) [$\mu$K]",
         sub=(2, 3, 6),
         bgcolor=(0.0,) * 4,
     )
@@ -1080,7 +1117,7 @@ def plot_cl_residuals(
 
     plt.title(f"{name} BB Power Spectra")
     plt.xlabel(r"Multipole $\ell$")
-    plt.ylabel(r"$C_\ell^{BB}$ [1e-2 $\mu K^2$]")
+    plt.ylabel(r"$D_\ell^{BB}$ [$\mu K^2$]")
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True, which="both", ls="--", alpha=0.4)
