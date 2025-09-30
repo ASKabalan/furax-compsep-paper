@@ -12,7 +12,7 @@ import numpy as np
 import scienceplots  # noqa: F401
 import seaborn as sns
 from grid_search_data import select_best_params
-from jax_healpy import from_cutout_to_fullmap
+from jax_healpy.clustering import get_fullmap_from_cutout
 from matplotlib import cm, cycler
 
 # Set the style for the plots
@@ -185,7 +185,7 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     patches = best_run["beta_dust_patches"][0]
 
     best_spectral_params = best_params["beta_dust"][patches]
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
+    best_healpix_map = get_fullmap_from_cutout(best_spectral_params, indices, nside)
 
     # Process all runs to compute mean & std deviation
     beta_dust_values = best_run["beta_dust"]
@@ -193,8 +193,8 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     mean_spectral_params = jnp.mean(beta_dust_values, axis=0)[patches]
     std_spectral_params = jnp.std(beta_dust_values, axis=0)[patches]
 
-    mean_healpix_map = from_cutout_to_fullmap(mean_spectral_params, indices, nside)
-    std_dev_map = from_cutout_to_fullmap(std_spectral_params / np.sqrt(noise_runs), indices, nside)
+    mean_healpix_map = get_fullmap_from_cutout(mean_spectral_params, indices, nside)
+    std_dev_map = get_fullmap_from_cutout(std_spectral_params / np.sqrt(noise_runs), indices, nside)
 
     # Plot results
     plt.figure(figsize=(6, 12))
@@ -282,8 +282,8 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
     best_spectral_params = best_params["beta_dust"][patches]
     result_spectral_params = best_run["beta_dust"][patches]
 
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
-    result_healpix_map = from_cutout_to_fullmap(result_spectral_params, indices, nside)
+    best_healpix_map = get_fullmap_from_cutout(best_spectral_params, indices, nside)
+    result_healpix_map = get_fullmap_from_cutout(result_spectral_params, indices, nside)
 
     # Plot the best and result maps
     plt.figure(figsize=(15, 5))
