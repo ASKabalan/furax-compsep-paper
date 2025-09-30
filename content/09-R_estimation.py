@@ -23,7 +23,7 @@ from furax.obs import (
 )
 from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy import combine_masks, from_cutout_to_fullmap
+from jax_healpy.clustering import combine_masks, get_fullmap_from_cutout
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -314,7 +314,7 @@ def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results,
         CL_BB_SUM = results["CL_BB_SUM"]
         return CL_BB_SUM
 
-    cmb_out_full_sky = from_cutout_to_fullmap(cmb_out, patches, nside, axis=1)
+    cmb_out_full_sky = get_fullmap_from_cutout(cmb_out, patches, nside, axis=1)
     cmb_out_full_sky = expand_stokes(cmb_out_full_sky)
     cmb_out_full_sky = np.stack(
         [cmb_out_full_sky.i, cmb_out_full_sky.q, cmb_out_full_sky.u], axis=1
@@ -415,7 +415,6 @@ def compute_w(nu, d, results, result_file):
     np.savez(result_file, **results_from_file)
     return W
 
-
 def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
     Compute the BB spectrum of the systematic residual map.
@@ -429,7 +428,7 @@ def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
     Wd_cmb = expand_stokes(Wd_cmb)
     Wd_cmb = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)  # shape (3 , masked_npix)
-    Wn_cl = hp.sphtfunc.anafast(Wd_cmb)
+    Wn_cl = hp.anafast(Wd_cmb)
     Wn_cl = Wn_cl[2][ell_range]  # shape (len(ell_range),)
     return Wn_cl / fsky  # shape (len(ell_range),)
 
@@ -451,9 +450,11 @@ def compute_total_res(s_hat, s_true, fsky, ell_range):
 
     res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
     cl_list = []
+    res_list = []
     for i in range(res.shape[0]):
         cl = hp.anafast(res[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
+        res_list.append(res[i])
 
     return np.mean(cl_list, axis=0) / fsky  # shape (len(ell_range),)
 

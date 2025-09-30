@@ -73,7 +73,7 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy import get_clusters, get_cutout_from_mask, normalize_by_first_occurrence
+from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask, normalize_by_first_occurrence
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -271,7 +271,7 @@ def main():
         }
 
         patch_indices = jax.tree.map(
-            lambda c, mp: get_clusters(
+            lambda c, mp: find_kmeans_clusters(
                 mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
             ),
             n_regions,

@@ -25,7 +25,7 @@ from furax import HomothetyOperator
 from furax.obs import negative_log_likelihood, spectral_cmb_variance
 from furax.obs.stokes import Stokes
 from jax_grid_search import optimize
-from jax_healpy import get_clusters
+from jax_healpy.clustering import find_kmeans_clusters
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
@@ -45,13 +45,13 @@ def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, nu
     (indices,) = jnp.where(mask == 1)
     max_centroids = 1000
 
-    temp_dust_patch_indices = get_clusters(
+    temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
     )
-    beta_dust_patch_indices = get_clusters(
+    beta_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(1), max_centroids=max_centroids
     )
-    beta_pl_patch_indices = get_clusters(
+    beta_pl_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(2), max_centroids=max_centroids
     )
     patch_ids_fg = [
@@ -108,13 +108,13 @@ def run_jax_lbfgs(nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0
     (indices,) = jnp.where(mask == 1)
     max_centroids = 1000
 
-    temp_dust_patch_indices = get_clusters(
+    temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
     )
-    beta_dust_patch_indices = get_clusters(
+    beta_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(1), max_centroids=max_centroids
     )
-    beta_pl_patch_indices = get_clusters(
+    beta_pl_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(2), max_centroids=max_centroids
     )
 
@@ -191,13 +191,13 @@ def run_jax_tnc(
     (indices,) = jnp.where(mask == 1)
     max_centroids = 1000
 
-    temp_dust_patch_indices = get_clusters(
+    temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
     )
-    beta_dust_patch_indices = get_clusters(
+    beta_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(1), max_centroids=max_centroids
     )
-    beta_pl_patch_indices = get_clusters(
+    beta_pl_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(2), max_centroids=max_centroids
     )
 
