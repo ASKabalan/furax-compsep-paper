@@ -128,6 +128,11 @@ def parse_args():
         action="store_true",
         help="Plot all results",
     )
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Only compute and cache W_D_FG and CL_BB_SUM, skip all plotting",
+    )
 
     return parser.parse_args()
 
@@ -417,46 +422,74 @@ def compute_w(nu, d, results, result_file):
 
 def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
-    Compute the BB spectrum of the systematic residual map.
+    Create the systematic residual map (Wd) and compute its BB spectrum.
 
     Args:
-        Wd_cmb (StokesQU): CMB estimated from foreground-only data.
-        ell_range (np.ndarray): Multipole moments.
+        Wd_cmb (StokesQU): CMB estimated from foreground-only data (systematic map).
+        fsky (float): Observed sky fraction used to debias the spectrum.
+        ell_range (np.ndarray): Multipole moments to extract.
+        return_map (bool): If True, also return the stacked IQU map array.
 
     Returns:
-        np.ndarray: BB power spectrum of systematics.
+        np.ndarray | Tuple[np.ndarray, np.ndarray]:
+            BB power spectrum of systematics (len(ell_range),). If ``return_map`` is True,
+            also returns the stacked IQU map array with shape (3, npix).
     """
+    # Build full IQU map for the systematic residual
     Wd_cmb = expand_stokes(Wd_cmb)
-    Wd_cmb = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)  # shape (3 , masked_npix)
-    Wn_cl = hp.anafast(Wd_cmb)
-    Wn_cl = Wn_cl[2][ell_range]  # shape (len(ell_range),)
-    return Wn_cl / fsky  # shape (len(ell_range),)
+    syst_map = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)  # (3, npix)
+
+    # Compute BB and debias by f_sky (maps are not divided by f_sky)
+    cl_all = hp.anafast(syst_map)
+    cl_bb = cl_all[2][ell_range]
+    cl_bb = cl_bb / fsky
+
+    return cl_bb, syst_map
 
 
-def compute_total_res(s_hat, s_true, fsky, ell_range):
+
+def compute_statistical_res(
+    s_hat,
+    s_true,
+    fsky,
+    ell_range,
+    s_syst_map: np.ndarray,
+):
     """
-    Compute average BB residual spectrum from multiple noisy realizations.
+    Build residual maps and compute the mean BB residual spectrum across simulations.
 
     Args:
-        s_hat (StokesQU): Reconstructed CMB (n_sims, ...)
-        s_true (StokesQU): Ground truth CMB map.
-        ell_range (np.ndarray): Multipole moments.
+        s_hat (StokesQU): Reconstructed CMB maps with shape (n_sims, ...).
+        s_true (StokesQU | np.ndarray): Ground truth CMB map; accepts Stokes or (3, npix) array.
+        fsky (float): Observed sky fraction used to debias the spectrum.
+        ell_range (np.ndarray): Multipole range to extract.
+        s_syst_map (np.ndarray | None): Optional systematic map (Wd) with shape (3, npix).
 
     Returns:
-        np.ndarray: Residual BB spectrum.
+        Tuple[np.ndarray, np.ndarray]:
+            Mean BB statistical residual spectrum over simulations (len(ell_range),) and
+            statistical residual map array with shape (n_sims, 3, npix).
     """
+    # Normalize inputs to arrays
     s_hat = expand_stokes(s_hat)
-    s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+    s_hat_arr = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)  # (n_sims, 3, npix)
 
-    res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
+    # Total residual maps: res = s_hat - s_true
+    res = np.where(s_hat_arr == hp.UNSEEN, hp.UNSEEN, s_hat_arr - s_true[np.newaxis, ...])
+
+    # Statistical residual maps: res_stat = res - s_syst
+    s_syst_arr = np.asarray(s_syst_map)  # (3, npix)
+    res_stat = np.where(res == hp.UNSEEN, hp.UNSEEN, res - s_syst_arr[np.newaxis, ...])
+
+    # Compute BB spectrum per realisation and average
     cl_list = []
-    res_list = []
-    for i in range(res.shape[0]):
-        cl = hp.anafast(res[i])  # shape (6, lmax+1)
+    for i in range(res_stat.shape[0]):
+        cl = hp.anafast(res_stat[i])  # (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
-        res_list.append(res[i])
 
-    return np.mean(cl_list, axis=0) / fsky  # shape (len(ell_range),)
+    cl_mean = np.mean(cl_list, axis=0) / fsky
+
+    return cl_mean, res_stat
 
 
 def compute_cl_bb_sum(cmb_out, fsky, ell_range):
@@ -704,36 +737,31 @@ def plot_all_cmb(names, cmb_pytree_list):
 
         diff_all.append((diff_q, diff_u))
 
-    # Global min/max for shared color scale
-    all_values = [val for pair in diff_all for val in pair]
-    vmin = np.nanmin(all_values)
-    vmax = np.nanmax(all_values)
-
     plt.figure(figsize=(10, 3.5 * nb_cmb))
 
     for i, (name, (diff_q, diff_u)) in enumerate(zip(names, diff_all)):
         # Q map
         hp.mollview(
             diff_q,
-            title=rf"Difference (Q) - {name} ($\mu$K²)",
+            title=rf"Difference (Q) - {name} ($\mu$K)",
             sub=(nb_cmb, 2, 2 * i + 1),
-            min=vmin,
-            max=vmax,
-            cmap="viridis",
-            bgcolor=(0.0,) * 4,
             cbar=True,
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
             notext=True,
         )
         # U map
         hp.mollview(
             diff_u,
-            title=rf"Difference (U) - {name} ($\mu$K²)",
+            title=rf"Difference (U) - {name} ($\mu$K)",
             sub=(nb_cmb, 2, 2 * i + 2),
-            min=vmin,
-            max=vmax,
-            cmap="viridis",
-            bgcolor=(0.0,) * 4,
             cbar=True,
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
             notext=True,
         )
 
@@ -897,6 +925,111 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
 
 
+def plot_all_systematic_residuals(names, syst_map_list):
+    """
+    Plot systematic residuals from all runs in one comparison plot.
+
+    Args:
+        names (list): List of run names.
+        syst_map_list (list): List of systematic residual maps, each with shape (3, npix).
+    """
+    nb_runs = len(syst_map_list)
+    if nb_runs == 0:
+        print("No systematic residual maps to plot")
+        return
+
+    plt.figure(figsize=(12, 4 * nb_runs))
+
+    for i, (name, syst_map) in enumerate(zip(names, syst_map_list)):
+        # Handle UNSEEN pixels for visualization
+        syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
+        syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
+
+        # Q map
+        hp.mollview(
+            syst_q,
+            title=rf"Systematic Residual (Q) - {name} ($\mu$K)",
+            sub=(nb_runs, 2, 2 * i + 1),
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
+            cbar=True,
+            notext=True,
+        )
+
+        # U map
+        hp.mollview(
+            syst_u,
+            title=rf"Systematic Residual (U) - {name} ($\mu$K)",
+            sub=(nb_runs, 2, 2 * i + 2),
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
+            cbar=True,
+            notext=True,
+        )
+
+    plt.tight_layout()
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/all_systematic_residuals_{name}.pdf", transparent=True, dpi=1200)
+
+
+def plot_all_statistical_residuals(names, stat_map_list):
+    """
+    Plot statistical residuals from all runs in one comparison plot.
+
+    Args:
+        names (list): List of run names.
+        stat_map_list (list): List of statistical residual maps, each with shape (n_sims, 3, npix).
+    """
+    nb_runs = len(stat_map_list)
+    if nb_runs == 0:
+        print("No statistical residual maps to plot")
+        return
+
+    plt.figure(figsize=(12, 4 * nb_runs))
+
+    for i, (name, stat_maps) in enumerate(zip(names, stat_map_list)):
+        # Use first statistical map to preserve UNSEEN
+        stat_map_first = stat_maps[0]  # (3, npix)
+
+        # Handle UNSEEN pixels for visualization
+        stat_q = np.where(stat_map_first[1] == hp.UNSEEN, np.nan, stat_map_first[1])
+        stat_u = np.where(stat_map_first[2] == hp.UNSEEN, np.nan, stat_map_first[2])
+
+        # Q map
+        hp.mollview(
+            stat_q,
+            title=rf"Statistical Residual (Q) - {name} ($\mu$K)",
+            sub=(nb_runs, 2, 2 * i + 1),
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
+            cbar=True,
+            notext=True,
+        )
+
+        # U map
+        hp.mollview(
+            stat_u,
+            title=rf"Statistical Residual (U) - {name} ($\mu$K)",
+            sub=(nb_runs, 2, 2 * i + 2),
+            min=-0.5,
+            max=0.5,
+            cmap='RdBu_r',
+            bgcolor=(0,) * 4,
+            cbar=True,
+            notext=True,
+        )
+
+    plt.tight_layout()
+    name = "_".join(names)
+    plt.savefig(f"{out_folder}/all_statistical_residuals_{name}.pdf", transparent=True, dpi=1200)
+
+
 def plot_all_r_estimation(names, r_pytree_list):
     plt.figure(figsize=(8, 6))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -1033,6 +1166,98 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
 # ==============================================
 
 
+def plot_systematic_residual_maps(name, syst_map):
+    """
+    Plot systematic residual maps.
+
+    Args:
+        name (str): Name for the plot title and file.
+        syst_map (np.ndarray): Systematic residual map with shape (3, npix).
+    """
+    # Handle UNSEEN pixels for visualization
+    syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
+    syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
+
+    plt.figure(figsize=(12, 6))
+
+    # Systematic residual Q
+    hp.mollview(
+        syst_q,
+        title=rf"Systematic Residual (Q) - {name} ($\mu$K)",
+        sub=(1, 2, 1),
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
+        cbar=True,
+        notext=True,
+    )
+
+    # Systematic residual U
+    hp.mollview(
+        syst_u,
+        title=rf"Systematic Residual (U) - {name} ($\mu$K)",
+        sub=(1, 2, 2),
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
+        cbar=True,
+        notext=True,
+    )
+
+    plt.tight_layout()
+    plt.savefig(f"{out_folder}/systematic_residual_maps_{name}.pdf", transparent=True, dpi=1200)
+
+
+def plot_statistical_residual_maps(name, stat_maps):
+    """
+    Plot statistical residual maps.
+
+    Args:
+        name (str): Name for the plot title and file.
+        stat_maps (np.ndarray): Statistical residual maps with shape (n_sims, 3, npix).
+    """
+    # Use the first statistical map (to preserve UNSEEN)
+    stat_map_first = stat_maps[0]  # (3, npix)
+
+    # Handle UNSEEN pixels for visualization
+    stat_q = np.where(stat_map_first[1] == hp.UNSEEN, np.nan, stat_map_first[1])
+    stat_u = np.where(stat_map_first[2] == hp.UNSEEN, np.nan, stat_map_first[2])
+
+    plt.figure(figsize=(12, 6))
+
+    # Statistical residual Q
+    hp.mollview(
+        stat_q,
+        title=rf"Statistical Residual (Q) - {name} ($\mu$K)",
+        sub=(1, 2, 1),
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
+        cbar=True,
+        notext=True,
+    )
+
+    # Statistical residual U
+    hp.mollview(
+        stat_u,
+        title=rf"Statistical Residual (U) - {name} ($\mu$K)",
+        sub=(1, 2, 2),
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
+        cbar=True,
+        notext=True,
+    )
+
+    plt.tight_layout()
+    plt.savefig(f"{out_folder}/statistical_residual_maps_{name}.pdf", transparent=True, dpi=1200)
+
+
+
 def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon):
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
@@ -1056,22 +1281,30 @@ def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon):
     diff_u = cmb_recon_min.u - cmb_stokes.u
     diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
 
-    _ = plt.figure(figsize=(12, 8))
-    hp.mollview(cmb_recon_min.q, title=r"Reconstructed CMB (Q) [$\mu$K]", sub=(2, 3, 1), bgcolor=(0.0,) * 4)
-    hp.mollview(cmb_stokes.q, title=r"Input CMB Map (Q) [$\mu$K]", sub=(2, 3, 2), bgcolor=(0.0,) * 4)
+    _ = plt.figure(figsize=(12, 12))
+    hp.mollview(cmb_recon_min.q, title=r"Reconstructed CMB (Q) [$\mu$K]", sub=(3, 3, 1), bgcolor=(0,) * 4)
+    hp.mollview(cmb_stokes.q, title=r"Input CMB Map (Q) [$\mu$K]", sub=(3, 3, 2), bgcolor=(0,) * 4)
     hp.mollview(
         diff_q,
         title=r"Difference (Q) [$\mu$K]",
-        sub=(2, 3, 3),
-        bgcolor=(0.0,) * 4,
+        sub=(3, 3, 3),
+        cbar=True,
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
     )
-    hp.mollview(cmb_recon_min.u, title=r"Reconstructed CMB (U) [$\mu$K]", sub=(2, 3, 4), bgcolor=(0.0,) * 4)
-    hp.mollview(cmb_stokes.u, title=r"Input CMB Map (U) [$\mu$K]", sub=(2, 3, 5), bgcolor=(0.0,) * 4)
+    hp.mollview(cmb_recon_min.u, title=r"Reconstructed CMB (U) [$\mu$K]", sub=(3, 3, 4), bgcolor=(0,) * 4)
+    hp.mollview(cmb_stokes.u, title=r"Input CMB Map (U) [$\mu$K]", sub=(3, 3, 5), bgcolor=(0,) * 4)
     hp.mollview(
         diff_u,
         title=r"Difference (U) [$\mu$K]",
-        sub=(2, 3, 6),
-        bgcolor=(0.0,) * 4,
+        sub=(3, 3, 6),
+        cbar=True,
+        min=-0.5,
+        max=0.5,
+        cmap='RdBu_r',
+        bgcolor=(0,) * 4,
     )
     plt.title(f"{name} CMB Reconstruction")
     plt.tight_layout()
@@ -1175,6 +1408,84 @@ def plot_r_estimator(
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
+def load_run_data_for_cache(folder, nside, instrument):
+    """
+    Load minimal data needed for caching W_D_FG and CL_BB_SUM.
+
+    Args:
+        folder (str): Path to result folder.
+        nside (int): HEALPix resolution.
+        instrument: Instrument object.
+
+    Returns:
+        Tuple: (run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map)
+    """
+    run_data = dict(np.load(f"{folder}/results.npz"))
+    best_params = dict(np.load(f"{folder}/best_params.npz"))
+    mask = np.load(f"{folder}/mask.npy")
+    (indices,) = jnp.where(mask == 1)
+    f_sky = mask.sum() / len(mask)
+
+    # Get best run data (first element)
+    run_data = jax.tree.map(lambda x: x[0], run_data)
+
+    # Create CMB and foreground maps
+    cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
+    fg_map = Stokes.from_stokes(
+        Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
+    )
+    cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
+
+    return run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map
+
+
+def cache_expensive_computations(name, filtered_results, nside, instrument):
+    """
+    Compute and cache only W_D_FG and CL_BB_SUM for the given results.
+
+    Args:
+        name (str): Name of the run.
+        filtered_results (list[str]): List of result directories.
+        nside (int): HEALPix resolution.
+        instrument: Instrument object.
+    """
+    if len(filtered_results) == 0:
+        print(f"No results found for {name}")
+        return
+
+    print(f"Caching expensive computations for {name}...")
+
+    # Get CAMB templates for CL_BB_SUM computation
+    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
+
+    for i, folder in enumerate(filtered_results):
+        print(f"  Processing folder {i+1}/{len(filtered_results)}: {folder}")
+
+        try:
+            # Load minimal data needed for caching
+            run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = load_run_data_for_cache(
+                folder, nside, instrument
+            )
+
+            # Cache W_D_FG (component separation operator)
+            print(f"    Computing/caching W_D_FG...")
+            wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
+
+            # Cache CL_BB_SUM (BB power spectrum)
+            print(f"    Computing/caching CL_BB_SUM...")
+            cl_bb_sum = compute_cl_bb_sum_partial(
+                cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz"
+            )
+
+            print(f"    ✓ Completed folder {folder}")
+
+        except Exception as e:
+            print(f"    ✗ Error processing folder {folder}: {e}")
+            continue
+
+    print(f"✓ Finished caching for {name}")
+
+
 def plot_results(name, filtered_results, nside, instrument, args):
     """
     Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
@@ -1271,12 +1582,18 @@ def plot_results(name, filtered_results, nside, instrument, args):
 
     f_sky = full_mask.sum() / len(full_mask)
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
-    cl_syst_res = compute_systematic_res(wd, f_sky, ell_range)
+    cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
     print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
-    # Compute the total residuals Cl_res = <CL(s_hat - s_true)>n
-    cl_total_res = compute_total_res(combined_cmb_recon, s_true, f_sky, ell_range)
-    # Compute the statistical residuals Cl_stat = CL_res - CL_syst
-    cl_stat_res = jnp.abs(cl_total_res - cl_syst_res)
+    # Compute the statistical residuals Cl_stat = <CL((s_hat - s_true) - s_syst)>n
+    cl_stat_res, stat_maps = compute_statistical_res(combined_cmb_recon, s_true, f_sky, ell_range, syst_map)
+    # Compute the total residuals as sum of systematic and statistical
+    cl_total_res = cl_syst_res + cl_stat_res
+
+    # Plot residual maps if requested
+    if args.plot_cmb_recon or args.plot_all:
+        plot_systematic_residual_maps(name, syst_map)
+        plot_statistical_residual_maps(name, stat_maps)
+
     # Compute cl_true
     cl_true = compute_cl_true_bb(s_true, ell_range)
     # Compute observed Cl_obs = <CL(s_hat)>
@@ -1340,8 +1657,12 @@ def plot_results(name, filtered_results, nside, instrument, args):
         "r_grid": r_grid,
         "L_vals": L_vals,
     }
+    residual_pytree = {
+        "syst_map": syst_map,
+        "stat_maps": stat_maps,
+    }
 
-    return cmb_pytree, cl_pytree, r_pytree
+    return cmb_pytree, cl_pytree, r_pytree, residual_pytree
 
 
 # ========== Main Function ================
@@ -1406,14 +1727,34 @@ def main():
     print("Results to plot: ", results_to_plot)
     assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
 
+    # Handle cache-only mode
+    if args.cache_only:
+        print("=" * 60)
+        print("CACHE-ONLY MODE: Computing and caching W_D_FG and CL_BB_SUM only")
+        print("=" * 60)
+
+        for name, group_results in zip(args.titles, results_to_plot):
+            cache_expensive_computations(name, group_results, nside, instrument)
+
+        print("=" * 60)
+        print("✓ Cache-only mode completed successfully!")
+        print("✓ W_D_FG and CL_BB_SUM have been cached for all runs")
+        print("✓ You can now run plotting commands to use the cached values")
+        print("=" * 60)
+        return
+
     cmb_pytree_list = []
     cl_pytree_list = []
     r_pytree_list = []
+    syst_map_list = []
+    stat_map_list = []
     for name, group_results in zip(args.titles, results_to_plot):
-        cmb_pytree, cl_pytree, r_pytree = plot_results(name, group_results, nside, instrument, args)
+        cmb_pytree, cl_pytree, r_pytree, residual_pytree = plot_results(name, group_results, nside, instrument, args)
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
+        syst_map_list.append(residual_pytree["syst_map"])
+        stat_map_list.append(residual_pytree["stat_maps"])
 
     if args.plot_illustrations:
         plot_r_vs_clusters(args.titles, cmb_pytree_list, r_pytree_list)
@@ -1423,6 +1764,8 @@ def main():
     if args.plot_all_spectra:
         plot_all_cl_residuals(args.titles, cl_pytree_list)
         plot_all_r_estimation(args.titles, r_pytree_list)
+        plot_all_systematic_residuals(args.titles, syst_map_list)
+        plot_all_statistical_residuals(args.titles, stat_map_list)
 
     # plt.show()
     plt.close()
