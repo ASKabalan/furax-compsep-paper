@@ -19,7 +19,7 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy import get_cutout_from_mask
+from jax_healpy.clustering import get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # Make sure these modules are available in your PYTHONPATH

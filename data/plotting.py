@@ -12,7 +12,7 @@ import numpy as np
 import scienceplots  # noqa: F401
 import seaborn as sns
 from grid_search_data import select_best_params
-from jax_healpy import from_cutout_to_fullmap
+from jax_healpy.clustering import get_fullmap_from_cutout
 from matplotlib import cm, cycler
 
 # Set the style for the plots
@@ -100,7 +100,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise_3D(results, best_params, out_folder, 
         plt.close(fig)
 
 
-def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot):
+def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot, noise_sim_count):
     fig, axs = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
 
     # Define custom, print-friendly colors
@@ -122,14 +122,18 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         y_likelihood_mean = -filtered["NLL"].mean(axis=1)
         y_likelihood_std = filtered["NLL"].std(axis=1)
 
-        label = f"T_d={int(T_d)}, B_s={int(B_s)}"
+        label = f"$K_{{T_d}}$={int(T_d)}, $K_{{\\beta_s}}$={int(B_s)}"
+
+        # roll one to the right 
+        y_variance_mean = np.roll(y_variance_mean, -1)
+        y_variance_std = np.roll(y_variance_std, -1)
 
         # CMB Variance plot: line + scatter + error bars
         axs[0].plot(x, y_variance_mean, "-", alpha=0.7)
         axs[0].errorbar(
             x,
             y_variance_mean,
-            yerr=y_variance_std / np.sqrt(100),
+            yerr=y_variance_std / np.sqrt(noise_sim_count),
             fmt="o",
             label=label,
             capsize=3,
@@ -140,7 +144,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
         axs[1].errorbar(
             x,
             y_likelihood_mean,
-            yerr=y_likelihood_std / np.sqrt(100),
+            yerr=y_likelihood_std / np.sqrt(noise_sim_count),
             fmt="o",
             label=label,
             capsize=3,
@@ -148,11 +152,11 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
 
     # Mark best B_d
     best_B_d = best_params["B_d_patches"]
-    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best B_d = {int(best_B_d)}")
+    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best $K_{{\\beta_d}}$ = {int(best_B_d)}")
     axs[1].axvline(best_B_d, color="red", linestyle="--")
 
     # Improve axis labels and titles
-    axs[0].set_ylabel("Mean CMB Variance")
+    axs[0].set_ylabel(r"Mean CMB Variance ($\mu$K²)")
     axs[0].set_title("Mean CMB Variance vs Dust Index Patches ($K_{\\beta_d}$)")
     axs[0].grid(True)
     axs[0].legend()
@@ -181,7 +185,7 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     patches = best_run["beta_dust_patches"][0]
 
     best_spectral_params = best_params["beta_dust"][patches]
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
+    best_healpix_map = get_fullmap_from_cutout(best_spectral_params, indices, nside)
 
     # Process all runs to compute mean & std deviation
     beta_dust_values = best_run["beta_dust"]
@@ -189,8 +193,8 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
     mean_spectral_params = jnp.mean(beta_dust_values, axis=0)[patches]
     std_spectral_params = jnp.std(beta_dust_values, axis=0)[patches]
 
-    mean_healpix_map = from_cutout_to_fullmap(mean_spectral_params, indices, nside)
-    std_dev_map = from_cutout_to_fullmap(std_spectral_params / np.sqrt(noise_runs), indices, nside)
+    mean_healpix_map = get_fullmap_from_cutout(mean_spectral_params, indices, nside)
+    std_dev_map = get_fullmap_from_cutout(std_spectral_params / np.sqrt(noise_runs), indices, nside)
 
     # Plot results
     plt.figure(figsize=(6, 12))
@@ -217,32 +221,48 @@ def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
     # Create subplots: one for CMB variance, one for NLL
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
-    # Plot CMB variance vs. B_d_patches
-    axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
+    # Handle case where values have multiple realizations (shape: n_configs, n_realizations)
+    if cmb_variance.ndim > 1 and cmb_variance.shape[1] > 1:
+        # Compute mean and std across noise realizations
+        variance_mean = np.mean(cmb_variance, axis=1)
+        variance_std = np.std(cmb_variance, axis=1)
+        nll_mean = np.mean(nll, axis=1)
+        nll_std = np.std(nll, axis=1)
+        
+        # Plot with error bars
+        axs[0].errorbar(B_d_patches, variance_mean, yerr=variance_std, 
+                        fmt='o-', capsize=5, capthick=2, color="blue", label="Grid Search")
+        axs[1].errorbar(B_d_patches, nll_mean, yerr=nll_std,
+                        fmt='o-', capsize=5, capthick=2, color="green", label="Grid Search")
+    else:
+        # Single realization case - use scatter plot
+        axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
+        axs[1].scatter(B_d_patches, nll, color="green", label="Grid Search")
+
+    # Add best parameter lines
     axs[0].axhline(y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance")
     axs[0].axvline(
         x=best_params["B_d_patches"],
         color="orange",
         linestyle="--",
-        label="Best B_d_patches",
+        label=r"Best $K_{\beta_d}$",
     )
-    axs[0].set_xlabel("B_d_patches (dust patch count)")
-    axs[0].set_ylabel("CMB Variance")
-    axs[0].set_title("CMB Variance vs. B_d_patches")
+    axs[0].set_xlabel(r"$K_{\beta_d}$")  # Updated to K-notation
+    axs[0].set_ylabel(r"CMB Variance ($\mu$K²)")  # Added units
+    axs[0].set_title(r"CMB Variance vs. $K_{\beta_d}$")  # Updated title
     axs[0].legend()
 
     # Plot NLL vs. B_d_patches
-    axs[1].scatter(B_d_patches, nll, color="green", label="Grid Search")
     axs[1].axhline(y=best_params["NLL"], color="red", linestyle="--", label="Best NLL")
     axs[1].axvline(
         x=best_params["B_d_patches"],
         color="orange",
         linestyle="--",
-        label="Best B_d_patches",
+        label=r"Best $K_{\beta_d}$",
     )
-    axs[1].set_xlabel("B_d_patches (dust patch count)")
+    axs[1].set_xlabel(r"$K_{\beta_d}$")  # Updated to K-notation
     axs[1].set_ylabel("Negative Log Likelihood")
-    axs[1].set_title("NLL vs. B_d_patches")
+    axs[1].set_title(r"NLL vs. $K_{\beta_d}$")  # Updated title
     axs[1].legend()
 
     plt.tight_layout()
@@ -262,8 +282,8 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
     best_spectral_params = best_params["beta_dust"][patches]
     result_spectral_params = best_run["beta_dust"][patches]
 
-    best_healpix_map = from_cutout_to_fullmap(best_spectral_params, indices, nside)
-    result_healpix_map = from_cutout_to_fullmap(result_spectral_params, indices, nside)
+    best_healpix_map = get_fullmap_from_cutout(best_spectral_params, indices, nside)
+    result_healpix_map = get_fullmap_from_cutout(result_spectral_params, indices, nside)
 
     # Plot the best and result maps
     plt.figure(figsize=(15, 5))

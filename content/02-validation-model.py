@@ -20,7 +20,7 @@ from furax.obs import (
 )
 from furax.obs.landscapes import HealpixLandscape
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy import get_clusters, get_cutout_from_mask
+from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -101,7 +101,7 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
-        lambda c: get_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
+        lambda c: find_kmeans_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)
@@ -208,7 +208,7 @@ def main():
             "beta_pl_patches": B_s_patches,
         }
         patch_indices = jax.tree.map(
-            lambda c: get_clusters(
+            lambda c: find_kmeans_clusters(
                 mask, indices, c, jax.random.key(0), max_centroids=max_centroids
             ),
             patch_indices,
