@@ -1408,7 +1408,7 @@ def plot_r_estimator(
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
-def load_run_data_for_cache(folder, nside, instrument):
+def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     """
     Load minimal data needed for caching W_D_FG and CL_BB_SUM.
 
@@ -1416,9 +1416,11 @@ def load_run_data_for_cache(folder, nside, instrument):
         folder (str): Path to result folder.
         nside (int): HEALPix resolution.
         instrument: Instrument object.
+        run_index (int): Index to select from run_data arrays (default: 0).
 
     Returns:
         Tuple: (run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map)
+        Returns None if index is out of bounds.
     """
     run_data = dict(np.load(f"{folder}/results.npz"))
     best_params = dict(np.load(f"{folder}/best_params.npz"))
@@ -1426,10 +1428,15 @@ def load_run_data_for_cache(folder, nside, instrument):
     (indices,) = jnp.where(mask == 1)
     f_sky = mask.sum() / len(mask)
 
-    # Get best run data (first element)
-    run_data = jax.tree.map(lambda x: x[0], run_data)
+    first_key = next(iter(run_data.keys()))
+    max_index = len(run_data[first_key]) - 1
 
-    # Create CMB and foreground maps
+    if run_index > max_index:
+        print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
+        return None
+
+    run_data = jax.tree.map(lambda x: x[run_index], run_data)
+
     cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
     fg_map = Stokes.from_stokes(
         Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
@@ -1439,7 +1446,7 @@ def load_run_data_for_cache(folder, nside, instrument):
     return run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map
 
 
-def cache_expensive_computations(name, filtered_results, nside, instrument):
+def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0):
     """
     Compute and cache only W_D_FG and CL_BB_SUM for the given results.
 
@@ -1448,30 +1455,29 @@ def cache_expensive_computations(name, filtered_results, nside, instrument):
         filtered_results (list[str]): List of result directories.
         nside (int): HEALPix resolution.
         instrument: Instrument object.
+        run_index (int): Index to select from run_data arrays (default: 0).
     """
     if len(filtered_results) == 0:
         print(f"No results found for {name}")
         return
 
-    print(f"Caching expensive computations for {name}...")
+    print(f"Caching expensive computations for {name} (index={run_index})...")
 
-    # Get CAMB templates for CL_BB_SUM computation
     ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
     for i, folder in enumerate(filtered_results):
         print(f"  Processing folder {i+1}/{len(filtered_results)}: {folder}")
 
         try:
-            # Load minimal data needed for caching
-            run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = load_run_data_for_cache(
-                folder, nside, instrument
-            )
+            result = load_run_data_for_cache(folder, nside, instrument, run_index)
+            if result is None:
+                continue
 
-            # Cache W_D_FG (component separation operator)
+            run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = result
+
             print(f"    Computing/caching W_D_FG...")
             wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
 
-            # Cache CL_BB_SUM (BB power spectrum)
             print(f"    Computing/caching CL_BB_SUM...")
             cl_bb_sum = compute_cl_bb_sum_partial(
                 cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz"
@@ -1486,7 +1492,7 @@ def cache_expensive_computations(name, filtered_results, nside, instrument):
     print(f"✓ Finished caching for {name}")
 
 
-def plot_results(name, filtered_results, nside, instrument, args):
+def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     """
     Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
 
@@ -1494,6 +1500,7 @@ def plot_results(name, filtered_results, nside, instrument, args):
         filtered_results (list[str]): List of result directories.
         nside (int): HEALPix resolution.
         instrument (Instrument): Instrument object.
+        run_index (int): Index to select from run_data arrays (default: 0).
     """
     if len(filtered_results) == 0:
         print("No results")
@@ -1518,8 +1525,14 @@ def plot_results(name, filtered_results, nside, instrument, args):
         (indices,) = jnp.where(mask == 1)
         f_sky = mask.sum() / len(mask)
 
-        # Get best run data
-        run_data = jax.tree.map(lambda x: x[0], run_data)
+        first_key = next(iter(run_data.keys()))
+        max_index = len(run_data[first_key]) - 1
+
+        if run_index > max_index:
+            print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
+            continue
+
+        run_data = jax.tree.map(lambda x: x[run_index], run_data)
         NLL = run_data["NLL"]
 
         cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
@@ -1548,6 +1561,10 @@ def plot_results(name, filtered_results, nside, instrument, args):
         masks.append(mask)
         indices_list.append(indices)
         NLLs.append(NLL)
+
+    if len(masks) == 0:
+        print(f"WARNING: No valid data found for '{name}' with index {run_index}. Skipping this run.")
+        return None
 
     full_mask = np.logical_or.reduce(masks)
 
@@ -1669,6 +1686,29 @@ def plot_results(name, filtered_results, nside, instrument, args):
 # =========================================
 
 
+def parse_run_spec(run_spec):
+    """
+    Parse a run specification like 'NAME', 'NAME,5', or 'NAME,0-15'.
+
+    Returns:
+        tuple: (filter_string, index_spec) where index_spec is either:
+            - int (single index)
+            - tuple (start, end) for range
+            - None (default to 0)
+    """
+    if "," not in run_spec:
+        return run_spec, None
+
+    filter_part, index_part = run_spec.rsplit(",", 1)
+    index_part = index_part.strip()
+
+    if "-" in index_part:
+        start, end = index_part.split("-", 1)
+        return filter_part, (int(start.strip()), int(end.strip()))
+    else:
+        return filter_part, int(index_part)
+
+
 def parse_filter_kw(kw_string):
     """
     Parse a string like 'A_(B|C)_D' into a list of sets (ORs within, AND across).
@@ -1689,6 +1729,37 @@ def matches_filter(name_parts, filter_groups):
     Check if name_parts satisfies the AND-of-OR filter groups.
     """
     return all(any(option in name_parts for option in group) for group in filter_groups)
+
+
+def expand_run_specs(run_specs, titles):
+    """
+    Expand run specifications with ranges into individual (filter, index, title) tuples.
+
+    Args:
+        run_specs (list): List of run specification strings.
+        titles (list): List of title strings corresponding to run_specs.
+
+    Returns:
+        list: List of tuples (filter_string, run_index, title_string)
+    """
+    expanded = []
+
+    for run_spec, base_title in zip(run_specs, titles):
+        filter_str, index_spec = parse_run_spec(run_spec)
+
+        if index_spec is None:
+            expanded.append((filter_str, 0, base_title))
+        elif isinstance(index_spec, int):
+            expanded.append((filter_str, index_spec, base_title))
+        elif isinstance(index_spec, tuple):
+            start, end = index_spec
+            for idx in range(start, end + 1):
+                title = f"{base_title} {idx}"
+                expanded.append((filter_str, idx, title))
+        else:
+            raise ValueError(f"Unknown index specification: {index_spec}")
+
+    return expanded
 
 
 def main():
@@ -1714,8 +1785,13 @@ def main():
         args.plot_validation_curves = True
         args.plot_illustrations = True
 
+    expanded_runs = expand_run_specs(args.runs, args.titles)
+
     results_to_plot = []
-    for filter_expr in args.runs:  # args.runs contains strings like "A_(B|C)_D"
+    titles_to_plot = []
+    indices_to_plot = []
+
+    for filter_expr, run_index, title in expanded_runs:
         filter_groups = parse_filter_kw(filter_expr)
         group = []
         for result_name, res_kw in results_kw.items():
@@ -1723,18 +1799,20 @@ def main():
                 group.append(os.path.join(result_folder, result_name))
         if group:
             results_to_plot.append(group)
+            titles_to_plot.append(title)
+            indices_to_plot.append(run_index)
 
     print("Results to plot: ", results_to_plot)
-    assert len(args.titles) == len(results_to_plot), "Number of names must match number of results"
+    print("Titles: ", titles_to_plot)
+    print("Indices: ", indices_to_plot)
 
-    # Handle cache-only mode
     if args.cache_only:
         print("=" * 60)
         print("CACHE-ONLY MODE: Computing and caching W_D_FG and CL_BB_SUM only")
         print("=" * 60)
 
-        for name, group_results in zip(args.titles, results_to_plot):
-            cache_expensive_computations(name, group_results, nside, instrument)
+        for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
+            cache_expensive_computations(name, group_results, nside, instrument, run_index)
 
         print("=" * 60)
         print("✓ Cache-only mode completed successfully!")
@@ -1748,24 +1826,29 @@ def main():
     r_pytree_list = []
     syst_map_list = []
     stat_map_list = []
-    for name, group_results in zip(args.titles, results_to_plot):
-        cmb_pytree, cl_pytree, r_pytree, residual_pytree = plot_results(name, group_results, nside, instrument, args)
+    valid_titles = []
+    for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
+        result = plot_results(name, group_results, nside, instrument, args, run_index)
+        if result is None:
+            continue
+        cmb_pytree, cl_pytree, r_pytree, residual_pytree = result
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
         syst_map_list.append(residual_pytree["syst_map"])
         stat_map_list.append(residual_pytree["stat_maps"])
+        valid_titles.append(name)
 
     if args.plot_illustrations:
-        plot_r_vs_clusters(args.titles, cmb_pytree_list, r_pytree_list)
-        plot_all_variances(args.titles, cmb_pytree_list)
+        plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
+        plot_all_variances(valid_titles, cmb_pytree_list)
     if args.plot_all_cmb_recon:
-        plot_all_cmb(args.titles, cmb_pytree_list)
+        plot_all_cmb(valid_titles, cmb_pytree_list)
     if args.plot_all_spectra:
-        plot_all_cl_residuals(args.titles, cl_pytree_list)
-        plot_all_r_estimation(args.titles, r_pytree_list)
-        plot_all_systematic_residuals(args.titles, syst_map_list)
-        plot_all_statistical_residuals(args.titles, stat_map_list)
+        plot_all_cl_residuals(valid_titles, cl_pytree_list)
+        plot_all_r_estimation(valid_titles, r_pytree_list)
+        plot_all_systematic_residuals(valid_titles, syst_map_list)
+        plot_all_statistical_residuals(valid_titles, stat_map_list)
 
     # plt.show()
     plt.close()
