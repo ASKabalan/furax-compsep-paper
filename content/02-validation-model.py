@@ -101,7 +101,9 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
-        lambda c: find_kmeans_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
+        lambda c: find_kmeans_clusters(
+            mask, indices, c, jax.random.key(0), max_centroids=max_centroids
+        ),
         patch_indices,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)

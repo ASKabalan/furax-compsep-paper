@@ -73,7 +73,11 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask, normalize_by_first_occurrence
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    normalize_by_first_occurrence,
+)
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")

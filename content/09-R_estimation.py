@@ -26,10 +26,12 @@ from jax_grid_search import ProgressBar, optimize
 from jax_healpy.clustering import combine_masks, get_fullmap_from_cutout
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from tqdm import tqdm
+
 sys.path.append("../data")
+import itertools
+
 import scienceplots  # noqa: F401
 from instruments import get_instrument
-import itertools
 
 # Set the style for the plots
 plt.style.use("science")
@@ -192,6 +194,7 @@ def index_run_data(run_data, run_index):
     Returns:
         dict: Dictionary with indexed entries (cached values unchanged).
     """
+
     def should_index(path, value):
         key = path[-1].key if path else None
         if key and (key.startswith("W_D_FG_") or key.startswith("CL_BB_SUM_")):
@@ -338,7 +341,9 @@ def get_camb_templates(nside):
 # ==============================================
 
 
-def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results, result_file, run_index=0):
+def compute_cl_bb_sum_partial(
+    cmb_out, patches, nside, ell_range, fsky, results, result_file, run_index=0
+):
     """
     Compute BB power spectrum sum from CMB output maps with caching support.
 
@@ -368,7 +373,7 @@ def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results,
     )
 
     cl_list = []
-    for i in tqdm(cmb_out_full_sky.shape[0] , desc="Computing CL_BB_SUM"):
+    for i in tqdm(range(cmb_out_full_sky.shape[0]), desc="Computing CL_BB_SUM"):
         cl = hp.anafast(cmb_out_full_sky[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
@@ -464,6 +469,7 @@ def compute_w(nu, d, results, result_file, run_index=0):
     np.savez(result_file, **results_from_file)
     return W
 
+
 def compute_systematic_res(Wd_cmb, fsky, ell_range):
     """
     Create the systematic residual map (Wd) and compute its BB spectrum.
@@ -489,7 +495,6 @@ def compute_systematic_res(Wd_cmb, fsky, ell_range):
     cl_bb = cl_bb / fsky
 
     return cl_bb, syst_map
-
 
 
 def compute_statistical_res(
@@ -598,6 +603,7 @@ def compute_cl_true_bb(s, ell_range):
 
 # --- Illustration and Analysis Plots ---
 
+
 def params_to_maps(run_data, previous_mask_size):
     """
     Convert parameter arrays to HEALPix maps for visualization.
@@ -664,14 +670,14 @@ def plot_params_patches(name, params, patches, plot_vertical=True):
             "axes.titlesize": font_size * 1.6,
         }
     ):
-        # Params on a figure  
+        # Params on a figure
         if plot_vertical:
             fig_size = (8, 16)
             subplot_args = (3, 1, lambda i: i + 1)  # 3 rows, 1 column
         else:
             fig_size = (16, 8)
             subplot_args = (1, 3, lambda i: i + 1)  # 1 row, 3 columns
-            
+
         _ = plt.figure(figsize=fig_size)
 
         keys = ["beta_dust", "temp_dust", "beta_pl"]
@@ -689,7 +695,7 @@ def plot_params_patches(name, params, patches, plot_vertical=True):
 
         plt.tight_layout()
         plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
-        # Create params_dict 
+        # Create params_dict
         params_dict = {
             "beta_dust": params["beta_dust"],
             "temp_dust": params["temp_dust"],
@@ -791,6 +797,7 @@ def plot_validation_curves(name, updates_history, value_history):
 
 # --- Multi-Run Comparison Plots ---
 
+
 def get_min_variance(cmb_map):
     """
     Select the CMB realization with minimum variance from multiple realizations.
@@ -846,7 +853,7 @@ def plot_all_cmb(names, cmb_pytree_list):
             cbar=True,
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             notext=True,
         )
@@ -858,7 +865,7 @@ def plot_all_cmb(names, cmb_pytree_list):
             cbar=True,
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             notext=True,
         )
@@ -876,6 +883,7 @@ def plot_all_variances(names, cmb_pytree_list):
         names (list): List of run names for labeling.
         cmb_pytree_list (list): List of CMB data structures containing reconstruction metrics.
     """
+
     def get_all_variances(cmb_map):
         seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
         cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
@@ -1064,7 +1072,7 @@ def plot_all_systematic_residuals(names, syst_map_list):
             sub=(nb_runs, 2, 2 * i + 1),
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
             notext=True,
@@ -1077,7 +1085,7 @@ def plot_all_systematic_residuals(names, syst_map_list):
             sub=(nb_runs, 2, 2 * i + 2),
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
             notext=True,
@@ -1118,7 +1126,7 @@ def plot_all_statistical_residuals(names, stat_map_list):
             sub=(nb_runs, 2, 2 * i + 1),
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
             notext=True,
@@ -1131,7 +1139,7 @@ def plot_all_statistical_residuals(names, stat_map_list):
             sub=(nb_runs, 2, 2 * i + 2),
             min=-0.5,
             max=0.5,
-            cmap='RdBu_r',
+            cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
             notext=True,
@@ -1253,27 +1261,27 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
             labeled_dict.append(name)
             # Plot error bars for the best-fit r
             plt.errorbar(
-               n_clusters,
-               r_best,
-               yerr=[[sigma_r_neg], [sigma_r_pos]],
-               fmt='o',
-               label=name,
-               color=color,
-               capsize=5,
-               elinewidth=1,
-               markeredgewidth=1,
+                n_clusters,
+                r_best,
+                yerr=[[sigma_r_neg], [sigma_r_pos]],
+                fmt="o",
+                label=name,
+                color=color,
+                capsize=5,
+                elinewidth=1,
+                markeredgewidth=1,
             )
             plt.scatter(n_clusters, r_best, label=name, color=color)
         else:
             plt.errorbar(
-               n_clusters,
-               r_best,
-               yerr=[[sigma_r_neg], [sigma_r_pos]],
-               fmt='o',
-               color=color,
-               capsize=5,
-               elinewidth=1,
-               markeredgewidth=1,
+                n_clusters,
+                r_best,
+                yerr=[[sigma_r_neg], [sigma_r_pos]],
+                fmt="o",
+                color=color,
+                capsize=5,
+                elinewidth=1,
+                markeredgewidth=1,
             )
             plt.scatter(n_clusters, r_best, color=color)
 
@@ -1299,7 +1307,7 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
         ("$T_d$", "temp_dust_patches"),
-        ("$\\beta_s$", "beta_pl_patches")
+        ("$\\beta_s$", "beta_pl_patches"),
     ]
 
     for patch_name, patch_key in patch_configs:
@@ -1307,6 +1315,7 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
 
 
 # --- Single Run Plots ---
+
 
 def plot_systematic_residual_maps(name, syst_map):
     """
@@ -1329,7 +1338,7 @@ def plot_systematic_residual_maps(name, syst_map):
         sub=(1, 2, 1),
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
         notext=True,
@@ -1342,7 +1351,7 @@ def plot_systematic_residual_maps(name, syst_map):
         sub=(1, 2, 2),
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
         notext=True,
@@ -1376,7 +1385,7 @@ def plot_statistical_residual_maps(name, stat_maps):
         sub=(1, 2, 1),
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
         notext=True,
@@ -1389,7 +1398,7 @@ def plot_statistical_residual_maps(name, stat_maps):
         sub=(1, 2, 2),
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
         notext=True,
@@ -1397,7 +1406,6 @@ def plot_statistical_residual_maps(name, stat_maps):
 
     plt.tight_layout()
     plt.savefig(f"{out_folder}/statistical_residual_maps_{name}.pdf", transparent=True, dpi=1200)
-
 
 
 def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
@@ -1409,6 +1417,7 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         cmb_stokes (Stokes): True CMB input maps.
         cmb_recon (Stokes): Reconstructed CMB maps from component separation.
     """
+
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
@@ -1432,7 +1441,9 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
     diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
 
     _ = plt.figure(figsize=(12, 12))
-    hp.mollview(cmb_recon_min.q, title=r"Reconstructed CMB (Q) [$\mu$K]", sub=(3, 3, 1), bgcolor=(0,) * 4)
+    hp.mollview(
+        cmb_recon_min.q, title=r"Reconstructed CMB (Q) [$\mu$K]", sub=(3, 3, 1), bgcolor=(0,) * 4
+    )
     hp.mollview(cmb_stokes.q, title=r"Input CMB Map (Q) [$\mu$K]", sub=(3, 3, 2), bgcolor=(0,) * 4)
     hp.mollview(
         diff_q,
@@ -1441,10 +1452,12 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         cbar=True,
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
     )
-    hp.mollview(cmb_recon_min.u, title=r"Reconstructed CMB (U) [$\mu$K]", sub=(3, 3, 4), bgcolor=(0,) * 4)
+    hp.mollview(
+        cmb_recon_min.u, title=r"Reconstructed CMB (U) [$\mu$K]", sub=(3, 3, 4), bgcolor=(0,) * 4
+    )
     hp.mollview(cmb_stokes.u, title=r"Input CMB Map (U) [$\mu$K]", sub=(3, 3, 5), bgcolor=(0,) * 4)
     hp.mollview(
         diff_u,
@@ -1453,7 +1466,7 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         cbar=True,
         min=-0.5,
         max=0.5,
-        cmap='RdBu_r',
+        cmap="RdBu_r",
         bgcolor=(0,) * 4,
     )
     plt.title(f"{name} CMB Reconstruction")
@@ -1612,15 +1625,15 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     max_index = len(run_data[first_key]) - 1
 
     if run_index > max_index:
-        print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
+        print(
+            f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
+        )
         return None
 
     run_data = index_run_data(run_data, run_index)
 
-    cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
-    fg_map = Stokes.from_stokes(
-        Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
-    )
+    #cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
+    fg_map = Stokes.from_stokes(Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1])
     cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
 
     return run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map
@@ -1646,7 +1659,7 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
     ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
 
     for i, folder in enumerate(filtered_results):
-        print(f"  Processing folder {i+1}/{len(filtered_results)}: {folder}")
+        print(f"  Processing folder {i + 1}/{len(filtered_results)}: {folder}")
 
         try:
             result = load_run_data_for_cache(folder, nside, instrument, run_index)
@@ -1655,12 +1668,25 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
 
             run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = result
 
-            print(f"    Computing/caching W_D_FG...")
-            wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz", run_index=run_index)
+            print("    Computing/caching W_D_FG...")
+            _ = compute_w(
+                instrument.frequency,
+                fg_map,
+                run_data,
+                result_file=f"{folder}/results.npz",
+                run_index=run_index,
+            )
 
-            print(f"    Computing/caching CL_BB_SUM...")
-            cl_bb_sum = compute_cl_bb_sum_partial(
-                cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz", run_index=run_index
+            print("    Computing/caching CL_BB_SUM...")
+            _ = compute_cl_bb_sum_partial(
+                cmb_recon,
+                indices,
+                64,
+                ell_range,
+                f_sky,
+                run_data,
+                result_file=f"{folder}/results.npz",
+                run_index=run_index,
             )
 
             print(f"    ✓ Completed folder {folder}")
@@ -1715,7 +1741,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         max_index = len(run_data[first_key]) - 1
 
         if run_index > max_index:
-            print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
+            print(
+                f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
+            )
             continue
 
         run_data = index_run_data(run_data, run_index)
@@ -1726,9 +1754,22 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
         )
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
-        wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz", run_index=run_index)
+        wd = compute_w(
+            instrument.frequency,
+            fg_map,
+            run_data,
+            result_file=f"{folder}/results.npz",
+            run_index=run_index,
+        )
         cl_bb_sum = compute_cl_bb_sum_partial(
-            cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz", run_index=run_index
+            cmb_recon,
+            indices,
+            64,
+            ell_range,
+            f_sky,
+            run_data,
+            result_file=f"{folder}/results.npz",
+            run_index=run_index,
         )
 
         if args.plot_illustrations:
@@ -1749,7 +1790,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         NLLs.append(NLL)
 
     if len(masks) == 0:
-        print(f"WARNING: No valid data found for '{name}' with index {run_index}. Skipping this run.")
+        print(
+            f"WARNING: No valid data found for '{name}' with index {run_index}. Skipping this run."
+        )
         return None
 
     full_mask = np.logical_or.reduce(masks)
@@ -1788,7 +1831,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
     print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
     # Compute the statistical residuals Cl_stat = <CL((s_hat - s_true) - s_syst)>n
-    cl_stat_res, stat_maps = compute_statistical_res(combined_cmb_recon, s_true, f_sky, ell_range, syst_map)
+    cl_stat_res, stat_maps = compute_statistical_res(
+        combined_cmb_recon, s_true, f_sky, ell_range, syst_map
+    )
     # Compute the total residuals as sum of systematic and statistical
     cl_total_res = cl_syst_res + cl_stat_res
 
@@ -1932,14 +1977,15 @@ def matches_filter(name_parts, filter_groups):
 
 def expand_run_specs(run_specs, titles):
     """
-    Expand run specifications with ranges into individual (filter, index, title) tuples.
+    Expand run specifications with ranges into groups of (filter, index, title) tuples.
 
     Args:
         run_specs (list): List of run specification strings.
         titles (list): List of title strings corresponding to run_specs.
 
     Returns:
-        list: List of tuples (filter_string, run_index, title_string)
+        list: List of groups, where each group is a list of tuples (filter_string, run_index, title_string).
+              Single runs are wrapped in a list of length 1.
     """
     expanded = []
 
@@ -1947,14 +1993,16 @@ def expand_run_specs(run_specs, titles):
         filter_str, index_spec = parse_run_spec(run_spec)
 
         if index_spec is None:
-            expanded.append((filter_str, 0, base_title))
+            expanded.append([(filter_str, 0, base_title)])
         elif isinstance(index_spec, int):
-            expanded.append((filter_str, index_spec, base_title))
+            expanded.append([(filter_str, index_spec, base_title)])
         elif isinstance(index_spec, tuple):
             start, end = index_spec
+            group = []
             for idx in range(start, end + 1):
-                title = f"{base_title} {idx}"
-                expanded.append((filter_str, idx, title))
+                title = f"{base_title} ({idx})"
+                group.append((filter_str, idx, title))
+            expanded.append(group)
         else:
             raise ValueError(f"Unknown index specification: {index_spec}")
 
@@ -1988,22 +2036,23 @@ def main():
         args.plot_validation_curves = True
         args.plot_illustrations = True
 
-    expanded_runs = expand_run_specs(args.runs, args.titles)
+    expanded_run_groups = expand_run_specs(args.runs, args.titles)
 
     results_to_plot = []
     titles_to_plot = []
     indices_to_plot = []
 
-    for filter_expr, run_index, title in expanded_runs:
-        filter_groups = parse_filter_kw(filter_expr)
-        group = []
-        for result_name, res_kw in results_kw.items():
-            if matches_filter(res_kw, filter_groups):
-                group.append(os.path.join(result_folder, result_name))
-        if group:
-            results_to_plot.append(group)
-            titles_to_plot.append(title)
-            indices_to_plot.append(run_index)
+    for run_group in expanded_run_groups:
+        for filter_expr, run_index, title in run_group:
+            filter_groups = parse_filter_kw(filter_expr)
+            group = []
+            for result_name, res_kw in results_kw.items():
+                if matches_filter(res_kw, filter_groups):
+                    group.append(os.path.join(result_folder, result_name))
+            if group:
+                results_to_plot.append(group)
+                titles_to_plot.append(title)
+                indices_to_plot.append(run_index)
 
     print("Results to plot: ", results_to_plot)
     print("Titles: ", titles_to_plot)
@@ -2041,20 +2090,21 @@ def main():
         syst_map_list.append(residual_pytree["syst_map"])
         stat_map_list.append(residual_pytree["stat_maps"])
         valid_titles.append(name)
+        plt.close("all")
 
     if args.plot_illustrations:
         plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
         plot_all_variances(valid_titles, cmb_pytree_list)
+        plt.close("all")
     if args.plot_all_cmb_recon:
         plot_all_cmb(valid_titles, cmb_pytree_list)
+        plt.close("all")
     if args.plot_all_spectra:
         plot_all_cl_residuals(valid_titles, cl_pytree_list)
         plot_all_r_estimation(valid_titles, r_pytree_list)
         plot_all_systematic_residuals(valid_titles, syst_map_list)
         plot_all_statistical_residuals(valid_titles, stat_map_list)
-
-    # plt.show()
-    plt.close()
+        plt.close("all")
 
 
 if __name__ == "__main__":

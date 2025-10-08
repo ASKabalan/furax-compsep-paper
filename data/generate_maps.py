@@ -263,7 +263,7 @@ def get_mask(mask_name="GAL020", nside=64):
 
 
 def generate_needed_maps():
-    for nside in [4, 8, 32, 64, 128, 256, 512]:
+    for nside in [4, 8, 32, 64, 128]:
         for noise in [True, False]:
             instrument_name = "LiteBIRD"
             for sky in [

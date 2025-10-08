@@ -48,7 +48,6 @@ if (
     del os.environ["NO_PROXY"]
     jax.distributed.initialize()
 # =============================================================================
-import glob
 import operator
 
 import jax.numpy as jnp
@@ -66,7 +65,11 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask, normalize_by_first_occurrence
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    normalize_by_first_occurrence,
+)
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -149,70 +152,11 @@ def parse_args():
 
 
 def clean_up(folder):
-    batch_size = 400
-    nb_to_keep = 10
+    batch_size = 50
 
-    final_folders = glob.glob("final/*")
-    final_folders = [os.path.basename(f) for f in final_folders]
-    print(f"Final folders: {final_folders}")
-
-    if not os.path.isdir(folder):
-        print(f"Provided folder '{folder}' is not a directory.")
-        return
-
-    if folder in final_folders:
-        print(f"Folder {folder} already processed, skipping.")
-        return
-
-    print(f"Processing folder: {folder}")
-
-    nb_batches = DistributedGridSearch.get_num_batches(folder, batch_size)
-    print(f"Number of batches: {nb_batches}")
-
-    stacked_results = None
-
-    for batch_idx in range(nb_batches):
-        print(f"Processing batch {batch_idx + 1}/{nb_batches}")
-
-        batch_results = DistributedGridSearch.stack_results(
-            folder, batch_size=batch_size, batch_index=batch_idx
-        )
-        if batch_results is None:
-            print(f"Batch {batch_idx} is empty, skipping.")
-            continue
-
-        NLL = batch_results["NLL"]
-        print(f"NLL dtype: {NLL.dtype}, type(NLL): {type(NLL)}")
-
-        finite_nll = np.isfinite(NLL).all(axis=1)
-        if finite_nll.sum() == 0:
-            print(f"No finite results in batch {batch_idx}, skipping.")
-            continue
-
-        results_finite = {k: v[finite_nll] for k, v in batch_results.items()}
-        print(f"Finite results in batch {batch_idx}: {results_finite['NLL'].shape[0]}")
-
-        # Take only the first finite sample, keep axis
-        tosave = {k: v[:nb_to_keep] for k, v in results_finite.items()}
-
-        if stacked_results is None:
-            stacked_results = {k: [v] for k, v in tosave.items()}
-        else:
-            for k, v in tosave.items():
-                stacked_results[k].append(v)
-
-    if stacked_results is None:
-        print(f"No finite results found for folder {folder}.")
-        return
-
-    # Stack across batches
-    final_results = {k: np.concatenate(v, axis=0) for k, v in stacked_results.items()}
-
-    # sort w.r.t to value
-    sorted_indices = np.argsort(
-        final_results["value"].mean(axis=tuple(range(1, final_results["value"].ndim)))
+    sorted_results = DistributedGridSearch.batched_stack_results(
+        result_folder=folder, batch_size=batch_size
     )
-    sorted_results = {key: value[sorted_indices] for key, value in final_results.items()}
 
     output_folder = os.path.join("final", folder)
     os.makedirs(output_folder, exist_ok=True)
@@ -401,9 +345,11 @@ def main():
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
         return results
 
-    # Put the good values for the grid search
-    if os.path.exists(out_folder):
-        old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
+    # Put the good values for the grid
+    if os.path.exists(out_folder) and not args.best_only:
+        old_results = DistributedGridSearch.batched_stack_results(
+            result_folder=out_folder, batch_size=100
+        )
     else:
         old_results = None
 

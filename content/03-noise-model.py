@@ -39,7 +39,11 @@ from furax.obs import (
 from furax.obs.landscapes import FrequencyLandscape, HealpixLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask, normalize_by_first_occurrence
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    normalize_by_first_occurrence,
+)
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 sys.path.append("../data")
@@ -133,7 +137,9 @@ def main():
         mask = np.load(f"{out_folder}/mask.npy", allow_pickle=True)
         best_params = dict(best_params)
         results = dict(results)
-        plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, args.nb_plot, args.noise_sim)
+        plot_cmb_nll_vs_B_d_patches_with_noise(
+            results, best_params, out_folder, args.nb_plot, args.noise_sim
+        )
         # plot_healpix_projection_with_noise(
         #    mask, args.nside, results, best_params, out_folder, args.noise_sim
         # )
@@ -161,7 +167,9 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     patch_indices = jax.tree.map(
-        lambda c: find_kmeans_clusters(mask, indices, c, jax.random.key(0), max_centroids=max_centroids),
+        lambda c: find_kmeans_clusters(
+            mask, indices, c, jax.random.key(0), max_centroids=max_centroids
+        ),
         n_regions,
     )
     masked_clusters = get_cutout_from_mask(patch_indices, indices)

@@ -100,7 +100,9 @@ def plot_cmb_nll_vs_B_d_patches_with_noise_3D(results, best_params, out_folder, 
         plt.close(fig)
 
 
-def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_to_plot, noise_sim_count):
+def plot_cmb_nll_vs_B_d_patches_with_noise(
+    results, best_params, out_folder, nb_to_plot, noise_sim_count
+):
     fig, axs = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
 
     # Define custom, print-friendly colors
@@ -124,7 +126,7 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
 
         label = f"$K_{{T_d}}$={int(T_d)}, $K_{{\\beta_s}}$={int(B_s)}"
 
-        # roll one to the right 
+        # roll one to the right
         y_variance_mean = np.roll(y_variance_mean, -1)
         y_variance_std = np.roll(y_variance_std, -1)
 
@@ -152,7 +154,9 @@ def plot_cmb_nll_vs_B_d_patches_with_noise(results, best_params, out_folder, nb_
 
     # Mark best B_d
     best_B_d = best_params["B_d_patches"]
-    axs[0].axvline(best_B_d, color="red", linestyle="--", label=f"Best $K_{{\\beta_d}}$ = {int(best_B_d)}")
+    axs[0].axvline(
+        best_B_d, color="red", linestyle="--", label=f"Best $K_{{\\beta_d}}$ = {int(best_B_d)}"
+    )
     axs[1].axvline(best_B_d, color="red", linestyle="--")
 
     # Improve axis labels and titles
@@ -228,12 +232,28 @@ def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
         variance_std = np.std(cmb_variance, axis=1)
         nll_mean = np.mean(nll, axis=1)
         nll_std = np.std(nll, axis=1)
-        
+
         # Plot with error bars
-        axs[0].errorbar(B_d_patches, variance_mean, yerr=variance_std, 
-                        fmt='o-', capsize=5, capthick=2, color="blue", label="Grid Search")
-        axs[1].errorbar(B_d_patches, nll_mean, yerr=nll_std,
-                        fmt='o-', capsize=5, capthick=2, color="green", label="Grid Search")
+        axs[0].errorbar(
+            B_d_patches,
+            variance_mean,
+            yerr=variance_std,
+            fmt="o-",
+            capsize=5,
+            capthick=2,
+            color="blue",
+            label="Grid Search",
+        )
+        axs[1].errorbar(
+            B_d_patches,
+            nll_mean,
+            yerr=nll_std,
+            fmt="o-",
+            capsize=5,
+            capthick=2,
+            color="green",
+            label="Grid Search",
+        )
     else:
         # Single realization case - use scatter plot
         axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
