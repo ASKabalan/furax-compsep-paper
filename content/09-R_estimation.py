@@ -25,10 +25,11 @@ from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
 from jax_grid_search import ProgressBar, optimize
 from jax_healpy.clustering import combine_masks, get_fullmap_from_cutout
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
-
+from tqdm import tqdm
 sys.path.append("../data")
 import scienceplots  # noqa: F401
 from instruments import get_instrument
+import itertools
 
 # Set the style for the plots
 plt.style.use("science")
@@ -176,6 +177,26 @@ def filter_constant_param(input_dict, indx):
     return jax.tree.map(lambda x: x[indx], input_dict)
 
 
+def index_run_data(run_data, run_index):
+    """
+    Index run_data arrays, skipping cached values.
+
+    Args:
+        run_data (dict): Dictionary containing run data and cached values.
+        run_index (int): Index to extract from non-cached arrays.
+
+    Returns:
+        dict: Dictionary with indexed entries (cached values unchanged).
+    """
+    def should_index(path, value):
+        key = path[-1].key if path else None
+        if key and (key.startswith("W_D_FG_") or key.startswith("CL_BB_SUM_")):
+            return value
+        return value[run_index]
+
+    return jax.tree_util.tree_map_with_path(should_index, run_data)
+
+
 def sort_results(results, key):
     """
     Sort a result dictionary by a specific key.
@@ -313,10 +334,11 @@ def get_camb_templates(nside):
 # ============================================
 
 
-def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results, result_file):
-    if results.get("CL_BB_SUM") is not None and True:
-        print("Using CL_BB_SUM from results")
-        CL_BB_SUM = results["CL_BB_SUM"]
+def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results, result_file, run_index=0):
+    cache_key = f"CL_BB_SUM_{run_index}"
+    if results.get(cache_key) is not None and True:
+        print(f"Using {cache_key} from results")
+        CL_BB_SUM = results[cache_key]
         return CL_BB_SUM
 
     cmb_out_full_sky = get_fullmap_from_cutout(cmb_out, patches, nside, axis=1)
@@ -326,18 +348,18 @@ def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results,
     )
 
     cl_list = []
-    for i in range(cmb_out_full_sky.shape[0]):
+    for i in tqdm(cmb_out_full_sky.shape[0] , desc="Computing CL_BB_SUM"):
         cl = hp.anafast(cmb_out_full_sky[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
     CL_BB_SUM = np.sum(cl_list, axis=1) / fsky  # shape (noise realisations,)
     results_from_file = dict(np.load(result_file))
-    results_from_file["CL_BB_SUM"] = CL_BB_SUM
+    results_from_file[cache_key] = CL_BB_SUM
     np.savez(result_file, **results_from_file)
     return CL_BB_SUM
 
 
-def compute_w(nu, d, results, result_file):
+def compute_w(nu, d, results, result_file, run_index=0):
     """
     Apply the linear component separation operator W to the input sky.
 
@@ -346,13 +368,15 @@ def compute_w(nu, d, results, result_file):
         d (Stokes): Input sky without CMB.
         results (dict): Fitted spectral parameters.
         result_file (str): Name of the result file.
+        run_index (int): Index for caching (default: 0).
 
     Returns:
         StokesQU: Reconstructed CMB map.
     """
-    if results.get("W_D_FG") is not None and True:
-        print("Using W_D_FG from results")
-        W = results["W_D_FG"]
+    cache_key = f"W_D_FG_{run_index}"
+    if results.get(cache_key) is not None and True:
+        print(f"Using {cache_key} from results")
+        W = results[cache_key]
         W = Stokes.from_stokes(Q=W[0], U=W[1])
         return W
 
@@ -394,7 +418,7 @@ def compute_w(nu, d, results, result_file):
             guess_params,
             negative_log_likelihood_fn,
             solver,
-            max_iter=1000,
+            max_iter=300,
             tol=1e-10,
             progress=p,
             progress_id=0,
@@ -416,7 +440,7 @@ def compute_w(nu, d, results, result_file):
 
     results_from_file = dict(np.load(result_file))
     W_numpy = np.stack([W.q, W.u], axis=0)
-    results_from_file["W_D_FG"] = W_numpy[np.newaxis, ...]
+    results_from_file[cache_key] = W_numpy
     np.savez(result_file, **results_from_file)
     return W
 
@@ -507,18 +531,6 @@ def compute_cl_bb_sum(cmb_out, fsky, ell_range):
 
 def compute_cl_obs_bb(cl_total_res, cl_bb_lens):
     return cl_total_res + cl_bb_lens
-
-
-# def compute_cl_obs_bb(s_hat, ell_range):
-#    s_hat = expand_stokes(s_hat)
-#    s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
-#
-#    cl_list = []
-#    for i in range(s_hat.shape[0]):
-#        cl = hp.anafast(s_hat[i])
-#        cl_list.append(cl[2][ell_range])
-#
-#    return np.mean(cl_list, axis=0)
 
 
 def compute_cl_true_bb(s, ell_range):
@@ -1082,23 +1094,28 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.savefig(f"{out_folder}/r_likelihood_{name}.pdf", transparent=True, dpi=1200)
 
 
-def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
+def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list):
     """
-    Plot best-fit r values against the number of clusters (temp_dust_patches) for each run.
+    Create a single r vs clusters plot for a specific patch parameter.
+
+    Args:
+        patch_name (str): Display name for the patch parameter (e.g., "Beta Dust")
+        patch_key (str): Key to access patch data (e.g., "beta_dust_patches")
+        names (list): List of run names
+        cmb_pytree_list (list): List of CMB data structures
+        r_pytree_list (list): List of r estimation data
     """
     # {clusters: {"name": name, "r_best": r_best , "color": color, "sigma_r_neg": sigma_r_neg, "sigma_r_pos": sigma_r_pos}}
     method_dict = {}
     # {name: color}
     colors = {}
 
-    import itertools
-
     color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         patches = cmb_pytree["patches_map"]
-        beta_pl_patches = patches["beta_pl_patches"]
-        n_clusters = np.unique(beta_pl_patches[beta_pl_patches != hp.UNSEEN]).size
+        patch_data = patches[patch_key]
+        n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
         if n_clusters in method_dict:
             existing_r_values = method_dict[n_clusters]["r_best"]
             if r_data["r_best"] > existing_r_values:
@@ -1128,38 +1145,58 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
         if name not in labeled_dict:
             labeled_dict.append(name)
             # Plot error bars for the best-fit r
-            # plt.errorbar(
-            #    n_clusters,
-            #    r_best,
-            #    yerr=[[sigma_r_neg], [sigma_r_pos]],
-            #    fmt='o',
-            #    label=name,
-            #    color=color,
-            #    capsize=5,
-            #    elinewidth=1,
-            #    markeredgewidth=1,
-            # )
+            plt.errorbar(
+               n_clusters,
+               r_best,
+               yerr=[[sigma_r_neg], [sigma_r_pos]],
+               fmt='o',
+               label=name,
+               color=color,
+               capsize=5,
+               elinewidth=1,
+               markeredgewidth=1,
+            )
             plt.scatter(n_clusters, r_best, label=name, color=color)
         else:
-            # plt.errorbar(
-            #    n_clusters,
-            #    r_best,
-            #    yerr=[[sigma_r_neg], [sigma_r_pos]],
-            #    fmt='o',
-            #    color=color,
-            #    capsize=5,
-            #    elinewidth=1,
-            #    markeredgewidth=1,
-            # )
+            plt.errorbar(
+               n_clusters,
+               r_best,
+               yerr=[[sigma_r_neg], [sigma_r_pos]],
+               fmt='o',
+               color=color,
+               capsize=5,
+               elinewidth=1,
+               markeredgewidth=1,
+            )
             plt.scatter(n_clusters, r_best, color=color)
 
-    plt.xlabel("Number of Clusters ($Beta_{pl}$))")
+    plt.xlabel(f"Number of Clusters ({patch_name})")
     plt.ylabel(r"Best-fit $r$")
-    plt.title("Best-fit $r$ vs. Number of Clusters")
+    plt.title(f"Best-fit $r$ vs. Number of Clusters ({patch_name})")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/r_vs_clusters.pdf", transparent=True, dpi=300)
+
+    # Create filename based on patch parameter
+    filename_suffix = patch_key.replace("_patches", "")
+    plt.savefig(f"{out_folder}/r_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300)
+    plt.close()
+
+
+def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
+    """
+    Plot best-fit r values against the number of clusters for all three patch parameters.
+    Creates three separate plots saved as individual PDF files.
+    """
+    # Create three separate plots for each patch parameter
+    patch_configs = [
+        ("$\\beta_d$", "beta_dust_patches"),
+        ("$T_d$", "temp_dust_patches"),
+        ("$\\beta_s$", "beta_pl_patches")
+    ]
+
+    for patch_name, patch_key in patch_configs:
+        _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list)
 
 
 # ========== Plot Single Run ===================
@@ -1435,7 +1472,7 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
         print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
         return None
 
-    run_data = jax.tree.map(lambda x: x[run_index], run_data)
+    run_data = index_run_data(run_data, run_index)
 
     cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
     fg_map = Stokes.from_stokes(
@@ -1476,11 +1513,11 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
             run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = result
 
             print(f"    Computing/caching W_D_FG...")
-            wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
+            wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz", run_index=run_index)
 
             print(f"    Computing/caching CL_BB_SUM...")
             cl_bb_sum = compute_cl_bb_sum_partial(
-                cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz"
+                cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz", run_index=run_index
             )
 
             print(f"    ✓ Completed folder {folder}")
@@ -1532,7 +1569,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             print(f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping.")
             continue
 
-        run_data = jax.tree.map(lambda x: x[run_index], run_data)
+        run_data = index_run_data(run_data, run_index)
         NLL = run_data["NLL"]
 
         cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
@@ -1540,9 +1577,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
         )
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
-        wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz")
+        wd = compute_w(instrument.frequency, fg_map, run_data, result_file=f"{folder}/results.npz", run_index=run_index)
         cl_bb_sum = compute_cl_bb_sum_partial(
-            cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz"
+            cmb_recon, indices, 64, ell_range, f_sky, run_data, result_file=f"{folder}/results.npz", run_index=run_index
         )
 
         if args.plot_illustrations:
