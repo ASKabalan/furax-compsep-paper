@@ -53,6 +53,10 @@ out_folder = "plots/"
 jax.config.update("jax_enable_x64", True)
 
 
+# ========== Argument Parsing ==========
+# ======================================
+
+
 def parse_args():
     """
     Parse command-line arguments for benchmark evaluation.
@@ -213,7 +217,7 @@ def sort_results(results, key):
 
 
 # ========== R Estimation Functions ==========
-# ============================================
+# =============================================
 
 
 def log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
@@ -330,11 +334,27 @@ def get_camb_templates(nside):
     return ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_r0_lens
 
 
-# ========== CL COMPUTATION FUNCTIONS ==========
-# ============================================
+# ========== CL Computation Functions ==========
+# ==============================================
 
 
 def compute_cl_bb_sum_partial(cmb_out, patches, nside, ell_range, fsky, results, result_file, run_index=0):
+    """
+    Compute BB power spectrum sum from CMB output maps with caching support.
+
+    Args:
+        cmb_out (Stokes): Reconstructed CMB maps from component separation.
+        patches (array): Patch indices for cutout reconstruction.
+        nside (int): HEALPix resolution parameter.
+        ell_range (np.ndarray): Range of multipole moments to compute.
+        fsky (float): Sky fraction for debiasing the power spectrum.
+        results (dict): Dictionary containing cached results.
+        result_file (str): Path to the result file for caching.
+        run_index (int): Index for caching multiple runs (default: 0).
+
+    Returns:
+        np.ndarray: BB power spectrum sum with shape (len(ell_range),).
+    """
     cache_key = f"CL_BB_SUM_{run_index}"
     if results.get(cache_key) is not None and True:
         print(f"Using {cache_key} from results")
@@ -517,6 +537,17 @@ def compute_statistical_res(
 
 
 def compute_cl_bb_sum(cmb_out, fsky, ell_range):
+    """
+    Compute BB power spectrum sum from CMB output maps.
+
+    Args:
+        cmb_out (Stokes): CMB maps from multiple realizations.
+        fsky (float): Sky fraction for debiasing the power spectrum.
+        ell_range (np.ndarray): Range of multipole moments to compute.
+
+    Returns:
+        np.ndarray: BB power spectrum sum for each realization.
+    """
     cmb_out = expand_stokes(cmb_out)
     cmb_out = np.stack([cmb_out.i, cmb_out.q, cmb_out.u], axis=1)
 
@@ -530,6 +561,16 @@ def compute_cl_bb_sum(cmb_out, fsky, ell_range):
 
 
 def compute_cl_obs_bb(cl_total_res, cl_bb_lens):
+    """
+    Compute observed BB power spectrum by combining residuals and lensing.
+
+    Args:
+        cl_total_res (np.ndarray): Total residual power spectrum.
+        cl_bb_lens (np.ndarray): Lensing BB power spectrum.
+
+    Returns:
+        np.ndarray: Observed BB power spectrum.
+    """
     return cl_total_res + cl_bb_lens
 
 
@@ -552,11 +593,25 @@ def compute_cl_true_bb(s, ell_range):
     return cl[2][ell_range]  # shape (len(ell_range),)
 
 
-# ========== Illustrations ==========
-# ============================================
+# ========== Visualization Functions ==========
+# =============================================
 
+# --- Illustration and Analysis Plots ---
 
 def params_to_maps(run_data, previous_mask_size):
+    """
+    Convert parameter arrays to HEALPix maps for visualization.
+
+    Args:
+        run_data (dict): Dictionary containing fitted spectral parameters.
+        previous_mask_size (dict): Dictionary tracking cumulative patch sizes.
+
+    Returns:
+        Tuple[dict, dict, dict]: (params, patches, updated_mask_size) containing:
+            - params: Mean parameter values mapped to patches
+            - patches: Normalized patch indices
+            - updated_mask_size: Updated cumulative mask sizes
+    """
     B_d_patches = run_data["beta_dust_patches"]
     T_d_patches = run_data["temp_dust_patches"]
     B_s_patches = run_data["beta_pl_patches"]
@@ -590,6 +645,15 @@ def params_to_maps(run_data, previous_mask_size):
 
 
 def plot_params_patches(name, params, patches, plot_vertical=True):
+    """
+    Plot parameter maps and their corresponding patch assignments.
+
+    Args:
+        name (str): Name for plot titles and output files.
+        params (dict): Dictionary containing parameter maps (beta_dust, temp_dust, beta_pl).
+        patches (dict): Dictionary containing patch assignment maps.
+        plot_vertical (bool): Whether to arrange subplots vertically (default: True).
+    """
     with plt.rc_context(
         {
             "font.size": font_size * 1.6,
@@ -676,6 +740,14 @@ def plot_params_patches(name, params, patches, plot_vertical=True):
 
 
 def plot_validation_curves(name, updates_history, value_history):
+    """
+    Plot optimization validation curves showing update norms and NLL history.
+
+    Args:
+        name (str): Name for plot title and output file.
+        updates_history (array): History of parameter update norms per iteration.
+        value_history (array): History of negative log-likelihood values per iteration.
+    """
     updates_history = np.array(updates_history)
     value_history = np.array(value_history)
 
@@ -717,11 +789,18 @@ def plot_validation_curves(name, updates_history, value_history):
     plt.savefig(f"{out_folder}/validation_curves_{name}.pdf", transparent=True, dpi=1200)
 
 
-# ========== Plot All runs ===================
-# ============================================
-
+# --- Multi-Run Comparison Plots ---
 
 def get_min_variance(cmb_map):
+    """
+    Select the CMB realization with minimum variance from multiple realizations.
+
+    Args:
+        cmb_map (Stokes): CMB maps from multiple realizations.
+
+    Returns:
+        Stokes: Single CMB map with the lowest variance.
+    """
     seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
     cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
     variance = jax.tree.map(lambda x: jnp.var(x, axis=1), cmb_map_seen)
@@ -731,6 +810,13 @@ def get_min_variance(cmb_map):
 
 
 def plot_all_cmb(names, cmb_pytree_list):
+    """
+    Plot CMB reconstruction differences for all runs in a comparison plot.
+
+    Args:
+        names (list): List of run names for labeling.
+        cmb_pytree_list (list): List of CMB data structures containing true and reconstructed maps.
+    """
     nb_cmb = len(cmb_pytree_list)
 
     diff_all = []
@@ -783,6 +869,13 @@ def plot_all_cmb(names, cmb_pytree_list):
 
 
 def plot_all_variances(names, cmb_pytree_list):
+    """
+    Plot histograms comparing variance distributions across multiple runs.
+
+    Args:
+        names (list): List of run names for labeling.
+        cmb_pytree_list (list): List of CMB data structures containing reconstruction metrics.
+    """
     def get_all_variances(cmb_map):
         seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
         cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
@@ -841,6 +934,13 @@ def plot_all_variances(names, cmb_pytree_list):
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
+    """
+    Plot BB power spectra comparison for systematic and statistical residuals across all runs.
+
+    Args:
+        names (list): List of run names for labeling.
+        cl_pytree_list (list): List of power spectrum data structures.
+    """
     _ = plt.figure(figsize=(8, 6))
 
     if len(cl_pytree_list) == 0:
@@ -1043,6 +1143,13 @@ def plot_all_statistical_residuals(names, stat_map_list):
 
 
 def plot_all_r_estimation(names, r_pytree_list):
+    """
+    Plot likelihood curves for tensor-to-scalar ratio estimation across all runs.
+
+    Args:
+        names (list): List of run names for labeling.
+        r_pytree_list (list): List of r estimation data structures containing likelihood curves.
+    """
     plt.figure(figsize=(8, 6))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -1199,9 +1306,7 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
         _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list)
 
 
-# ========== Plot Single Run ===================
-# ==============================================
-
+# --- Single Run Plots ---
 
 def plot_systematic_residual_maps(name, syst_map):
     """
@@ -1295,7 +1400,15 @@ def plot_statistical_residual_maps(name, stat_maps):
 
 
 
-def plot_cmb_reconsturctions(name, cmb_stokes, cmb_recon):
+def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
+    """
+    Plot CMB reconstruction results with MSE analysis.
+
+    Args:
+        name (str): Name for plot title and output file.
+        cmb_stokes (Stokes): True CMB input maps.
+        cmb_recon (Stokes): Reconstructed CMB maps from component separation.
+    """
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)
@@ -1360,6 +1473,21 @@ def plot_cl_residuals(
     cl_true,
     ell_range,
 ):
+    """
+    Plot BB power spectrum residuals for a single run.
+
+    Args:
+        name (str): Name for plot title and output file.
+        cl_bb_obs (np.ndarray): Observed BB power spectrum.
+        cl_syst_res (np.ndarray): Systematic residual power spectrum.
+        cl_total_res (np.ndarray): Total residual power spectrum.
+        cl_stat_res (np.ndarray): Statistical residual power spectrum.
+        cl_bb_r1 (np.ndarray): BB template for r=1.
+        cl_bb_r0 (np.ndarray): BB template for r=0.
+        cl_bb_lens (np.ndarray): Lensing BB power spectrum.
+        cl_true (np.ndarray): True CMB BB power spectrum.
+        ell_range (np.ndarray): Multipole moment range.
+    """
     _ = plt.figure(figsize=(12, 8))
 
     coeff = ell_range * (ell_range + 1) / (2 * np.pi)
@@ -1405,6 +1533,17 @@ def plot_r_estimator(
     r_grid,
     L_vals,
 ):
+    """
+    Plot likelihood curve for tensor-to-scalar ratio estimation.
+
+    Args:
+        name (str): Name for plot title and output file.
+        r_best (float): Best-fit value of r.
+        sigma_r_neg (float): Lower uncertainty bound.
+        sigma_r_pos (float): Upper uncertainty bound.
+        r_grid (np.ndarray): Grid of r values for likelihood evaluation.
+        L_vals (np.ndarray): Likelihood values corresponding to r_grid.
+    """
     plt.figure(figsize=(12, 8))
 
     # Normalize likelihoods
@@ -1443,6 +1582,10 @@ def plot_r_estimator(
 
     # Print
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+
+
+# ========== Caching Utilities ==========
+# ======================================
 
 
 def load_run_data_for_cache(folder, nside, instrument, run_index=0):
@@ -1485,13 +1628,13 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
 
 def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0):
     """
-    Compute and cache only W_D_FG and CL_BB_SUM for the given results.
+    Compute and cache expensive computations (W_D_FG and CL_BB_SUM) for given results.
 
     Args:
-        name (str): Name of the run.
-        filtered_results (list[str]): List of result directories.
-        nside (int): HEALPix resolution.
-        instrument: Instrument object.
+        name (str): Name of the run for progress tracking.
+        filtered_results (list[str]): List of result directories to process.
+        nside (int): HEALPix resolution parameter.
+        instrument: Instrument object with frequency specifications.
         run_index (int): Index to select from run_data arrays (default: 0).
     """
     if len(filtered_results) == 0:
@@ -1531,13 +1674,19 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
 
 def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     """
-    Load, combine, and analyze PTEP results, plotting spectra and r-likelihood.
+    Load, combine, and analyze component separation results with comprehensive plotting.
 
     Args:
-        filtered_results (list[str]): List of result directories.
-        nside (int): HEALPix resolution.
-        instrument (Instrument): Instrument object.
+        name (str): Name of the run for output files and titles.
+        filtered_results (list[str]): List of result directories to process.
+        nside (int): HEALPix resolution parameter.
+        instrument (Instrument): Instrument object with frequency specifications.
+        args: Parsed command-line arguments controlling plot generation.
         run_index (int): Index to select from run_data arrays (default: 0).
+
+    Returns:
+        Tuple[dict, dict, dict, dict]: (cmb_pytree, cl_pytree, r_pytree, residual_pytree)
+            containing processed results for further analysis.
     """
     if len(filtered_results) == 0:
         print("No results")
@@ -1632,7 +1781,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     s_true = get_sky(64, "c1d1s1").components[0].map.value
 
     if args.plot_cmb_recon:
-        plot_cmb_reconsturctions(name, cmb_stokes, combined_cmb_recon)
+        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
 
     f_sky = full_mask.sum() / len(full_mask)
     # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
@@ -1719,8 +1868,8 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     return cmb_pytree, cl_pytree, r_pytree, residual_pytree
 
 
-# ========== Main Function ================
-# =========================================
+# ========== Run Management Utilities ==========
+# =============================================
 
 
 def parse_run_spec(run_spec):
@@ -1748,7 +1897,13 @@ def parse_run_spec(run_spec):
 
 def parse_filter_kw(kw_string):
     """
-    Parse a string like 'A_(B|C)_D' into a list of sets (ORs within, AND across).
+    Parse filter keyword string with OR/AND logic for result filtering.
+
+    Args:
+        kw_string (str): Filter string like 'A_(B|C)_D' where parentheses indicate OR options.
+
+    Returns:
+        list[set]: List of sets representing AND-of-OR filter groups.
     """
     groups = kw_string.split("_")
     parsed = []
@@ -1763,7 +1918,14 @@ def parse_filter_kw(kw_string):
 
 def matches_filter(name_parts, filter_groups):
     """
-    Check if name_parts satisfies the AND-of-OR filter groups.
+    Check if name parts satisfy the AND-of-OR filter criteria.
+
+    Args:
+        name_parts (list): List of name components to check.
+        filter_groups (list[set]): AND-of-OR filter groups from parse_filter_kw.
+
+    Returns:
+        bool: True if name_parts matches all filter groups.
     """
     return all(any(option in name_parts for option in group) for group in filter_groups)
 
@@ -1797,6 +1959,10 @@ def expand_run_specs(run_specs, titles):
             raise ValueError(f"Unknown index specification: {index_spec}")
 
     return expanded
+
+
+# ========== Main Execution ==========
+# ====================================
 
 
 def main():
