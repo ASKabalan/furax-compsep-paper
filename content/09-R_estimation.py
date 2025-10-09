@@ -7,6 +7,7 @@ os.environ["EQX_ON_ERROR"] = "nan"
 
 import sys
 from functools import partial
+import os
 
 import camb
 import healpy as hp
@@ -23,7 +24,7 @@ from furax.obs import (
 )
 from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
 from jax_grid_search import ProgressBar, optimize
-from jax_healpy.clustering import combine_masks, get_fullmap_from_cutout
+from jax_healpy.clustering import combine_masks
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from tqdm import tqdm
 
@@ -118,6 +119,12 @@ def parse_args():
         help="Plot CMB reconstructions of the results one by one",
     )
     parser.add_argument(
+        "-pr",
+        "--plot-r-estimation",
+        action="store_true",
+        help="Plot R estimation for individual runs",
+    )
+    parser.add_argument(
         "-as",
         "--plot-all-spectra",
         action="store_true",
@@ -130,15 +137,30 @@ def parse_args():
         help="Plot all CMB reconstructions of the results",
     )
     parser.add_argument(
+        "-ar",
+        "--plot-all-r-estimation",
+        action="store_true",
+        help="Plot R estimation comparison across all runs",
+    )
+    parser.add_argument(
         "-a",
         "--plot-all",
         action="store_true",
         help="Plot all results",
     )
     parser.add_argument(
+        "-co",
         "--cache-only",
         action="store_true",
-        help="Only compute and cache W_D_FG and CL_BB_SUM, skip all plotting",
+        help="Only compute and cache W_D_FG, skip all plotting",
+    )
+    parser.add_argument(
+        "-cr",
+        "--compute-residuals",
+        type=str,
+        choices=["all", "total", "statistical", "systematic", "none"],
+        default="none",
+        help="Which residuals to compute: all, total, statistical, systematic, or none",
     )
 
     return parser.parse_args()
@@ -341,49 +363,6 @@ def get_camb_templates(nside):
 # ==============================================
 
 
-def compute_cl_bb_sum_partial(
-    cmb_out, patches, nside, ell_range, fsky, results, result_file, run_index=0
-):
-    """
-    Compute BB power spectrum sum from CMB output maps with caching support.
-
-    Args:
-        cmb_out (Stokes): Reconstructed CMB maps from component separation.
-        patches (array): Patch indices for cutout reconstruction.
-        nside (int): HEALPix resolution parameter.
-        ell_range (np.ndarray): Range of multipole moments to compute.
-        fsky (float): Sky fraction for debiasing the power spectrum.
-        results (dict): Dictionary containing cached results.
-        result_file (str): Path to the result file for caching.
-        run_index (int): Index for caching multiple runs (default: 0).
-
-    Returns:
-        np.ndarray: BB power spectrum sum with shape (len(ell_range),).
-    """
-    cache_key = f"CL_BB_SUM_{run_index}"
-    if results.get(cache_key) is not None and True:
-        print(f"Using {cache_key} from results")
-        CL_BB_SUM = results[cache_key]
-        return CL_BB_SUM
-
-    cmb_out_full_sky = get_fullmap_from_cutout(cmb_out, patches, nside, axis=1)
-    cmb_out_full_sky = expand_stokes(cmb_out_full_sky)
-    cmb_out_full_sky = np.stack(
-        [cmb_out_full_sky.i, cmb_out_full_sky.q, cmb_out_full_sky.u], axis=1
-    )
-
-    cl_list = []
-    for i in tqdm(range(cmb_out_full_sky.shape[0]), desc="Computing CL_BB_SUM"):
-        cl = hp.anafast(cmb_out_full_sky[i])  # shape (6, lmax+1)
-        cl_list.append(cl[2][ell_range])  # BB only
-
-    CL_BB_SUM = np.sum(cl_list, axis=1) / fsky  # shape (noise realisations,)
-    results_from_file = dict(np.load(result_file))
-    results_from_file[cache_key] = CL_BB_SUM
-    np.savez(result_file, **results_from_file)
-    return CL_BB_SUM
-
-
 def compute_w(nu, d, results, result_file, run_index=0):
     """
     Apply the linear component separation operator W to the input sky.
@@ -466,7 +445,7 @@ def compute_w(nu, d, results, result_file, run_index=0):
     results_from_file = dict(np.load(result_file))
     W_numpy = np.stack([W.q, W.u], axis=0)
     results_from_file[cache_key] = W_numpy
-    np.savez(result_file, **results_from_file)
+    atomic_save_results(result_file, results_from_file)
     return W
 
 
@@ -532,13 +511,38 @@ def compute_statistical_res(
 
     # Compute BB spectrum per realisation and average
     cl_list = []
-    for i in range(res_stat.shape[0]):
+    for i in tqdm(range(res_stat.shape[0]), desc="Computing Statistical BB Spectra"):
         cl = hp.anafast(res_stat[i])  # (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
     cl_mean = np.mean(cl_list, axis=0) / fsky
 
     return cl_mean, res_stat
+
+def compute_total_res(s_hat, s_true, fsky, ell_range):
+    """
+    Compute average BB residual spectrum from multiple noisy realizations.
+
+    Args:
+        s_hat (StokesQU): Reconstructed CMB (n_sims, ...)
+        s_true (StokesQU): Ground truth CMB map.
+        ell_range (np.ndarray): Multipole moments.
+
+    Returns:
+        np.ndarray: Residual BB spectrum.
+    """
+    s_hat = expand_stokes(s_hat)
+    s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+
+    res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
+    cl_list = []
+    for i in tqdm(range(res.shape[0]), desc="Computing Residual BB Spectra"):
+        cl = hp.anafast(res[i])  # shape (6, lmax+1)
+        cl_list.append(cl[2][ell_range])  # BB only
+
+    cl_mean = np.mean(cl_list, axis=0) / fsky  # shape (len(ell_range),)
+
+    return cl_mean, res
 
 
 def compute_cl_bb_sum(cmb_out, fsky, ell_range):
@@ -557,7 +561,7 @@ def compute_cl_bb_sum(cmb_out, fsky, ell_range):
     cmb_out = np.stack([cmb_out.i, cmb_out.q, cmb_out.u], axis=1)
 
     cl_list = []
-    for i in range(cmb_out.shape[0]):
+    for i in tqdm(range(cmb_out.shape[0]), desc="Computing CL_BB_SUM"):
         cl = hp.anafast(cmb_out[i])  # shape (6, lmax+1)
         cl_list.append(cl[2][ell_range])  # BB only
 
@@ -1009,29 +1013,32 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         #    color=color,
         #    linestyle="-",
         # )
-        # plt.plot(
-        #    ell_range,
-        #    cl_pytree["cl_total_res"] * coeff,
-        #    label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
-        #    color=color,
-        #    linestyle="--",
-        # )
-        plt.plot(
+        if cl_pytree["cl_total_res"] is not None:
+            plt.plot(
             ell_range,
-            cl_pytree["cl_syst_res"] * coeff,
-            label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
+            cl_pytree["cl_total_res"] * coeff,
+            label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
             color=color,
-            linestyle="-",
-            linewidth=linewidth,
-        )
-        plt.plot(
-            ell_range,
-            cl_pytree["cl_stat_res"] * coeff,
-            label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
-            color=color,
-            linestyle=":",
-            linewidth=linewidth,
-        )
+            linestyle="--",
+            )
+        if cl_pytree["cl_syst_res"] is not None:
+            plt.plot(
+                ell_range,
+                cl_pytree["cl_syst_res"] * coeff,
+                label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
+                color=color,
+                linestyle="-",
+                linewidth=linewidth,
+            )
+        if cl_pytree["cl_stat_res"] is not None:
+            plt.plot(
+                ell_range,
+                cl_pytree["cl_stat_res"] * coeff,
+                label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
+                color=color,
+                linestyle=":",
+                linewidth=linewidth,
+            )
 
     plt.title(None)
     plt.xlabel(r"Multipole $\ell$")
@@ -1162,6 +1169,10 @@ def plot_all_r_estimation(names, r_pytree_list):
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     for i, (name, r_data) in enumerate(zip(names, r_pytree_list)):
+        if r_data["r_best"] is None:
+            print(f"WARNING: No r estimation for {name}, skipping plot.")
+            continue
+
         r_grid = r_data["r_grid"]
         L_vals = r_data["L_vals"]
         r_best = r_data["r_best"]
@@ -1228,6 +1239,10 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
+        if r_data["r_best"] is None:
+            print(f"WARNING: No r estimation for {name}, skipping plot.")
+            continue
+
         patches = cmb_pytree["patches_map"]
         patch_data = patches[patch_key]
         n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
@@ -1601,9 +1616,49 @@ def plot_r_estimator(
 # ======================================
 
 
+def atomic_save_results(result_file, results_dict):
+    """
+    Atomically save results with backup protection.
+
+    Args:
+        result_file (str): Path to the results file.
+        results_dict (dict): Dictionary to save.
+    """
+    # Create backup of existing file
+    if os.path.exists(result_file):
+        backup_file = result_file.replace('.npz', '.bk.npz')
+        os.rename(result_file, backup_file)
+
+    # Write to temporary file first
+    temp_file = result_file.replace('.npz', '.tmp.npz')
+    np.savez(temp_file, **results_dict)
+
+    # Atomic rename to final location
+    os.rename(temp_file, result_file)
+
+
+def check_cache_keys_exist(result_file, run_index):
+    """
+    Check if W_D_FG cache key exists for given run_index.
+
+    Args:
+        result_file (str): Path to results file
+        run_index (int): Run index to check
+
+    Returns:
+        bool: True if cache key exists, False otherwise
+    """
+    try:
+        with np.load(result_file) as f:
+            w_key = f"W_D_FG_{run_index}"
+            return w_key in f.keys()
+    except (OSError, FileNotFoundError):
+        return False
+
+
 def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     """
-    Load minimal data needed for caching W_D_FG and CL_BB_SUM.
+    Load minimal data needed for caching W_D_FG.
 
     Args:
         folder (str): Path to result folder.
@@ -1641,7 +1696,7 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
 
 def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0):
     """
-    Compute and cache expensive computations (W_D_FG and CL_BB_SUM) for given results.
+    Compute and cache expensive computations (W_D_FG) for given results.
 
     Args:
         name (str): Name of the run for progress tracking.
@@ -1656,10 +1711,12 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
 
     print(f"Caching expensive computations for {name} (index={run_index})...")
 
-    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
-
     for i, folder in enumerate(filtered_results):
         print(f"  Processing folder {i + 1}/{len(filtered_results)}: {folder}")
+
+        if check_cache_keys_exist(f"{folder}/results.npz", run_index):
+            print(f"    Cache already exists for index {run_index}, skipping...")
+            continue
 
         try:
             result = load_run_data_for_cache(folder, nside, instrument, run_index)
@@ -1672,18 +1729,6 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
             _ = compute_w(
                 instrument.frequency,
                 fg_map,
-                run_data,
-                result_file=f"{folder}/results.npz",
-                run_index=run_index,
-            )
-
-            print("    Computing/caching CL_BB_SUM...")
-            _ = compute_cl_bb_sum_partial(
-                cmb_recon,
-                indices,
-                64,
-                ell_range,
-                f_sky,
                 run_data,
                 result_file=f"{folder}/results.npz",
                 run_index=run_index,
@@ -1719,10 +1764,44 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         return
 
     cmb_recons, cmb_maps, masks, NLLs = [], [], [], []
-    indices_list, w_d_list, cl_bb_sum_list = [], [], []
+    indices_list, w_d_list = [], []
     params_list, patches_list = [], []
     updates_history, value_history = [], []
-    ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, cl_bb_lens_r0 = get_camb_templates(nside=64)
+
+    needs_residual_maps = args.plot_cmb_recon or args.plot_all
+    needs_residual_spectra = args.plot_cl_spectra or args.plot_all_spectra or args.plot_all
+    needs_r_estimation = (
+        args.plot_r_estimation
+        or args.plot_all_r_estimation
+        or args.plot_illustrations
+        or args.plot_all
+    )
+
+    compute_syst = args.compute_residuals in ["all", "systematic"]
+    compute_stat = args.compute_residuals in ["all", "statistical"]
+    compute_total = args.compute_residuals in ["all", "total"]
+
+
+    if needs_residual_spectra or needs_residual_maps:
+        compute_syst = True
+        compute_stat = True
+    if needs_r_estimation:
+        compute_total = True
+        compute_stat = True
+        compute_syst = True
+
+    needs_camb = (
+        args.plot_cl_spectra
+        or args.plot_all_spectra
+        or args.plot_r_estimation
+        or args.plot_all_r_estimation
+        or args.plot_illustrations
+        or args.plot_all
+    )
+    if needs_camb:
+        ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, _ = get_camb_templates(nside=64)
+    else:
+        ell_range = cl_bb_r1 = cl_bb_r0 = cl_bb_lens = None
 
     previous_mask_size = {
         "beta_dust_patches": 0,
@@ -1731,6 +1810,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     }
 
     for folder in filtered_results:
+        print("--------------------------------------------------")
+        print(f"Processing folder: {folder}")
+        print("--------------------------------------------------")
         run_data = dict(np.load(f"{folder}/results.npz"))
         best_params = dict(np.load(f"{folder}/best_params.npz"))
         mask = np.load(f"{folder}/mask.npy")
@@ -1754,23 +1836,17 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
         )
         cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
-        wd = compute_w(
-            instrument.frequency,
-            fg_map,
-            run_data,
-            result_file=f"{folder}/results.npz",
-            run_index=run_index,
-        )
-        cl_bb_sum = compute_cl_bb_sum_partial(
-            cmb_recon,
-            indices,
-            64,
-            ell_range,
-            f_sky,
-            run_data,
-            result_file=f"{folder}/results.npz",
-            run_index=run_index,
-        )
+
+        if compute_syst:
+            wd = compute_w(
+                instrument.frequency,
+                fg_map,
+                run_data,
+                result_file=f"{folder}/results.npz",
+                run_index=run_index,
+            )
+        else:
+            wd = None
 
         if args.plot_illustrations:
             params, patches, previous_mask_size = params_to_maps(run_data, previous_mask_size)
@@ -1782,9 +1858,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             value_history.append(run_data["update_history"][..., 1])
 
         cmb_recons.append(cmb_recon)
-        cl_bb_sum_list.append(cl_bb_sum)
         cmb_maps.append(cmb_true)
-        w_d_list.append(wd)
+        if wd is not None:
+            w_d_list.append(wd)
         masks.append(mask)
         indices_list.append(indices)
         NLLs.append(NLL)
@@ -1799,7 +1875,11 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
 
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside, axis=1)
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
-    wd = combine_masks(w_d_list, indices_list, nside)
+
+    if compute_syst and len(w_d_list) > 0:
+        wd = combine_masks(w_d_list, indices_list, nside)
+    else:
+        wd = None
 
     NLL_summed = np.sum(NLLs, axis=0)
 
@@ -1821,36 +1901,63 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             value_history,
         )
 
-    s_true = get_sky(64, "c1d1s1").components[0].map.value
+    needs_sky = compute_syst or compute_stat or compute_total
+    if needs_sky:
+        s_true = get_sky(64, "c1d1s1").components[0].map.value
+    else:
+        s_true = None
 
     if args.plot_cmb_recon:
         plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
 
     f_sky = full_mask.sum() / len(full_mask)
-    # Compute the systematic residuals Cl_syst = Cl(W(d_no_cmb))
-    cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
-    print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
-    # Compute the statistical residuals Cl_stat = <CL((s_hat - s_true) - s_syst)>n
-    cl_stat_res, stat_maps = compute_statistical_res(
-        combined_cmb_recon, s_true, f_sky, ell_range, syst_map
-    )
-    # Compute the total residuals as sum of systematic and statistical
-    cl_total_res = cl_syst_res + cl_stat_res
 
-    # Plot residual maps if requested
-    if args.plot_cmb_recon or args.plot_all:
-        plot_systematic_residual_maps(name, syst_map)
-        plot_statistical_residual_maps(name, stat_maps)
+    cl_syst_res, syst_map, cl_stat_res, stat_maps = None, None, None, None
 
-    # Compute cl_true
-    cl_true = compute_cl_true_bb(s_true, ell_range)
-    # Compute observed Cl_obs = <CL(s_hat)>
-    cl_bb_obs = compute_cl_obs_bb(cl_total_res, cl_bb_lens)
-    # cl_bb_obs = compute_cl_obs_bb(combined_cmb_recon , ell_range)
-    # cl_bb_obs = cl_bb_lens + cl_total_res
-    cl_bb_sum = compute_cl_bb_sum(combined_cmb_recon, f_sky, ell_range)
+    if compute_syst and wd is not None:
+        cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
+        print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
 
-    if args.plot_cl_spectra:
+    print(f"compute_total: {compute_total}, needs_r_estimation: {needs_r_estimation} s_true: {s_true is not None}")
+
+    if compute_stat and compute_syst and syst_map is not None:
+        print("Computing statistical residuals...")
+        cl_stat_res, stat_maps = compute_statistical_res(
+            combined_cmb_recon, s_true, f_sky, ell_range, syst_map
+        )
+
+    if compute_total:
+        if cl_syst_res is not None and cl_stat_res is not None:
+            print("Computing total residuals (as sum of syst + stat)...")
+            cl_total_res = cl_syst_res + cl_stat_res
+        else:
+            print("Computing total residuals (direct computation)...")
+            cl_total_res, _ = compute_total_res(combined_cmb_recon, s_true, f_sky, ell_range)
+    else:
+        cl_total_res = None
+
+    if (args.plot_cmb_recon or args.plot_all):
+        if syst_map is not None:
+            plot_systematic_residual_maps(name, syst_map)
+        if stat_maps is not None:
+            plot_statistical_residual_maps(name, stat_maps)
+
+    if args.plot_cl_spectra and ell_range is not None and s_true is not None:
+        cl_true = compute_cl_true_bb(s_true, ell_range)
+    else:
+        cl_true = None
+
+    if compute_total and ell_range is not None:
+        cl_bb_obs = compute_cl_obs_bb(cl_total_res, cl_bb_lens)
+    else:
+        cl_bb_obs = None
+
+    if args.plot_illustrations or args.plot_all:
+        cl_bb_sum = compute_cl_bb_sum(combined_cmb_recon, f_sky, ell_range)
+    else:
+        cl_bb_sum = None
+
+    if args.plot_cl_spectra and cl_bb_obs is not None:
         plot_cl_residuals(
             name,
             cl_bb_obs,
@@ -1864,14 +1971,16 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
             ell_range,
         )
 
-    # --- Likelihood Plot ---
-    f_sky = full_mask.sum() / len(full_mask)
-    # compute r from obs
-    r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
-        cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, cl_stat_res, f_sky
-    )
+    if compute_total and needs_r_estimation and cl_bb_obs is not None:
+        print(f"Estimating r for {name}...")
+        stat_res_for_r = cl_stat_res if cl_stat_res is not None else np.zeros_like(ell_range)
+        r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
+            cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, stat_res_for_r, f_sky
+        )
+    else:
+        r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = None, None, None, None, None
 
-    if args.plot_cl_spectra:
+    if args.plot_r_estimation and r_best is not None:
         plot_r_estimator(
             name,
             r_best,
@@ -1895,7 +2004,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         "cl_bb_obs": cl_bb_obs,
         "cl_bb_lens": cl_bb_lens,
         "cl_syst_res": cl_syst_res,
-        "cl_total_res": cl_total_res,
+        "cl_total_res": cl_total_res if compute_total else None,
         "cl_stat_res": cl_stat_res,
     }
     r_pytree = {
@@ -2032,6 +2141,7 @@ def main():
         args.plot_cl_spectra = True
         args.plot_all_cmb_recon = True
         args.plot_all_spectra = True
+        args.plot_r_estimation = True
         args.plot_all_r_estimation = True
         args.plot_validation_curves = True
         args.plot_illustrations = True
@@ -2060,7 +2170,7 @@ def main():
 
     if args.cache_only:
         print("=" * 60)
-        print("CACHE-ONLY MODE: Computing and caching W_D_FG and CL_BB_SUM only")
+        print("CACHE-ONLY MODE: Computing and caching W_D_FG only")
         print("=" * 60)
 
         for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
@@ -2068,7 +2178,7 @@ def main():
 
         print("=" * 60)
         print("✓ Cache-only mode completed successfully!")
-        print("✓ W_D_FG and CL_BB_SUM have been cached for all runs")
+        print("✓ W_D_FG has been cached for all runs")
         print("✓ You can now run plotting commands to use the cached values")
         print("=" * 60)
         return
@@ -2087,8 +2197,10 @@ def main():
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
-        syst_map_list.append(residual_pytree["syst_map"])
-        stat_map_list.append(residual_pytree["stat_maps"])
+        if residual_pytree["syst_map"] is not None:
+            syst_map_list.append(residual_pytree["syst_map"])
+        if residual_pytree["stat_maps"] is not None:
+            stat_map_list.append(residual_pytree["stat_maps"])
         valid_titles.append(name)
         plt.close("all")
 
@@ -2101,9 +2213,13 @@ def main():
         plt.close("all")
     if args.plot_all_spectra:
         plot_all_cl_residuals(valid_titles, cl_pytree_list)
+        if len(syst_map_list) > 0:
+            plot_all_systematic_residuals(valid_titles, syst_map_list)
+        if len(stat_map_list) > 0:
+            plot_all_statistical_residuals(valid_titles, stat_map_list)
+        plt.close("all")
+    if args.plot_all_r_estimation:
         plot_all_r_estimation(valid_titles, r_pytree_list)
-        plot_all_systematic_residuals(valid_titles, syst_map_list)
-        plot_all_statistical_residuals(valid_titles, stat_map_list)
         plt.close("all")
 
 
