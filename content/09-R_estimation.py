@@ -1286,7 +1286,6 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
                 elinewidth=1,
                 markeredgewidth=1,
             )
-            plt.scatter(n_clusters, r_best, label=name, color=color)
         else:
             plt.errorbar(
                 n_clusters,
@@ -1298,11 +1297,11 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
                 elinewidth=1,
                 markeredgewidth=1,
             )
-            plt.scatter(n_clusters, r_best, color=color)
 
     plt.xlabel(f"Number of Clusters ({patch_name})")
     plt.ylabel(r"Best-fit $r$")
     plt.title(f"Best-fit $r$ vs. Number of Clusters ({patch_name})")
+    plt.ylim(-0.001, 0.01)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
     plt.tight_layout()
@@ -1311,6 +1310,102 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     filename_suffix = patch_key.replace("_patches", "")
     plt.savefig(f"{out_folder}/r_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300)
     plt.close()
+
+
+def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list):
+    """
+    Create a single variance vs clusters plot for a specific patch parameter.
+
+    Args:
+        patch_name (str): Display name for the patch parameter (e.g., "Beta Dust")
+        patch_key (str): Key to access patch data (e.g., "beta_dust_patches")
+        names (list): List of run names
+        cmb_pytree_list (list): List of CMB data structures
+    """
+    method_dict = {}
+    colors = {}
+
+    color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+
+    for name, cmb_pytree in zip(names, cmb_pytree_list):
+        patches = cmb_pytree["patches_map"]
+        patch_data = patches[patch_key]
+        n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+
+        seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_pytree["cmb_recon"])
+        cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_pytree["cmb_recon"], seen_mask)
+        variance = jax.tree.map(lambda x: jnp.var(x, axis=1), cmb_map_seen)
+        variance = sum(jax.tree.leaves(variance))
+        min_variance = float(jnp.min(variance))
+
+        if n_clusters in method_dict:
+            existing_variance = method_dict[n_clusters]["variance"]
+            if min_variance > existing_variance:
+                continue
+
+        if name not in colors:
+            color = next(color_cycle)
+            colors[name] = color
+
+        method_dict[n_clusters] = {
+            "name": name,
+            "variance": min_variance,
+            "color": colors[name],
+        }
+
+    plt.figure(figsize=(8, 6))
+    labeled_dict = []
+    for n_clusters, data in method_dict.items():
+        name = data["name"]
+        variance = data["variance"]
+        color = data["color"]
+
+        if name not in labeled_dict:
+            labeled_dict.append(name)
+            plt.scatter(
+                n_clusters,
+                variance,
+                label=name,
+                color=color,
+                s=100,
+                edgecolors="black",
+                linewidths=1,
+            )
+        else:
+            plt.scatter(
+                n_clusters,
+                variance,
+                color=color,
+                s=100,
+                edgecolors="black",
+                linewidths=1,
+            )
+
+    plt.xlabel(f"Number of Clusters ({patch_name})")
+    plt.ylabel(r"Minimum Variance (Q + U)")
+    plt.title(f"Minimum Variance vs. Number of Clusters ({patch_name})")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.legend()
+    plt.tight_layout()
+
+    filename_suffix = patch_key.replace("_patches", "")
+    plt.savefig(f"{out_folder}/variance_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300)
+    plt.close()
+
+
+def plot_variance_vs_clusters(names, cmb_pytree_list):
+    """
+    Plot minimum variance values against the number of clusters for all three patch parameters.
+    Creates three separate plots saved as individual PDF files.
+    """
+    patch_configs = [
+        ("$\\beta_d$", "beta_dust_patches"),
+        ("$T_d$", "temp_dust_patches"),
+        ("$\\beta_s$", "beta_pl_patches"),
+    ]
+
+    for patch_name, patch_key in patch_configs:
+        _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list)
 
 
 def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
@@ -2206,6 +2301,7 @@ def main():
 
     if args.plot_illustrations:
         plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
+        plot_variance_vs_clusters(valid_titles, cmb_pytree_list)
         plot_all_variances(valid_titles, cmb_pytree_list)
         plt.close("all")
     if args.plot_all_cmb_recon:
