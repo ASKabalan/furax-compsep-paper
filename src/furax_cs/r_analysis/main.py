@@ -2,10 +2,6 @@ import os
 
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
-import sys
-
-folder_name = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(f"{folder_name}/../data")
 from collections import OrderedDict
 from pathlib import Path
 
@@ -13,7 +9,7 @@ import healpy as hp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from caching import (
+from .caching import (
     SNAPSHOT_VERSION,
     _tree_to_numpy,
     cache_expensive_computations,
@@ -24,10 +20,10 @@ from caching import (
 )
 from fgbuster import get_sky
 from furax.obs.stokes import Stokes
-from instruments import get_instrument
+from furax_cs.data.instruments import get_instrument
 from jax_healpy.clustering import combine_masks
-from parser import parse_args
-from plotting import (
+from .parser import parse_args
+from .plotting import (
     plot_all_cl_residuals,
     plot_all_cmb,
     plot_all_r_estimation,
@@ -46,8 +42,8 @@ from plotting import (
     plot_variance_vs_clusters,
     plot_variance_vs_r,
 )
-from r_estimate import estimate_r, get_camb_templates
-from residuals import (
+from .r_estimate import estimate_r, get_camb_templates
+from .residuals import (
     compute_cl_bb_sum,
     compute_cl_obs_bb,
     compute_cl_true_bb,
@@ -55,8 +51,8 @@ from residuals import (
     compute_systematic_res,
     compute_total_res,
 )
-from run_management import expand_run_specs, matches_filter, parse_filter_kw
-from utils import index_run_data, params_to_maps
+from .run_management import expand_run_specs, matches_filter, parse_filter_kw
+from .utils import index_run_data, params_to_maps
 
 out_folder = "plots/"
 

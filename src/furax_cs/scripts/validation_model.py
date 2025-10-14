@@ -3,8 +3,6 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 import operator
-import os
-import sys
 from functools import partial
 
 import jax
@@ -23,9 +21,8 @@ from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
-from plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
+from furax_cs.data.generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from furax_cs.data.plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
 
 jax.config.update("jax_enable_x64", True)
 

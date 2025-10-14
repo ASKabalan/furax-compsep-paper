@@ -4,8 +4,6 @@ os.environ["EQX_ON_ERROR"] = "nan"
 
 import argparse
 import operator
-import os
-import sys
 from functools import partial
 
 import healpy as hp
@@ -23,10 +21,14 @@ from jax_grid_search import ProgressBar, optimize
 from jax_healpy.clustering import get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-# Make sure these modules are available in your PYTHONPATH
-sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
-from instruments import get_instrument
+from furax_cs.data.generate_maps import (
+    MASK_CHOICES,
+    get_mask,
+    load_cmb_map,
+    load_fg_map,
+    load_from_cache,
+)
+from furax_cs.data.instruments import get_instrument
 
 jax.config.update("jax_enable_x64", True)
 

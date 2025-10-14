@@ -1,32 +1,24 @@
 #!/usr/bin/env python3
 """
-K-Means Clustering for Adaptive CMB Component Separation
+Distributed Grid Search for CMB Component Separation Parameter Optimization
 
-This script implements the main contribution of the FURAX framework: adaptive K-means
-clustering for optimizing parametric component separation in CMB polarization analysis.
-The method uses spherical K-means to partition the sky based on spatial coordinates,
-then performs variance-based model selection to determine optimal cluster configurations.
+WARNING: This script performs an exhaustive grid search across different sky regions
+and can take SEVERAL HOURS to complete, especially when running on multiple GPUs.
+Designed for HPC environments with SLURM scheduling.
 
-Key Innovation:
-    - Spherical K-means clustering using RA/Dec coordinates with 3D Cartesian averaging
-    - Variance-based selection to minimize CMB reconstruction contamination
-    - Distributed grid search across clustering configurations
-    - Adaptive sky partitioning for spatially-varying spectral parameters
+This script implements distributed grid search optimization to find optimal spectral
+parameters for CMB component separation across different galactic mask zones. It uses
+JAX for GPU acceleration and distributed computing to efficiently explore parameter
+space for dust and synchrotron foreground components.
 
 Usage:
-    python 08-KMeans-model.py -n 64 -pc 100 5 1 -tag c1d1s1 -m GAL020 -i LiteBIRD
+    python 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL020 -i LiteBIRD
 
-Parameters:
-    -pc: Number of clusters for [dust_temp, dust_beta, sync_beta] parameters
-    -tag: Sky simulation configuration tag
-    -m: Galactic mask (GAL020, GAL040, GAL060)
-    -i: Instrument specification
-
-Output:
-    Results saved to results/kmeans_{config}_{instrument}_{mask}_{samples}/
-    - best_params.npz: Optimized spectral parameters per cluster
-    - results.npz: Full clustering and component separation results
-    - mask.npy: Sky mask used for analysis
+Key Features:
+    - Distributed execution across multiple GPUs using JAX
+    - Grid search over dust temperature, dust spectral index, and synchrotron index
+    - Automatic sky region partitioning based on galactic masks
+    - Results saved in structured format for analysis
 
 Author: FURAX Team
 """
@@ -35,8 +27,6 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
-import os
-import sys
 from functools import partial
 
 import jax
@@ -72,7 +62,7 @@ from furax.obs import (
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import ProgressBar, optimize
+from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy.clustering import (
     find_kmeans_clusters,
     get_cutout_from_mask,
@@ -80,32 +70,22 @@ from jax_healpy.clustering import (
 )
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, load_cmb_map, load_fg_map, load_from_cache
-from instruments import get_instrument
+from furax_cs.data.generate_maps import (
+    MASK_CHOICES,
+    get_mask,
+    load_cmb_map,
+    load_fg_map,
+    load_from_cache,
+)
+from furax_cs.data.instruments import get_instrument
+from furax_cs.data.plotting import plot_grid_search_results
 
 jax.config.update("jax_enable_x64", True)
 
 
 def parse_args():
-    """
-    Parse command-line arguments for K-means clustering component separation.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed command-line arguments containing:
-        - nside: HEALPix resolution parameter
-        - noise_sim: Number of noise simulations for MC analysis
-        - noise_ratio: Noise level relative to signal
-        - tag: Sky simulation configuration identifier
-        - mask: Galactic mask choice (GAL020, GAL040, GAL060)
-        - instrument: Instrument configuration (LiteBIRD, Planck)
-        - patch_count: Target cluster counts for [dust_beta, dust_temp, sync_beta]
-        - best_only: Flag to only compute optimal configuration
-    """
     parser = argparse.ArgumentParser(
-        description="K-Means Clustering for Adaptive CMB Component Separation"
+        description="Benchmark FGBuster and Furax Component Separation Methods"
     )
 
     parser.add_argument(
@@ -113,28 +93,34 @@ def parse_args():
         "--nside",
         type=int,
         default=64,
-        help="HEALPix nside parameter determining map resolution (nside=64 → ~55 arcmin pixels)",
+        help="The nside of the map",
     )
     parser.add_argument(
         "-ns",
         "--noise-sim",
         type=int,
         default=50,
-        help="Number of Monte Carlo noise realizations for statistical analysis",
+        help="Number of noise simulations",
+    )
+    parser.add_argument(
+        "-p",
+        "--plot",
+        action="store_true",
+        help="Plot the results",
     )
     parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
         default=0.2,
-        help="Noise level as fraction of signal RMS (0.2 = 20%% noise)",
+        help="Noise ratio",
     )
     parser.add_argument(
         "-tag",
         "--tag",
         type=str,
         default="c1d1s1",
-        help="Sky simulation tag: c(CMB)d(dust)s(synchrotron) with 0/1 for off/on",
+        help="Tag for the observation",
     )
     parser.add_argument(
         "-m",
@@ -142,7 +128,7 @@ def parse_args():
         type=str,
         default="GAL020_U",
         choices=MASK_CHOICES,
-        help="Galactic mask: GAL020/040/060 (20%%/40%%/60%% sky coverage), _U/_L for upper/lower",
+        help="Mask to use",
     )
     parser.add_argument(
         "-i",
@@ -150,18 +136,6 @@ def parse_args():
         type=str,
         default="LiteBIRD",
         choices=["LiteBIRD", "Planck", "default"],
-        help="Instrument configuration with frequency bands and noise characteristics",
-    )
-    parser.add_argument(
-        "-pc",
-        "--patch-count",
-        type=int,
-        nargs=3,  # Expecting exactly three values
-        default=[1000, 10, 10],  # Example target patch counts for beta_dust, temp_dust, beta_pl
-        help=(
-            "List of three target patch counts for beta_dust, temp_dust, and beta_pl. "
-            "Example: --patch-count 1000 10 10"
-        ),
     )
     parser.add_argument(
         "-b",
@@ -169,49 +143,56 @@ def parse_args():
         action="store_true",
         help="Only generate best results",
     )
+    parser.add_argument(
+        "-c",
+        "--clean-up",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Clean up the output folder",
+    )
     return parser.parse_args()
 
 
+def clean_up(folder):
+    batch_size = 50
+
+    sorted_results = DistributedGridSearch.batched_stack_results(
+        result_folder=folder, batch_size=batch_size
+    )
+
+    output_folder = os.path.join("final", folder)
+    os.makedirs(output_folder, exist_ok=True)
+    output_path = os.path.join(output_folder, "results.npz")
+
+    np.savez(output_path, **sorted_results)
+    print(f"Saved stacked results to {output_path}")
+
+
 def main():
-    """
-    Main execution function for K-means clustering component separation.
-
-    Implements the adaptive clustering algorithm that partitions the sky into
-    regions with spatially-varying spectral parameters. Uses variance-based
-    model selection to determine optimal cluster configurations.
-
-    Algorithm Steps:
-    1. Initialize sky masks and clustering parameters
-    2. Load CMB and foreground simulations
-    3. Perform spherical K-means clustering on sky coordinates
-    4. Optimize spectral parameters within each cluster
-    5. Evaluate CMB reconstruction variance for model selection
-    6. Save optimal clustering configuration and parameters
-    """
-    # Step 1: Parse arguments and setup output directory
     args = parse_args()
 
-    patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}"
-    out_folder = (
-        f"kmeans_{args.tag}_{patches}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
-    )
-    os.makedirs(out_folder, exist_ok=True)
+    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+    if args.plot:
+        assert os.path.exists(out_folder), "output not found, please run the model first"
+        results = np.load(f"{out_folder}/results.npz")
+        plot_grid_search_results(
+            results, out_folder, best_metric="value", nb_best=12, noise_runs=args.noise_sim
+        )
+        return
 
-    # Step 2: Initialize physical and computational parameters
+    if args.clean_up is not None:
+        clean_up(args.clean_up)
+        return
+
     nside = args.nside
     nb_noise_sim = args.noise_sim
     noise_ratio = args.noise_ratio
-    dust_nu0 = 160.0  # Dust reference frequency (GHz)
-    synchrotron_nu0 = 20.0  # Synchrotron reference frequency (GHz)
+    dust_nu0 = 160.0
+    synchrotron_nu0 = 20.0
 
-    # Step 3: Load galactic mask and extract valid pixel indices
     mask = get_mask(args.mask)
-    (indices,) = jnp.where(mask == 1)  # Get indices of unmasked pixels
-
-    # Step 4: Determine maximum cluster counts (limited by available pixels)
-    B_dust_patches = min(args.patch_count[0], indices.size)  # Dust spectral index clusters
-    T_dust_patches = min(args.patch_count[1], indices.size)  # Dust temperature clusters
-    B_synchrotron_patches = min(args.patch_count[2], indices.size)  # Synchrotron index clusters
+    (indices,) = jnp.where(mask == 1)
 
     base_params = {
         "beta_dust": 1.54,
@@ -248,10 +229,19 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
+    search_space = {
+        "T_d_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
+        "B_d_patches": jnp.arange(4000, 10001, 1000),
+        "B_s_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
+    }
+
+    # Ensure we do not have more patches than pixels
+    search_space = jax.tree.map(lambda x: jnp.clip(x, 1, indices.size), search_space)
+
     max_count = {
-        "beta_dust": B_dust_patches,
-        "temp_dust": T_dust_patches,
-        "beta_pl": B_synchrotron_patches,
+        "beta_dust": np.max(np.array(search_space["B_d_patches"])),
+        "temp_dust": np.max(np.array(search_space["T_d_patches"])),
+        "beta_pl": np.max(np.array(search_space["B_s_patches"])),
     }
     max_patches = {
         "temp_dust_patches": max_count["temp_dust"],
@@ -259,15 +249,18 @@ def main():
         "beta_pl_patches": max_count["beta_pl"],
     }
 
-    @partial(jax.jit, static_argnums=(5))
+    @partial(jax.jit, static_argnums=(4))
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
         B_s_patches,
-        planck_mask,
         indices,
         progress_bar=None,
     ):
+        T_d_patches = T_d_patches.squeeze()
+        B_d_patches = B_d_patches.squeeze()
+        B_s_patches = B_s_patches.squeeze()
+
         n_regions = {
             "temp_dust_patches": T_d_patches,
             "beta_dust_patches": B_d_patches,
@@ -330,7 +323,9 @@ def main():
 
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
             cmb = s["cmb"]
+            # Variance of the CMB map
             cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
+            # This is equivalent to jnp.var(cmb.q) + jnp.var(cmb.u)
 
             cmb_np = jnp.stack([cmb.q, cmb.u])
 
@@ -354,6 +349,14 @@ def main():
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
         return results
 
+    # Put the good values for the grid
+    if os.path.exists(out_folder) and not args.best_only:
+        old_results = DistributedGridSearch.batched_stack_results(
+            result_folder=out_folder, batch_size=100
+        )
+    else:
+        old_results = None
+
     progress_columns = [
         "[progress.description]{task.description}",
         BarColumn(),
@@ -370,16 +373,25 @@ def main():
                 T_d_patches,
                 B_d_patches,
                 B_s_patches,
-                mask,
                 indices,
                 progress_bar=p,
             )
 
+        grid_search = DistributedGridSearch(
+            objective_function,
+            search_space,
+            batch_size=1,
+            progress_bar=True,
+            result_dir=out_folder,
+            old_results=old_results,
+        )
+        print(f"Number of combinations: {grid_search.n_combinations}")
         if not args.best_only:
-            results = objective_function(T_dust_patches, B_dust_patches, B_synchrotron_patches)
-            # Add a new axis to the results so it matches the shape of grid search results
-            results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
-            np.savez(f"{out_folder}/results.npz", **results)
+            grid_search.run()
+
+    if not args.best_only:
+        results = grid_search.stack_results(result_folder=out_folder)
+        np.savez(f"{out_folder}/results.npz", **results)
 
     # Save results and mask
     best_params = {}

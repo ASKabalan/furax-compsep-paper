@@ -3,8 +3,6 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 import operator
-import os
-import sys
 from functools import partial
 
 import jax
@@ -46,10 +44,9 @@ from jax_healpy.clustering import (
 )
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
-from instruments import get_instrument
-from plotting import (
+from furax_cs.data.generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from furax_cs.data.instruments import get_instrument
+from furax_cs.data.plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
 )
 

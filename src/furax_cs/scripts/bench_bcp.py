@@ -27,8 +27,6 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
-import os
-import sys
 from functools import partial
 
 import jax
@@ -59,8 +57,7 @@ from jax_grid_search import optimize
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
-sys.path.append("../data")
-from generate_maps import load_from_cache, save_to_cache
+from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 
 jax.config.update("jax_enable_x64", True)
 

@@ -1,6 +1,5 @@
 # Necessary imports
 import os
-import sys
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
@@ -29,8 +28,7 @@ from jax_healpy.clustering import find_kmeans_clusters
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
-sys.path.append("../data")
-from generate_maps import load_from_cache, save_to_cache
+from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 
 jax.config.update("jax_enable_x64", True)
 

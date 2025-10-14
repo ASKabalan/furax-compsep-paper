@@ -2,8 +2,6 @@ import os
 
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
-import os
-import sys
 from functools import partial
 
 import jax
@@ -28,10 +26,9 @@ from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask
 from numpyro.infer import MCMC, NUTS, DiscreteHMCGibbs
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-sys.path.append("../data")
-from generate_maps import MASK_CHOICES, get_mask, load_from_cache
-from instruments import get_instrument
-from plotting import plot_grid_search_results
+from furax_cs.data.generate_maps import MASK_CHOICES, get_mask, load_from_cache
+from furax_cs.data.instruments import get_instrument
+from furax_cs.data.plotting import plot_grid_search_results
 
 jax.config.update("jax_enable_x64", True)
 
