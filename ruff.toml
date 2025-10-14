@@ -18,5 +18,6 @@ ignore = [
     'E731',
     'E741',
     'F722', # conflicts with jaxtyping Array annotations
-    'E501'
+    'E501',
+    'E402', # module level import not at top of file
 ]

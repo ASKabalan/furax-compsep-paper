@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize
-import scienceplots
 
 plt.style.use("science")
 
@@ -231,6 +230,7 @@ def plot_all_cmb(names, cmb_pytree_list):
 
 def plot_all_variances(names, cmb_pytree_list):
     """Histogram proxy metrics (variance, NLL, ∑Cℓ) across runs."""
+
     def get_all_variances(cmb_map):
         seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_map)
         cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_map, seen_mask)
@@ -911,6 +911,7 @@ def plot_statistical_residual_maps(name, stat_maps):
 
 def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
     """Plot reconstructed maps, inputs, and differences for Q/U."""
+
     def mse(a, b):
         seen_x = jax.tree.map(lambda x: x[x != hp.UNSEEN], a)
         seen_y = jax.tree.map(lambda x: x[x != hp.UNSEEN], b)

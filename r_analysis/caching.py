@@ -193,6 +193,7 @@ def _snapshot_filename_from_title(title):
 
 def _tree_to_numpy(tree):
     """Convert JAX arrays to numpy arrays recursively."""
+
     def _convert_leaf(x):
         if isinstance(x, np.ndarray):
             return x
@@ -205,6 +206,7 @@ def _tree_to_numpy(tree):
 
 def _tree_to_jax(tree):
     """Convert numpy arrays to JAX arrays recursively."""
+
     def _convert_leaf(x):
         if isinstance(x, np.ndarray):
             return jnp.asarray(x)

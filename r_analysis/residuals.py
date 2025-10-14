@@ -1,7 +1,6 @@
 import healpy as hp
 import numpy as np
 from tqdm import tqdm
-
 from utils import expand_stokes
 
 

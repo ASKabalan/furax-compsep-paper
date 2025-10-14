@@ -1,5 +1,4 @@
 import jax
-import jax.numpy as jnp
 import numpy as np
 from furax.obs.stokes import StokesI, StokesIQU, StokesQU
 

@@ -6,8 +6,6 @@ import sys
 
 folder_name = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(f"{folder_name}/../data")
-from instruments import get_instrument
-
 from collections import OrderedDict
 from pathlib import Path
 
@@ -15,19 +13,19 @@ import healpy as hp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from fgbuster import get_sky
-from furax.obs.stokes import Stokes
-from jax_healpy.clustering import combine_masks
-
 from caching import (
+    SNAPSHOT_VERSION,
+    _tree_to_numpy,
     cache_expensive_computations,
     compute_w,
     load_snapshot,
     save_snapshot_entry,
     write_snapshot_manifest,
-    _tree_to_numpy,
-    SNAPSHOT_VERSION,
 )
+from fgbuster import get_sky
+from furax.obs.stokes import Stokes
+from instruments import get_instrument
+from jax_healpy.clustering import combine_masks
 from parser import parse_args
 from plotting import (
     plot_all_cl_residuals,
@@ -35,6 +33,7 @@ from plotting import (
     plot_all_r_estimation,
     plot_all_statistical_residuals,
     plot_all_systematic_residuals,
+    plot_all_variances,
     plot_cl_residuals,
     plot_cmb_reconstructions,
     plot_params,
@@ -46,7 +45,6 @@ from plotting import (
     plot_validation_curves,
     plot_variance_vs_clusters,
     plot_variance_vs_r,
-    plot_all_variances,
 )
 from r_estimate import estimate_r, get_camb_templates
 from residuals import (
@@ -381,7 +379,6 @@ def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plottin
 
 def run_analysis():
     """Entry point for the r_analysis CLI driver."""
-    
 
     args = parse_args()
     nside = args.nside
@@ -512,7 +509,9 @@ def run_analysis():
             or args.plot_r_estimation
         )
         if needs_individual_plots:
-            plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args)
+            plot_results(
+                name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args
+            )
 
         plt.close("all")
 
@@ -522,7 +521,9 @@ def run_analysis():
             and isinstance(r_pytree, dict)
         )
         if not payload_complete:
-            print(f"WARNING: Snapshot entry '{name}' is missing required data, skipping aggregation.")
+            print(
+                f"WARNING: Snapshot entry '{name}' is missing required data, skipping aggregation."
+            )
             continue
 
         stacked_titles.append(name)
