@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "furax-compsep-paper"
+name = "furax-cs"
 version = "0.1.0"
 description = "CMB component separation comparison: FURAX vs FGBuster"
 readme = "README.md"
@@ -14,35 +14,43 @@ authors = [
 ]
 dependencies = [
     "furax",
+    "healpy",
     "jax-healpy",
     "jax_hpc_profiler",
     "jax-grid-search",
     "jaxopt",
+    "matplotlib",
+    "numpyro",
+    "optax",
     "fgbuster @ git+https://github.com/fgbuster/fgbuster@clusters",
     "pre-commit",
     "ipython",
     "ipykernel",
     "ipywidgets",
+    "rich",
+    "seaborn",
     "camb",
     "scienceplots",
 ]
 
 [project.scripts]
-bench-bcp = "scripts.bench_bcp:main"
-bench-clusters = "scripts.bench_clusters:main"
-validation-model = "scripts.validation_model:main"
-noise-model = "scripts.noise_model:main"
-distributed-gridding = "scripts.distributed_gridding:main"
-ptep-model = "scripts.ptep_model:main"
-gibbs = "scripts.gibbs:main"
-single-patch = "scripts.single_patch:main"
-kmeans-model = "scripts.kmeans_model:main"
+bench-bcp = "furax_cs.scripts.bench_bcp:main"
+bench-clusters = "furax_cs.scripts.bench_clusters:main"
+validation-model = "furax_cs.scripts.validation_model:main"
+noise-model = "furax_cs.scripts.noise_model:main"
+distributed-gridding = "furax_cs.scripts.distributed_gridding:main"
+ptep-model = "furax_cs.scripts.ptep_model:main"
+gibbs = "furax_cs.scripts.gibbs:main"
+single-patch = "furax_cs.scripts.single_patch:main"
+kmeans-model = "furax_cs.scripts.kmeans_model:main"
+r_analysis = "furax_cs.r_analysis.main:main"
 
 [tool.setuptools]
-packages = {find = {where = ["."], include = ["src*", "scripts"]}}
+package-dir = {"" = "src"}
+packages = {find = {where = ["src"], include = ["furax_cs*"]}}
 
 [tool.setuptools.package-data]
-"src.data" = ["*.yaml", "masks/*"]
+"furax_cs.data" = ["*.yaml", "masks/*"]
 
 [tool.ruff]
 target-version = "py311"
