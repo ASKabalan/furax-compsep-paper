@@ -9,6 +9,13 @@ import healpy as hp
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots  # noqa: F401
+from fgbuster import get_sky
+from furax.obs.stokes import Stokes
+from jax_healpy.clustering import combine_masks
+
+from furax_cs.data.instruments import get_instrument
+
 from .caching import (
     SNAPSHOT_VERSION,
     _tree_to_numpy,
@@ -18,10 +25,6 @@ from .caching import (
     save_snapshot_entry,
     write_snapshot_manifest,
 )
-from fgbuster import get_sky
-from furax.obs.stokes import Stokes
-from furax_cs.data.instruments import get_instrument
-from jax_healpy.clustering import combine_masks
 from .parser import parse_args
 from .plotting import (
     plot_all_cl_residuals,
@@ -53,8 +56,6 @@ from .residuals import (
 )
 from .run_management import expand_run_specs, matches_filter, parse_filter_kw
 from .utils import index_run_data, params_to_maps
-import scienceplots  # noqa: F401
-
 
 out_folder = "plots/"
 
@@ -381,6 +382,8 @@ def run_analysis():
     args = parse_args()
     nside = args.nside
     instrument = get_instrument(args.instrument)
+    # get name of current folder
+    folder_name = os.path.dirname(os.path.abspath(__file__))
     result_folder = f"{folder_name}/../results/"
     print("Loading data...")
     results = os.listdir(result_folder)

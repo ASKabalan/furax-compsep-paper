@@ -167,7 +167,9 @@ def run_jax_negative_log_prob(
         jax_timer.chrono_fun(nll, best_params)
 
 
-def run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100):
+def run_jax_lbfgs(
+    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100
+):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax LBGS Comp sep nside={nside} ...")
@@ -383,7 +385,16 @@ def main():
             numpy_timer.report("runs/BCP_FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
-            run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, args.max_iter)
+            run_jax_lbfgs(
+                nside,
+                freq_maps,
+                best_params,
+                nu,
+                dust_nu0,
+                synchrotron_nu0,
+                jax_timer,
+                args.max_iter,
+            )
             kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
             jax_timer.report("runs/BCP_FURAX.csv", **kwargs)
 

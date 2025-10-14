@@ -83,7 +83,9 @@ def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, nu
     return result.x, cmb_var, result.fun
 
 
-def run_jax_lbfgs(nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100):
+def run_jax_lbfgs(
+    nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100
+):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax LBGS Comp sep nside={nside} cluster_count={cluster_count}...")

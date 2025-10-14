@@ -17,7 +17,7 @@ dependencies = [
     "healpy",
     "jax-healpy",
     "jax_hpc_profiler",
-    "jax-grid-search",
+    "jax-grid-search @ git+https://github.com/ASKabalan/jax-grid-search",
     "jaxopt",
     "matplotlib",
     "numpyro",
@@ -44,6 +44,7 @@ gibbs = "furax_cs.scripts.gibbs:main"
 single-patch = "furax_cs.scripts.single_patch:main"
 kmeans-model = "furax_cs.scripts.kmeans_model:main"
 r_analysis = "furax_cs.r_analysis.main:main"
+generate_data = "furax_cs.data.generate_maps:generate_needed_maps"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
