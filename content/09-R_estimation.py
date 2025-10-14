@@ -8,7 +8,12 @@ os.environ["EQX_ON_ERROR"] = "nan"
 import os
 import re
 import sys
+from collections import OrderedDict
 from functools import partial
+import hashlib
+import json
+import pickle
+from pathlib import Path
 
 import camb
 import healpy as hp
@@ -161,7 +166,11 @@ def parse_args():
         default="none",
         help="Which residuals to compute: all, total, statistical, systematic, or none",
     )
-
+    parser.add_argument(
+        "--snapshot",
+        type=str,
+        help="Directory to save snapshot data for incremental plotting",
+    )
     return parser.parse_args()
 
 
@@ -2000,16 +2009,16 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
     print(f"✓ Finished caching for {name}")
 
 
-def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
+def compute_results(name, filtered_results, nside, instrument, args, run_index=0):
     """
-    Load, combine, and analyze component separation results with comprehensive plotting.
+    Load, combine, and compute component separation results.
 
     Args:
         name (str): Name of the run for output files and titles.
         filtered_results (list[str]): List of result directories to process.
         nside (int): HEALPix resolution parameter.
         instrument (Instrument): Instrument object with frequency specifications.
-        args: Parsed command-line arguments controlling plot generation.
+        args: Parsed command-line arguments controlling which computations to perform.
         run_index (int): Index to select from run_data arrays (default: 0).
 
     Returns:
@@ -2147,29 +2156,19 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     if args.plot_illustrations:
         params_map = combine_masks(params_list, indices_list, nside)
         patches_map = combine_masks(patches_list, indices_list, nside)
-        plot_params_patches(name, params_map, patches_map)
     else:
+        params_map = None
         patches_map = {
             "beta_dust_patches": np.zeros(hp.nside2npix(nside)),
             "temp_dust_patches": np.zeros(hp.nside2npix(nside)),
             "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
         }
 
-    if args.plot_validation_curves:
-        plot_validation_curves(
-            name,
-            updates_history,
-            value_history,
-        )
-
     needs_sky = compute_syst or compute_stat or compute_total
     if needs_sky:
         s_true = get_sky(64, "c1d1s1").components[0].map.value
     else:
         s_true = None
-
-    if args.plot_cmb_recon:
-        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
 
     f_sky = full_mask.sum() / len(full_mask)
 
@@ -2199,13 +2198,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     else:
         cl_total_res = None
 
-    if args.plot_cmb_recon or args.plot_all:
-        if syst_map is not None:
-            plot_systematic_residual_maps(name, syst_map)
-        if stat_maps is not None:
-            plot_statistical_residual_maps(name, stat_maps)
-
-    if args.plot_cl_spectra and ell_range is not None and s_true is not None:
+    if ell_range is not None and s_true is not None:
         cl_true = compute_cl_true_bb(s_true, ell_range)
     else:
         cl_true = None
@@ -2220,20 +2213,6 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     else:
         cl_bb_sum = None
 
-    if args.plot_cl_spectra and cl_bb_obs is not None:
-        plot_cl_residuals(
-            name,
-            cl_bb_obs,
-            cl_syst_res,
-            cl_total_res,
-            cl_stat_res,
-            cl_bb_r1,
-            cl_bb_r0,
-            cl_bb_lens,
-            cl_true,
-            ell_range,
-        )
-
     if compute_total and needs_r_estimation and cl_bb_obs is not None:
         print(f"Estimating r for {name}...")
         stat_res_for_r = cl_stat_res if cl_stat_res is not None else np.zeros_like(ell_range)
@@ -2243,15 +2222,12 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     else:
         r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = None, None, None, None, None
 
-    if args.plot_r_estimation and r_best is not None:
-        plot_r_estimator(
-            name,
-            r_best,
-            sigma_r_neg,
-            sigma_r_pos,
-            r_grid,
-            L_vals,
-        )
+    # Store intermediate data for plotting
+    plotting_data = {
+        "params_map": params_map,
+        "updates_history": updates_history if args.plot_validation_curves else None,
+        "value_history": value_history if args.plot_validation_curves else None,
+    }
 
     cmb_pytree = {
         "cmb": cmb_stokes,
@@ -2262,6 +2238,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     }
     cl_pytree = {
         "cl_bb_r1": cl_bb_r1,
+        "cl_bb_r0": cl_bb_r0,
         "cl_true": cl_true,
         "ell_range": ell_range,
         "cl_bb_obs": cl_bb_obs,
@@ -2282,7 +2259,231 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         "stat_maps": stat_maps,
     }
 
-    return cmb_pytree, cl_pytree, r_pytree, residual_pytree
+    return cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data
+
+
+def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args):
+    """
+    Generate plots from pre-computed results.
+
+    Args:
+        name (str): Name of the run for output files and titles.
+        cmb_pytree (dict): CMB reconstruction data.
+        cl_pytree (dict): Power spectrum data.
+        r_pytree (dict): R estimation data.
+        residual_pytree (dict): Residual maps data.
+        plotting_data (dict): Additional data needed for plotting (params, history, etc.).
+        args: Parsed command-line arguments controlling plot generation.
+    """
+    # Extract data from pytrees
+    cmb_stokes = cmb_pytree["cmb"]
+    combined_cmb_recon = cmb_pytree["cmb_recon"]
+    patches_map = cmb_pytree["patches_map"]
+
+    cl_bb_r1 = cl_pytree["cl_bb_r1"]
+    cl_true = cl_pytree["cl_true"]
+    ell_range = cl_pytree["ell_range"]
+    cl_bb_obs = cl_pytree["cl_bb_obs"]
+    cl_bb_lens = cl_pytree["cl_bb_lens"]
+    cl_syst_res = cl_pytree["cl_syst_res"]
+    cl_total_res = cl_pytree["cl_total_res"]
+    cl_stat_res = cl_pytree["cl_stat_res"]
+    cl_bb_r0 = cl_pytree.get("cl_bb_r0")
+
+    r_best = r_pytree["r_best"]
+    sigma_r_neg = r_pytree["sigma_r_neg"]
+    sigma_r_pos = r_pytree["sigma_r_pos"]
+    r_grid = r_pytree["r_grid"]
+    L_vals = r_pytree["L_vals"]
+
+    syst_map = residual_pytree.get("syst_map")
+    stat_maps = residual_pytree.get("stat_maps")
+
+    params_map = plotting_data.get("params_map")
+    updates_history = plotting_data.get("updates_history")
+    value_history = plotting_data.get("value_history")
+
+    # Generate plots based on args
+    if args.plot_illustrations and params_map is not None:
+        plot_params_patches(name, params_map, patches_map)
+
+    if args.plot_validation_curves and updates_history is not None:
+        plot_validation_curves(name, updates_history, value_history)
+
+    if args.plot_cmb_recon:
+        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
+
+    if (args.plot_cmb_recon or args.plot_all) and syst_map is not None:
+        plot_systematic_residual_maps(name, syst_map)
+
+    if (args.plot_cmb_recon or args.plot_all) and stat_maps is not None:
+        plot_statistical_residual_maps(name, stat_maps)
+
+    if args.plot_cl_spectra and cl_bb_obs is not None:
+        plot_cl_residuals(
+            name,
+            cl_bb_obs,
+            cl_syst_res,
+            cl_total_res,
+            cl_stat_res,
+            cl_bb_r1,
+            cl_bb_r0,
+            cl_bb_lens,
+            cl_true,
+            ell_range,
+        )
+
+    if args.plot_r_estimation and r_best is not None:
+        plot_r_estimator(
+            name,
+            r_best,
+            sigma_r_neg,
+            sigma_r_pos,
+            r_grid,
+            L_vals,
+        )
+
+
+# ========== Snapshot Utilities ==========
+# ========================================
+
+
+SNAPSHOT_MANIFEST_NAME = "manifest.json"
+SNAPSHOT_VERSION = 1
+
+
+def _snapshot_filename_from_title(title):
+    """
+    Generate a stable, filesystem-friendly filename for a snapshot entry.
+    """
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_")
+    digest = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
+    if not slug:
+        slug = "entry"
+    return f"{slug}_{digest}.pkl"
+
+
+def _tree_to_numpy(tree):
+    """
+    Convert a pytree containing JAX arrays to host NumPy arrays for serialization.
+    """
+    def _convert_leaf(x):
+        if isinstance(x, np.ndarray):
+            return x
+        # jnp.ndarray has __array__ defined, as do JAX Arrays
+        if hasattr(x, "__array__"):
+            return np.asarray(x)
+        return x
+
+    return jax.tree.map(_convert_leaf, tree)
+
+
+def _tree_to_jax(tree):
+    """
+    Convert numpy-based pytrees back to JAX arrays for downstream processing.
+    """
+    def _convert_leaf(x):
+        if isinstance(x, np.ndarray):
+            return jnp.asarray(x)
+        return x
+
+    return jax.tree.map(_convert_leaf, tree)
+
+
+def load_snapshot(snapshot_dir):
+    """
+    Load snapshot entries from a directory.
+
+    Args:
+        snapshot_dir (Path | str): Directory containing snapshot data.
+
+    Returns:
+        tuple[list[tuple[str, dict]], dict]: List of (title, payload) pairs and manifest dictionary.
+    """
+    snapshot_path = Path(snapshot_dir)
+    manifest_path = snapshot_path / SNAPSHOT_MANIFEST_NAME
+
+    if not manifest_path.exists():
+        return [], {"version": SNAPSHOT_VERSION, "entries": []}
+
+    with manifest_path.open("r", encoding="utf-8") as fp:
+        manifest = json.load(fp)
+
+    entries = []
+    for item in manifest.get("entries", []):
+        title = item.get("title")
+        filename = item.get("file")
+        if title is None or filename is None:
+            continue
+        payload_path = snapshot_path / filename
+        if not payload_path.exists():
+            print(f"WARNING: Snapshot payload missing for '{title}' at {payload_path}")
+            continue
+        with payload_path.open("rb") as fh:
+            payload = pickle.load(fh)
+        if isinstance(payload, dict):
+            converted_payload = {}
+            for key in ("cmb", "cl", "r", "residual", "plotting_data"):
+                value = payload.get(key)
+                if value is not None:
+                    converted_payload[key] = _tree_to_jax(value)
+                else:
+                    converted_payload[key] = value
+            payload = converted_payload
+        entries.append((title, payload))
+
+    return entries, manifest
+
+
+def save_snapshot_entry(snapshot_dir, manifest, title, payload):
+    """
+    Save a single snapshot payload and update the manifest in memory.
+
+    Args:
+        snapshot_dir (Path | str): Directory containing snapshot data.
+        manifest (dict): Manifest dictionary to update.
+        title (str): Run title.
+        payload (dict): Snapshot payload containing pytrees.
+
+    Returns:
+        dict: Updated manifest dictionary.
+    """
+    snapshot_path = Path(snapshot_dir)
+    snapshot_path.mkdir(parents=True, exist_ok=True)
+
+    entries = manifest.setdefault("entries", [])
+    lookup = {item["title"]: item for item in entries if "title" in item}
+
+    existing_entry = lookup.get(title)
+    filename = None
+    if existing_entry is not None:
+        filename = existing_entry.get("file")
+    if not filename:
+        filename = _snapshot_filename_from_title(title)
+
+    payload_path = snapshot_path / filename
+    with payload_path.open("wb") as fh:
+        pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+
+    if existing_entry is not None:
+        existing_entry["file"] = filename
+    else:
+        entries.append({"title": title, "file": filename})
+
+    manifest["version"] = SNAPSHOT_VERSION
+    manifest["entries"] = entries
+    return manifest
+
+
+def write_snapshot_manifest(snapshot_dir, manifest):
+    """
+    Persist the snapshot manifest to disk.
+    """
+    snapshot_path = Path(snapshot_dir)
+    snapshot_path.mkdir(parents=True, exist_ok=True)
+    manifest_path = snapshot_path / SNAPSHOT_MANIFEST_NAME
+    with manifest_path.open("w", encoding="utf-8") as fp:
+        json.dump(manifest, fp, indent=2)
 
 
 # ========== Run Management Utilities ==========
@@ -2409,7 +2610,24 @@ def main():
         args.plot_validation_curves = True
         args.plot_illustrations = True
 
-    expanded_run_groups = expand_run_specs(args.runs, args.titles)
+    run_specs = args.runs or []
+    title_specs = args.titles or []
+    if run_specs and not title_specs:
+        title_specs = run_specs
+    if len(run_specs) != len(title_specs):
+        raise ValueError("Number of titles (--titles) must match number of runs (--runs).")
+
+    expanded_run_groups = expand_run_specs(run_specs, title_specs) if run_specs else []
+
+    snapshot_store = OrderedDict()
+    snapshot_path = Path(args.snapshot) if args.snapshot else None
+    snapshot_manifest = None
+    if snapshot_path is not None:
+        entries, snapshot_manifest = load_snapshot(snapshot_path)
+        if entries:
+            print(f"Loaded {len(entries)} snapshot entries from {snapshot_path}")
+        for title, payload in entries:
+            snapshot_store[title] = payload
 
     results_to_plot = []
     titles_to_plot = []
@@ -2446,26 +2664,90 @@ def main():
         print("=" * 60)
         return
 
+    serialized_entries_to_save = []
+    for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
+        # Check if result is already cached in snapshot
+        if name in snapshot_store:
+            print(f"✓ Using cached data for '{name}' from snapshot")
+            entry_payload = snapshot_store[name]
+            # Extract pytrees (snapshot already has them loaded)
+            cmb_pytree = entry_payload.get("cmb")
+            cl_pytree = entry_payload.get("cl")
+            r_pytree = entry_payload.get("r")
+            residual_pytree = entry_payload.get("residual", {})
+            plotting_data = entry_payload.get("plotting_data", {})
+        else:
+            print(f"Computing results for '{name}'...")
+            result = compute_results(name, group_results, nside, instrument, args, run_index)
+            if result is None:
+                continue
+            cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data = result
+            entry_payload = {
+                "cmb": cmb_pytree,
+                "cl": cl_pytree,
+                "r": r_pytree,
+                "residual": residual_pytree,
+                "plotting_data": plotting_data,
+            }
+            snapshot_store[name] = entry_payload
+            if snapshot_path is not None:
+                serializable_entry = {
+                    "cmb": _tree_to_numpy(cmb_pytree),
+                    "cl": _tree_to_numpy(cl_pytree),
+                    "r": _tree_to_numpy(r_pytree),
+                    "residual": _tree_to_numpy(residual_pytree),
+                    "plotting_data": _tree_to_numpy(plotting_data),
+                }
+                serialized_entries_to_save.append((name, serializable_entry))
+
+        # Generate individual plots if requested
+        needs_individual_plots = (
+            args.plot_illustrations
+            or args.plot_validation_curves
+            or args.plot_cmb_recon
+            or args.plot_cl_spectra
+            or args.plot_r_estimation
+        )
+        if needs_individual_plots:
+            plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args)
+
+        plt.close("all")
+
+    if snapshot_path is not None and serialized_entries_to_save:
+        if snapshot_manifest is None:
+            snapshot_manifest = {"version": SNAPSHOT_VERSION, "entries": []}
+        for title, serialized_payload in serialized_entries_to_save:
+            snapshot_manifest = save_snapshot_entry(
+                snapshot_path, snapshot_manifest, title, serialized_payload
+            )
+        write_snapshot_manifest(snapshot_path, snapshot_manifest)
+
     cmb_pytree_list = []
     cl_pytree_list = []
     r_pytree_list = []
     syst_map_list = []
     stat_map_list = []
     valid_titles = []
-    for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
-        result = plot_results(name, group_results, nside, instrument, args, run_index)
-        if result is None:
+    for title, payload in snapshot_store.items():
+        if not isinstance(payload, dict):
+            print(f"WARNING: Snapshot entry '{title}' has unexpected format, skipping.")
             continue
-        cmb_pytree, cl_pytree, r_pytree, residual_pytree = result
+        cmb_pytree = payload.get("cmb")
+        cl_pytree = payload.get("cl")
+        r_pytree = payload.get("r")
+        residual_pytree = payload.get("residual") or {}
+        if not isinstance(cmb_pytree, dict) or not isinstance(cl_pytree, dict) or not isinstance(r_pytree, dict):
+            print(f"WARNING: Snapshot entry '{title}' is missing required data, skipping.")
+            continue
+        valid_titles.append(title)
         cmb_pytree_list.append(cmb_pytree)
         cl_pytree_list.append(cl_pytree)
         r_pytree_list.append(r_pytree)
-        if residual_pytree["syst_map"] is not None:
-            syst_map_list.append(residual_pytree["syst_map"])
-        if residual_pytree["stat_maps"] is not None:
-            stat_map_list.append(residual_pytree["stat_maps"])
-        valid_titles.append(name)
-        plt.close("all")
+        if isinstance(residual_pytree, dict):
+            if residual_pytree.get("syst_map") is not None:
+                syst_map_list.append(residual_pytree["syst_map"])
+            if residual_pytree.get("stat_maps") is not None:
+                stat_map_list.append(residual_pytree["stat_maps"])
 
     if args.plot_illustrations:
         plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
