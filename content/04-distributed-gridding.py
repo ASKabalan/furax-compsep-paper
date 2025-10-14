@@ -228,11 +228,12 @@ def main():
 
     search_space = {
         "T_d_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
-        "B_d_patches": jnp.arange(5000, 10001, 1000),
+        "B_d_patches": jnp.arange(4000, 10001, 1000),
         "B_s_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
     }
 
-    search_space = jax.tree.map(lambda x: x[x < indices.size], search_space)
+    # Ensure we do not have more patches than pixels
+    search_space = jax.tree.map(lambda x: jnp.clip(x, 1, indices.size), search_space)
 
     max_count = {
         "beta_dust": np.max(np.array(search_space["B_d_patches"])),
