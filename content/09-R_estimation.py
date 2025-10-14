@@ -5,9 +5,10 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
 os.environ["EQX_ON_ERROR"] = "nan"
 
+import os
+import re
 import sys
 from functools import partial
-import os
 
 import camb
 import healpy as hp
@@ -29,8 +30,6 @@ from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from tqdm import tqdm
 
 sys.path.append("../data")
-import itertools
-
 import scienceplots  # noqa: F401
 from instruments import get_instrument
 
@@ -519,6 +518,7 @@ def compute_statistical_res(
 
     return cl_mean, res_stat
 
+
 def compute_total_res(s_hat, s_true, fsky, ell_range):
     """
     Compute average BB residual spectrum from multiple noisy realizations.
@@ -654,7 +654,7 @@ def params_to_maps(run_data, previous_mask_size):
     return params, patches, previous_mask_size
 
 
-def plot_params_patches(name, params, patches, plot_vertical=True):
+def plot_params_patches(name, params, patches, plot_vertical=False):
     """
     Plot parameter maps and their corresponding patch assignments.
 
@@ -940,6 +940,7 @@ def plot_all_variances(names, cmb_pytree_list):
 
     plt.tight_layout(pad=2.0)
     name = "_".join(names)
+    name = "all_metrics"
     plt.savefig(
         f"{out_folder}/metric_distributions_histogram_{name}.pdf", transparent=True, dpi=300
     )
@@ -959,32 +960,28 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         print("No results")
         return
 
-    cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
-    # cl_bb_true = cl_pytree_list[0]["cl_true"]
+    cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]  # C_ell for r=1
     ell_range = cl_pytree_list[0]["ell_range"]
-    cl_bb_lens = cl_pytree_list[0]["cl_bb_lens"]
-    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
+    cl_bb_lens = cl_pytree_list[0]["cl_bb_lens"]  # lensing C_ell
 
-    plt.plot(
+    # Shade the range r in [1e-3, 4e-3] for primordial C_ell^{BB}
+    r_lo, r_hi = 1e-3, 4e-3
+    plt.fill_between(
         ell_range,
-        cl_bb_r1 * coeff,
-        label=r"$C_\ell^{\mathrm{BB}}(r=1)$",
-        color="black",
-        linewidth=2,
+        r_lo * cl_bb_r1,
+        r_hi * cl_bb_r1,
+        color="grey",
+        alpha=0.35,
+        label=r"$C_\ell^{BB},\; r\in[10^{-3},\,4\cdot10^{-3}]$",
     )
-    # plt.plot(
-    #    ell_range,
-    #    cl_bb_true * coeff,
-    #    label=r"$C_\ell^{\mathrm{true}}$",
-    #    color="purple",
-    #    linestyle="--",
-    # )
+
+    # Plot lensing C_ell^{BB}
     plt.plot(
         ell_range,
-        cl_bb_lens * coeff,
-        label=r"$C_\ell^{\mathrm{lens}}$",
-        color="black",
-        linestyle=":",
+        cl_bb_lens,
+        label=r"$C_\ell^{BB}\,\mathrm{lens}$",
+        color="grey",
+        linestyle="-",
         linewidth=2,
     )
 
@@ -1006,25 +1003,19 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         else:
             color = colors[i % len(colors)]  # fallback to default colors
             linewidth = 1
-        # plt.plot(
-        #    ell_range,
-        #    cl_pytree["cl_bb_obs"] * coeff,
-        #    label=rf"{name} $C_\ell^{{\mathrm{{obs}}}}$",
-        #    color=color,
-        #    linestyle="-",
-        # )
+        # Observed or total BB curve (optional)
         if cl_pytree["cl_total_res"] is not None:
             plt.plot(
-            ell_range,
-            cl_pytree["cl_total_res"] * coeff,
-            label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
-            color=color,
-            linestyle="--",
+                ell_range,
+                cl_pytree["cl_total_res"],
+                label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$",
+                color=color,
+                linestyle="--",
             )
         if cl_pytree["cl_syst_res"] is not None:
             plt.plot(
                 ell_range,
-                cl_pytree["cl_syst_res"] * coeff,
+                cl_pytree["cl_syst_res"],
                 label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$",
                 color=color,
                 linestyle="-",
@@ -1033,7 +1024,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         if cl_pytree["cl_stat_res"] is not None:
             plt.plot(
                 ell_range,
-                cl_pytree["cl_stat_res"] * coeff,
+                cl_pytree["cl_stat_res"],
                 label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$",
                 color=color,
                 linestyle=":",
@@ -1042,7 +1033,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
 
     plt.title(None)
     plt.xlabel(r"Multipole $\ell$")
-    plt.ylabel(r"$D_\ell^{BB}$ [$\mu K^2$]")
+    plt.ylabel(r"$C_\ell^{BB}$ [$\mu K^2$]")
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True, which="both", ls="--", alpha=0.4)
@@ -1231,50 +1222,77 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         cmb_pytree_list (list): List of CMB data structures
         r_pytree_list (list): List of r estimation data
     """
-    # {clusters: {"name": name, "r_best": r_best , "color": color, "sigma_r_neg": sigma_r_neg, "sigma_r_pos": sigma_r_pos}}
+    # {clusters: {"name": name, "r_best": r_best , "sigma_r_neg": sigma_r_neg, "sigma_r_pos": sigma_r_pos, "total_clusters": total_clusters}}
     method_dict = {}
-    # {name: color}
-    colors = {}
-
-    color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+    base_patch_keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
+    other_patch_keys = [k for k in base_patch_keys if k != patch_key]
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         if r_data["r_best"] is None:
             print(f"WARNING: No r estimation for {name}, skipping plot.")
             continue
 
+        base_name = re.sub(r" \(\d+\)$", "", name)
+
         patches = cmb_pytree["patches_map"]
-        patch_data = patches[patch_key]
-        n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+        if patch_key == "total":
+            n_clusters = 0
+            for key in base_patch_keys:
+                patch_data = patches[key]
+                n_clusters += np.unique(patch_data[patch_data != hp.UNSEEN]).size
+            total_clusters = n_clusters
+        else:
+            patch_data = patches[patch_key]
+            n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+            total_clusters = n_clusters
+            for other_key in other_patch_keys:
+                other_patch_data = patches[other_key]
+                total_clusters += np.unique(other_patch_data[other_patch_data != hp.UNSEEN]).size
+
         if n_clusters in method_dict:
             existing_r_values = method_dict[n_clusters]["r_best"]
             if r_data["r_best"] > existing_r_values:
                 continue
 
-        if name not in colors:
-            color = next(color_cycle)
-            colors[name] = color
-
         method_dict[n_clusters] = {
-            "name": name,
+            "name": base_name,
             "r_best": r_data["r_best"],
-            "color": colors[name],
             "sigma_r_neg": r_data["sigma_r_neg"],
             "sigma_r_pos": r_data["sigma_r_pos"],
+            "total_clusters": total_clusters,
         }
 
     plt.figure(figsize=(8, 6))
     labeled_dict = []
-    for n_clusters, data in method_dict.items():
+
+    if len(method_dict) == 0:
+        print(f"WARNING: No valid data points for {patch_key} in r_vs_clusters plot.")
+        plt.close()
+        return
+
+    sorted_items = sorted(method_dict.items(), key=lambda item: item[0])
+    total_cluster_values = np.array([data["total_clusters"] for _, data in sorted_items])
+
+    total_min = float(total_cluster_values.min())
+    total_max = float(total_cluster_values.max())
+    if total_min == total_max:
+        total_min -= 0.5
+        total_max += 0.5
+
+    from matplotlib.colors import Normalize
+
+    cmap = plt.cm.viridis
+    norm = Normalize(vmin=total_min, vmax=total_max)
+
+    for (n_clusters, data), total_clusters in zip(sorted_items, total_cluster_values):
         name = data["name"]
         r_best = data["r_best"]
-        color = data["color"]
         sigma_r_neg = data["sigma_r_neg"]
         sigma_r_pos = data["sigma_r_pos"]
+        color = cmap(norm(total_clusters))
 
         if name not in labeled_dict:
             labeled_dict.append(name)
-            # Plot error bars for the best-fit r
             plt.errorbar(
                 n_clusters,
                 r_best,
@@ -1302,8 +1320,16 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.ylabel(r"Best-fit $r$")
     plt.title(f"Best-fit $r$ vs. Number of Clusters ({patch_name})")
     plt.ylim(-0.001, 0.01)
+    # True value reference line at r = 0
+    plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1, label="True r=0")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.set_label("Total Number of Clusters")
+
     plt.tight_layout()
 
     # Create filename based on patch parameter
@@ -1323,14 +1349,26 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
         cmb_pytree_list (list): List of CMB data structures
     """
     method_dict = {}
-    colors = {}
-
-    color_cycle = itertools.cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+    base_patch_keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
+    other_patch_keys = [k for k in base_patch_keys if k != patch_key]
 
     for name, cmb_pytree in zip(names, cmb_pytree_list):
+        base_name = re.sub(r" \(\d+\)$", "", name)
+
         patches = cmb_pytree["patches_map"]
-        patch_data = patches[patch_key]
-        n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+        if patch_key == "total":
+            n_clusters = 0
+            for key in base_patch_keys:
+                patch_data = patches[key]
+                n_clusters += np.unique(patch_data[patch_data != hp.UNSEEN]).size
+            total_clusters = n_clusters
+        else:
+            patch_data = patches[patch_key]
+            n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+            total_clusters = n_clusters
+            for other_key in other_patch_keys:
+                other_patch_data = patches[other_key]
+                total_clusters += np.unique(other_patch_data[other_patch_data != hp.UNSEEN]).size
 
         seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_pytree["cmb_recon"])
         cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_pytree["cmb_recon"], seen_mask)
@@ -1343,22 +1381,37 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
             if min_variance > existing_variance:
                 continue
 
-        if name not in colors:
-            color = next(color_cycle)
-            colors[name] = color
-
         method_dict[n_clusters] = {
-            "name": name,
+            "name": base_name,
             "variance": min_variance,
-            "color": colors[name],
+            "total_clusters": total_clusters,
         }
 
     plt.figure(figsize=(8, 6))
     labeled_dict = []
-    for n_clusters, data in method_dict.items():
+
+    if len(method_dict) == 0:
+        print(f"WARNING: No valid data points for {patch_key} in variance_vs_clusters plot.")
+        plt.close()
+        return
+
+    sorted_items = sorted(method_dict.items(), key=lambda item: item[0])
+    total_cluster_values = np.array([data["total_clusters"] for _, data in sorted_items])
+    total_min = float(total_cluster_values.min())
+    total_max = float(total_cluster_values.max())
+    if total_min == total_max:
+        total_min -= 0.5
+        total_max += 0.5
+
+    from matplotlib.colors import Normalize
+
+    cmap = plt.cm.viridis
+    norm = Normalize(vmin=total_min, vmax=total_max)
+
+    for (n_clusters, data), total_clusters in zip(sorted_items, total_cluster_values):
         name = data["name"]
         variance = data["variance"]
-        color = data["color"]
+        color = cmap(norm(total_clusters))
 
         if name not in labeled_dict:
             labeled_dict.append(name)
@@ -1386,38 +1439,171 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
     plt.title(f"Minimum Variance vs. Number of Clusters ({patch_name})")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.set_label("Total Number of Clusters")
+
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    plt.savefig(f"{out_folder}/variance_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300)
+    plt.savefig(
+        f"{out_folder}/variance_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300
+    )
     plt.close()
 
 
 def plot_variance_vs_clusters(names, cmb_pytree_list):
     """
-    Plot minimum variance values against the number of clusters for all three patch parameters.
-    Creates three separate plots saved as individual PDF files.
+    Plot minimum variance values against the number of clusters for each patch parameter and the total.
+    Creates four separate plots saved as individual PDF files.
     """
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
         ("$T_d$", "temp_dust_patches"),
         ("$\\beta_s$", "beta_pl_patches"),
+        ("Total", "total"),
     ]
 
     for patch_name, patch_key in patch_configs:
         _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list)
 
 
+def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list):
+    """
+    Create a variance vs r plot for a specific patch parameter or total clusters.
+
+    - X axis: minimum variance (Q + U)
+    - Y axis: best-fit r
+    - Color: number of clusters (darker = more clusters)
+    - Points sorted by variance (ascending)
+
+    Args:
+        patch_name (str): Display name for the patch parameter (e.g., "$\\beta_d$" or "Total")
+        patch_key (str): Key to access patch data (e.g., "beta_dust_patches") or "total" for sum
+        names (list): List of run names
+        cmb_pytree_list (list): List of CMB data structures
+        r_pytree_list (list): List of r estimation data
+    """
+    points = []  # (min_variance, r_best, n_clusters, sigma_r_neg, sigma_r_pos)
+    is_total = patch_key == "total"
+
+    for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
+        if r_data["r_best"] is None:
+            print(f"WARNING: No r estimation for {name}, skipping variance_vs_r point.")
+            continue
+
+        patches = cmb_pytree["patches_map"]
+
+        if is_total:
+            n_clusters = 0
+            for key in ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]:
+                patch_data = patches[key]
+                n_clusters += np.unique(patch_data[patch_data != hp.UNSEEN]).size
+        else:
+            patch_data = patches[patch_key]
+            n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
+
+        # Compute min variance across realisations for Q and U, summed
+        seen_mask = jax.tree.map(lambda x: jnp.all(x != hp.UNSEEN, axis=0), cmb_pytree["cmb_recon"])
+        cmb_map_seen = jax.tree.map(lambda x, m: x[:, m], cmb_pytree["cmb_recon"], seen_mask)
+        variance = jax.tree.map(lambda x: jnp.var(x, axis=1), cmb_map_seen)
+        variance = sum(jax.tree.leaves(variance))
+        min_variance = float(jnp.min(variance))
+
+        points.append(
+            (
+                min_variance,
+                float(r_data["r_best"]),
+                int(n_clusters),
+                float(r_data["sigma_r_neg"]),
+                float(r_data["sigma_r_pos"]),
+            )
+        )
+
+    if len(points) == 0:
+        print("WARNING: No valid data points for variance_vs_r plot.")
+        return
+
+    # Sort points by variance ascending
+    points.sort(key=lambda p: p[0])
+    variances = [p[0] for p in points]
+    r_values = [p[1] for p in points]
+    k_values = np.array([p[2] for p in points])
+    # Apply scaling by sqrt(N_realizations) to the r-error bars
+    sigma_r_neg = [p[3] for i, p in enumerate(points)]
+    sigma_r_pos = [p[4] for i, p in enumerate(points)]
+
+    plt.figure(figsize=(8, 6))
+
+    from matplotlib.colors import Normalize
+
+    cmap = plt.cm.viridis
+    norm = Normalize(vmin=k_values.min(), vmax=k_values.max())
+    colors = cmap(norm(k_values))
+
+    for i in range(len(variances)):
+        plt.errorbar(
+            variances[i],
+            r_values[i],
+            yerr=[[sigma_r_neg[i]], [sigma_r_pos[i]]],
+            fmt="o",
+            color=colors[i],
+            markeredgecolor="black",
+            markeredgewidth=0.8,
+            markersize=8,
+            capsize=3,
+            elinewidth=1.5,
+        )
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    if is_total:
+        cbar.set_label("Total Number of Clusters")
+    else:
+        cbar.set_label(f"Number of Clusters ({patch_name})")
+
+    plt.xlabel(r"Minimum Variance (Q + U)")
+    plt.ylabel(r"Best-fit $r$")
+    plt.ylim(-0.0005, 0.005)
+    plt.title(f"Variance vs $r$ ({patch_name})")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+
+    filename_suffix = "total" if is_total else patch_key.replace("_patches", "")
+    plt.savefig(f"{out_folder}/variance_vs_r_{filename_suffix}.pdf", transparent=True, dpi=300)
+    plt.close()
+
+
+def plot_variance_vs_r(names, cmb_pytree_list, r_pytree_list):
+    """
+    Plot variance vs r for all three patch parameters individually and combined.
+    Creates 4 plots total: one for each parameter and one with total clusters.
+    """
+    patch_configs = [
+        ("$\\beta_d$", "beta_dust_patches"),
+        ("$T_d$", "temp_dust_patches"),
+        ("$\\beta_s$", "beta_pl_patches"),
+        ("Total", "total"),
+    ]
+
+    for patch_name, patch_key in patch_configs:
+        _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list)
+
+
 def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
     """
-    Plot best-fit r values against the number of clusters for all three patch parameters.
-    Creates three separate plots saved as individual PDF files.
+    Plot best-fit r values against the number of clusters for each patch parameter and the total.
+    Creates four separate plots saved as individual PDF files.
     """
     # Create three separate plots for each patch parameter
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
         ("$T_d$", "temp_dust_patches"),
         ("$\\beta_s$", "beta_pl_patches"),
+        ("Total", "total"),
     ]
 
     for patch_name, patch_key in patch_configs:
@@ -1721,11 +1907,11 @@ def atomic_save_results(result_file, results_dict):
     """
     # Create backup of existing file
     if os.path.exists(result_file):
-        backup_file = result_file.replace('.npz', '.bk.npz')
+        backup_file = result_file.replace(".npz", ".bk.npz")
         os.rename(result_file, backup_file)
 
     # Write to temporary file first
-    temp_file = result_file.replace('.npz', '.tmp.npz')
+    temp_file = result_file.replace(".npz", ".tmp.npz")
     np.savez(temp_file, **results_dict)
 
     # Atomic rename to final location
@@ -1782,7 +1968,7 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
 
     run_data = index_run_data(run_data, run_index)
 
-    #cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
+    # cmb_true = Stokes.from_stokes(Q=best_params["I_CMB"][0], U=best_params["I_CMB"][1])
     fg_map = Stokes.from_stokes(Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1])
     cmb_recon = Stokes.from_stokes(Q=run_data["CMB_O"][:, 0], U=run_data["CMB_O"][:, 1])
 
@@ -1876,14 +2062,18 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     compute_stat = args.compute_residuals in ["all", "statistical"]
     compute_total = args.compute_residuals in ["all", "total"]
 
-
     if needs_residual_spectra or needs_residual_maps:
         compute_syst = True
         compute_stat = True
     if needs_r_estimation:
+        # Enable total residual computation for r estimation without forcing
+        # the expensive systematic/statistical residual computations.
         compute_total = True
-        compute_stat = True
-        compute_syst = True
+        compute_stat
+
+    print(
+        f"Compute systematic: {compute_syst}, statistical: {compute_stat}, total: {compute_total}"
+    )
 
     needs_camb = (
         args.plot_cl_spectra
@@ -2013,7 +2203,9 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
         cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
         print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
 
-    print(f"compute_total: {compute_total}, needs_r_estimation: {needs_r_estimation} s_true: {s_true is not None}")
+    print(
+        f"compute_total: {compute_total}, needs_r_estimation: {needs_r_estimation} s_true: {s_true is not None}"
+    )
 
     if compute_stat and compute_syst and syst_map is not None:
         print("Computing statistical residuals...")
@@ -2031,7 +2223,7 @@ def plot_results(name, filtered_results, nside, instrument, args, run_index=0):
     else:
         cl_total_res = None
 
-    if (args.plot_cmb_recon or args.plot_all):
+    if args.plot_cmb_recon or args.plot_all:
         if syst_map is not None:
             plot_systematic_residual_maps(name, syst_map)
         if stat_maps is not None:
@@ -2302,7 +2494,8 @@ def main():
     if args.plot_illustrations:
         plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
         plot_variance_vs_clusters(valid_titles, cmb_pytree_list)
-        plot_all_variances(valid_titles, cmb_pytree_list)
+        plot_variance_vs_r(valid_titles, cmb_pytree_list, r_pytree_list)
+        # plot_all_variances(valid_titles, cmb_pytree_list)
         plt.close("all")
     if args.plot_all_cmb_recon:
         plot_all_cmb(valid_titles, cmb_pytree_list)
