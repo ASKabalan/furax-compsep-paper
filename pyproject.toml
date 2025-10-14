@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "furax-compsep-paper"
+version = "0.1.0"
+description = "CMB component separation comparison: FURAX vs FGBuster"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+    {name = "FURAX Team"}
+]
+dependencies = [
+    "furax",
+    "jax-healpy",
+    "jax_hpc_profiler",
+    "jax-grid-search",
+    "jaxopt",
+    "fgbuster @ git+https://github.com/fgbuster/fgbuster@clusters",
+    "pre-commit",
+    "ipython",
+    "ipykernel",
+    "ipywidgets",
+    "camb",
+    "scienceplots",
+]
+
+[project.scripts]
+bench-bcp = "scripts.01_bench_bcp:main"
+bench-clusters = "scripts.01_bench_clusters:main"
+validation-model = "scripts.02_validation_model:main"
+noise-model = "scripts.03_noise_model:main"
+distributed-gridding = "scripts.04_distributed_gridding:main"
+ptep-model = "scripts.05_ptep_model:main"
+gibbs = "scripts.06_gibbs:main"
+single-patch = "scripts.07_single_patch:main"
+kmeans-model = "scripts.08_kmeans_model:main"
+
+[tool.setuptools]
+packages = ["src.r_analysis", "src.data", "scripts"]
+
+[tool.setuptools.package-dir]
+"src.r_analysis" = "src/r_analysis"
+"src.data" = "src/data"
+"scripts" = "scripts"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+fix = true
+include = ["*.py", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "E203",
+    "E731",
+    "E741",
+    "F722",  # conflicts with jaxtyping Array annotations
+    "E501",
+    "E402",  # module level import not at top of file
+]
