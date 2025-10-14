@@ -4,7 +4,7 @@
 # Run Benchmarks
 # =============================================================================
 sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=BENCH_BCP-N-a100 99-slurm_runner.slurm 01-bench_bcp.py -n 4 8 16 32 64 128 256 512 1024 -s -l
-sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=BENCH_CLUS-N-a100 99-slurm_runner.slurm 01-bench_clusters.py -n 32 64 128 256 512 -cl 10 20 50 100 200 500 1000 
+sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100 --job-name=BENCH_CLUS-N-a100 99-slurm_runner.slurm 01-bench_clusters.py -n 32 64 128 256 512 -cl 10 20 50 100 200 500 1000
 
 # =============================================================================
 # Validations models (with and without noise)

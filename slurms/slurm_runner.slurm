@@ -1,6 +1,6 @@
 #!/bin/bash
 ##############################################################################################################################
-# USAGE:sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100  
+# USAGE:sbatch --account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100
 ##############################################################################################################################
 #SBATCH --job-name=Likelihoods   # nom du job
 #SBATCH --cpus-per-task=8           # nombre de CPU par tache pour gpu_p5 (1/8 du noeud 8-GPU)
@@ -92,4 +92,3 @@ function slaunch() {
 set -x
 
 slaunch "$@"
-

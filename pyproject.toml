@@ -28,23 +28,21 @@ dependencies = [
 ]
 
 [project.scripts]
-bench-bcp = "scripts.01_bench_bcp:main"
-bench-clusters = "scripts.01_bench_clusters:main"
-validation-model = "scripts.02_validation_model:main"
-noise-model = "scripts.03_noise_model:main"
-distributed-gridding = "scripts.04_distributed_gridding:main"
-ptep-model = "scripts.05_ptep_model:main"
-gibbs = "scripts.06_gibbs:main"
-single-patch = "scripts.07_single_patch:main"
-kmeans-model = "scripts.08_kmeans_model:main"
+bench-bcp = "scripts.bench_bcp:main"
+bench-clusters = "scripts.bench_clusters:main"
+validation-model = "scripts.validation_model:main"
+noise-model = "scripts.noise_model:main"
+distributed-gridding = "scripts.distributed_gridding:main"
+ptep-model = "scripts.ptep_model:main"
+gibbs = "scripts.gibbs:main"
+single-patch = "scripts.single_patch:main"
+kmeans-model = "scripts.kmeans_model:main"
 
 [tool.setuptools]
-packages = ["src.r_analysis", "src.data", "scripts"]
+packages = {find = {where = ["."], include = ["src*", "scripts"]}}
 
-[tool.setuptools.package-dir]
-"src.r_analysis" = "src/r_analysis"
-"src.data" = "src/data"
-"scripts" = "scripts"
+[tool.setuptools.package-data]
+"src.data" = ["*.yaml", "masks/*"]
 
 [tool.ruff]
 target-version = "py311"
