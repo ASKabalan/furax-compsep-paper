@@ -2664,7 +2664,12 @@ def main():
         print("=" * 60)
         return
 
-    serialized_entries_to_save = []
+    stacked_titles = []
+    stacked_cmb = []
+    stacked_cl = []
+    stacked_r = []
+    stacked_syst = []
+    stacked_stat = []
     for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
         # Check if result is already cached in snapshot
         if name in snapshot_store:
@@ -2691,6 +2696,8 @@ def main():
             }
             snapshot_store[name] = entry_payload
             if snapshot_path is not None:
+                if snapshot_manifest is None:
+                    snapshot_manifest = {"version": SNAPSHOT_VERSION, "entries": []}
                 serializable_entry = {
                     "cmb": _tree_to_numpy(cmb_pytree),
                     "cl": _tree_to_numpy(cl_pytree),
@@ -2698,7 +2705,10 @@ def main():
                     "residual": _tree_to_numpy(residual_pytree),
                     "plotting_data": _tree_to_numpy(plotting_data),
                 }
-                serialized_entries_to_save.append((name, serializable_entry))
+                snapshot_manifest = save_snapshot_entry(
+                    snapshot_path, snapshot_manifest, name, serializable_entry
+                )
+                write_snapshot_manifest(snapshot_path, snapshot_manifest)
 
         # Generate individual plots if requested
         needs_individual_plots = (
@@ -2708,65 +2718,49 @@ def main():
             or args.plot_cl_spectra
             or args.plot_r_estimation
         )
-        if needs_individual_plots:
+        if needs_individual_plots and False:
             plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args)
 
         plt.close("all")
 
-    if snapshot_path is not None and serialized_entries_to_save:
-        if snapshot_manifest is None:
-            snapshot_manifest = {"version": SNAPSHOT_VERSION, "entries": []}
-        for title, serialized_payload in serialized_entries_to_save:
-            snapshot_manifest = save_snapshot_entry(
-                snapshot_path, snapshot_manifest, title, serialized_payload
-            )
-        write_snapshot_manifest(snapshot_path, snapshot_manifest)
+        payload_complete = (
+            isinstance(cmb_pytree, dict)
+            and isinstance(cl_pytree, dict)
+            and isinstance(r_pytree, dict)
+        )
+        if not payload_complete:
+            print(f"WARNING: Snapshot entry '{name}' is missing required data, skipping aggregation.")
+            continue
 
-    cmb_pytree_list = []
-    cl_pytree_list = []
-    r_pytree_list = []
-    syst_map_list = []
-    stat_map_list = []
-    valid_titles = []
-    for title, payload in snapshot_store.items():
-        if not isinstance(payload, dict):
-            print(f"WARNING: Snapshot entry '{title}' has unexpected format, skipping.")
-            continue
-        cmb_pytree = payload.get("cmb")
-        cl_pytree = payload.get("cl")
-        r_pytree = payload.get("r")
-        residual_pytree = payload.get("residual") or {}
-        if not isinstance(cmb_pytree, dict) or not isinstance(cl_pytree, dict) or not isinstance(r_pytree, dict):
-            print(f"WARNING: Snapshot entry '{title}' is missing required data, skipping.")
-            continue
-        valid_titles.append(title)
-        cmb_pytree_list.append(cmb_pytree)
-        cl_pytree_list.append(cl_pytree)
-        r_pytree_list.append(r_pytree)
+        stacked_titles.append(name)
+        stacked_cmb.append(cmb_pytree)
+        stacked_cl.append(cl_pytree)
+        stacked_r.append(r_pytree)
+
         if isinstance(residual_pytree, dict):
             if residual_pytree.get("syst_map") is not None:
-                syst_map_list.append(residual_pytree["syst_map"])
+                stacked_syst.append(residual_pytree["syst_map"])
             if residual_pytree.get("stat_maps") is not None:
-                stat_map_list.append(residual_pytree["stat_maps"])
+                stacked_stat.append(residual_pytree["stat_maps"])
 
-    if args.plot_illustrations:
-        plot_r_vs_clusters(valid_titles, cmb_pytree_list, r_pytree_list)
-        plot_variance_vs_clusters(valid_titles, cmb_pytree_list)
-        plot_variance_vs_r(valid_titles, cmb_pytree_list, r_pytree_list)
-        # plot_all_variances(valid_titles, cmb_pytree_list)
+    if args.plot_illustrations and stacked_titles:
+        plot_r_vs_clusters(stacked_titles, stacked_cmb, stacked_r)
+        plot_variance_vs_clusters(stacked_titles, stacked_cmb)
+        plot_variance_vs_r(stacked_titles, stacked_cmb, stacked_r)
+        # plot_all_variances(stacked_titles, stacked_cmb)
         plt.close("all")
-    if args.plot_all_cmb_recon:
-        plot_all_cmb(valid_titles, cmb_pytree_list)
+    if args.plot_all_cmb_recon and stacked_titles:
+        plot_all_cmb(stacked_titles, stacked_cmb)
         plt.close("all")
-    if args.plot_all_spectra:
-        plot_all_cl_residuals(valid_titles, cl_pytree_list)
-        if len(syst_map_list) > 0:
-            plot_all_systematic_residuals(valid_titles, syst_map_list)
-        if len(stat_map_list) > 0:
-            plot_all_statistical_residuals(valid_titles, stat_map_list)
+    if args.plot_all_spectra and stacked_titles:
+        plot_all_cl_residuals(stacked_titles, stacked_cl)
+        if len(stacked_syst) > 0:
+            plot_all_systematic_residuals(stacked_titles, stacked_syst)
+        if len(stacked_stat) > 0:
+            plot_all_statistical_residuals(stacked_titles, stacked_stat)
         plt.close("all")
-    if args.plot_all_r_estimation:
-        plot_all_r_estimation(valid_titles, r_pytree_list)
+    if args.plot_all_r_estimation and stacked_titles:
+        plot_all_r_estimation(stacked_titles, stacked_r)
         plt.close("all")
 
 
