@@ -53,6 +53,8 @@ from .residuals import (
 )
 from .run_management import expand_run_specs, matches_filter, parse_filter_kw
 from .utils import index_run_data, params_to_maps
+import scienceplots  # noqa: F401
+
 
 out_folder = "plots/"
 
@@ -557,6 +559,11 @@ def run_analysis():
     if args.plot_all_metrics and stacked_titles:
         plot_all_variances(stacked_titles, stacked_cmb)
         plt.close("all")
+
+
+def main():
+    """CLI entry point."""
+    run_analysis()
 
 
 if __name__ == "__main__":

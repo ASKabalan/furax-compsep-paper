@@ -17,7 +17,7 @@ from jax_grid_search import ProgressBar, optimize
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 
-def compute_w(nu, d, results, result_file, run_index=0):
+def compute_w(nu, d, results, result_file, run_index=0, max_iter=300):
     """Compute or load the foreground-only CMB reconstruction (W·d_fg)."""
     cache_key = f"W_D_FG_{run_index}"
     if results.get(cache_key) is not None and True:
@@ -64,7 +64,7 @@ def compute_w(nu, d, results, result_file, run_index=0):
             guess_params,
             negative_log_likelihood_fn,
             solver,
-            max_iter=300,
+            max_iter=max_iter,
             tol=1e-10,
             progress=p,
             progress_id=0,

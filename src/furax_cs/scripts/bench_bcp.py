@@ -167,7 +167,7 @@ def run_jax_negative_log_prob(
         jax_timer.chrono_fun(nll, best_params)
 
 
-def run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer):
+def run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100):
     """Run JAX-based negative log-likelihood."""
 
     print(f"Running Furax LBGS Comp sep nside={nside} ...")
@@ -197,7 +197,7 @@ def run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, 
             guess_params,
             nll,
             solver,
-            max_iter=100,
+            max_iter=max_iter,
             tol=1e-5,
         )
         return final_params["beta_pl"], final_params
@@ -313,6 +313,13 @@ def parse_args():
         action="store_true",
         help="Run the cache generation step",
     )
+    parser.add_argument(
+        "-mi",
+        "--max-iter",
+        type=int,
+        default=100,
+        help="Maximum number of optimization iterations for L-BFGS solver",
+    )
     return parser.parse_args()
 
 
@@ -376,7 +383,7 @@ def main():
             numpy_timer.report("runs/BCP_FGBUSTER.csv", **kwargs)
 
             # Run JAX LBFGS from Optax
-            run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer)
+            run_jax_lbfgs(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, args.max_iter)
             kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
             jax_timer.report("runs/BCP_FURAX.csv", **kwargs)
 

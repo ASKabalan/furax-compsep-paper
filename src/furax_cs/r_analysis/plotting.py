@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots
 from matplotlib.colors import Normalize
 
 plt.style.use("science")

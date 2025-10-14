@@ -1,7 +1,8 @@
 import healpy as hp
 import numpy as np
 from tqdm import tqdm
-from utils import expand_stokes
+
+from .utils import expand_stokes
 
 
 def compute_systematic_res(Wd_cmb, fsky, ell_range):

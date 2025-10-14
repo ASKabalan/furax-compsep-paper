@@ -87,6 +87,13 @@ def parse_args():
         default="LiteBIRD",
         choices=["LiteBIRD", "Planck"],
     )
+    parser.add_argument(
+        "-mi",
+        "--max-iter",
+        type=int,
+        default=200,
+        help="Maximum number of optimization iterations for L-BFGS solver",
+    )
     return parser.parse_args()
 
 
@@ -210,7 +217,7 @@ def main():
                 guess_params,
                 negative_log_likelihood_fn,
                 solver,
-                max_iter=200,
+                max_iter=args.max_iter,
                 tol=1e-10,
                 progress=progress_bar,
                 progress_id=noise_id,

@@ -89,6 +89,13 @@ def parse_args():
         action="store_true",
         help="Only generate best results",
     )
+    parser.add_argument(
+        "-mi",
+        "--max-iter",
+        type=int,
+        default=1000,
+        help="Maximum number of optimization iterations for L-BFGS solver",
+    )
     return parser.parse_args()
 
 
@@ -185,7 +192,7 @@ def main():
                 guess_params,
                 negative_log_likelihood_fn,
                 solver,
-                max_iter=1000,
+                max_iter=args.max_iter,
                 tol=1e-10,
                 # lower_bound=lower_bound_tree,
                 # upper_bound=upper_bound_tree,
