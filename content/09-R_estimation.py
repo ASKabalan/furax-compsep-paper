@@ -1263,7 +1263,6 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         }
 
     plt.figure(figsize=(8, 6))
-    labeled_dict = []
 
     if len(method_dict) == 0:
         print(f"WARNING: No valid data points for {patch_key} in r_vs_clusters plot.")
@@ -1284,46 +1283,37 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     cmap = plt.cm.viridis
     norm = Normalize(vmin=total_min, vmax=total_max)
 
+    cluster_points = []
+    r_plus_sigma_vals = []
+    color_vals = []
+
     for (n_clusters, data), total_clusters in zip(sorted_items, total_cluster_values):
-        name = data["name"]
         r_best = data["r_best"]
-        sigma_r_neg = data["sigma_r_neg"]
         sigma_r_pos = data["sigma_r_pos"]
         color = cmap(norm(total_clusters))
 
-        if name not in labeled_dict:
-            labeled_dict.append(name)
-            plt.errorbar(
-                n_clusters,
-                r_best,
-                yerr=[[sigma_r_neg], [sigma_r_pos]],
-                fmt="o",
-                label=name,
-                color=color,
-                capsize=5,
-                elinewidth=1,
-                markeredgewidth=1,
-            )
-        else:
-            plt.errorbar(
-                n_clusters,
-                r_best,
-                yerr=[[sigma_r_neg], [sigma_r_pos]],
-                fmt="o",
-                color=color,
-                capsize=5,
-                elinewidth=1,
-                markeredgewidth=1,
-            )
+        r_plus_sigma = r_best + sigma_r_pos
+
+        cluster_points.append(n_clusters)
+        r_plus_sigma_vals.append(r_plus_sigma)
+        color_vals.append(color)
+
+    plt.scatter(
+        cluster_points,
+        r_plus_sigma_vals,
+        c=color_vals,
+        s=100,
+        edgecolors="black",
+        linewidths=1,
+    )
 
     plt.xlabel(f"Number of Clusters ({patch_name})")
-    plt.ylabel(r"Best-fit $r$")
-    plt.title(f"Best-fit $r$ vs. Number of Clusters ({patch_name})")
+    plt.ylabel(r"$r + \sigma(r)$")
+    plt.title(r"$r + \sigma(r)$ vs. Number of Clusters" + f" ({patch_name})")
     plt.ylim(-0.001, 0.01)
     # True value reference line at r = 0
-    plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1, label="True r=0")
+    plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
-    plt.legend()
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
@@ -1388,7 +1378,6 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
         }
 
     plt.figure(figsize=(8, 6))
-    labeled_dict = []
 
     if len(method_dict) == 0:
         print(f"WARNING: No valid data points for {patch_key} in variance_vs_clusters plot.")
@@ -1409,36 +1398,22 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
     norm = Normalize(vmin=total_min, vmax=total_max)
 
     for (n_clusters, data), total_clusters in zip(sorted_items, total_cluster_values):
-        name = data["name"]
         variance = data["variance"]
         color = cmap(norm(total_clusters))
 
-        if name not in labeled_dict:
-            labeled_dict.append(name)
-            plt.scatter(
-                n_clusters,
-                variance,
-                label=name,
-                color=color,
-                s=100,
-                edgecolors="black",
-                linewidths=1,
-            )
-        else:
-            plt.scatter(
-                n_clusters,
-                variance,
-                color=color,
-                s=100,
-                edgecolors="black",
-                linewidths=1,
-            )
+        plt.scatter(
+            n_clusters,
+            variance,
+            color=color,
+            s=100,
+            edgecolors="black",
+            linewidths=1,
+        )
 
     plt.xlabel(f"Number of Clusters ({patch_name})")
     plt.ylabel(r"Minimum Variance (Q + U)")
     plt.title(f"Minimum Variance vs. Number of Clusters ({patch_name})")
     plt.grid(True, linestyle="--", alpha=0.6)
-    plt.legend()
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
@@ -1569,6 +1544,7 @@ def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.ylabel(r"Best-fit $r$")
     plt.ylim(-0.0005, 0.005)
     plt.title(f"Variance vs $r$ ({patch_name})")
+    plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
 
