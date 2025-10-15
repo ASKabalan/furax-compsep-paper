@@ -174,9 +174,8 @@ cython_debug/
 *.pkl
 runs/
 results*
-content/**/*.npz
-data/**/*.npz
-!data/masks/GAL_PlanckMasks_2048.npz
+src/furax_cs/data/**/*.npz
+!src/furax_cs/data/masks/GAL_PlanckMasks_2048.npz
 
 
 # LaTeX intermediate files
@@ -233,4 +232,6 @@ data/**/*.npz
 apssampNotes.bib
 
 # Custom
+.mplcache
 plots*
+publication*
