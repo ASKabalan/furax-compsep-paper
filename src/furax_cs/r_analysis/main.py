@@ -507,7 +507,7 @@ def run_analysis():
         print("=" * 60)
 
         for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
-            cache_expensive_computations(name, group_results, nside, instrument, run_index, force_recompute=args.force_cache)
+            cache_expensive_computations(name, group_results, nside, instrument, run_index, force_recompute=args.force_cache,max_iter=args.max_iterations)
 
         print("=" * 60)
         print("✓ Cache-only mode completed successfully!")
