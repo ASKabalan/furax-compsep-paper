@@ -160,6 +160,11 @@ def parse_args():
         help="Only compute and cache W_D_FG, skip all plotting",
     )
     parser.add_argument(
+        "--force-cache",
+        action="store_true",
+        help="Force recomputation of cached W_D_FG values (use with --cache-only)",
+    )
+    parser.add_argument(
         "-cr",
         "--compute-residuals",
         type=str,

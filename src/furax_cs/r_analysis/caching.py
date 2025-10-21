@@ -17,10 +17,33 @@ from jax_grid_search import ProgressBar, optimize
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 
-def compute_w(nu, d, results, result_file, run_index=0, max_iter=100):
-    """Compute or load the foreground-only CMB reconstruction (W·d_fg)."""
+def compute_w(nu, d, results, result_file, run_index=0, max_iter=100, force_recompute=False):
+    """Compute or load the foreground-only CMB reconstruction (W·d_fg).
+
+    Parameters
+    ----------
+    nu : array_like
+        Frequency array in GHz.
+    d : Stokes
+        Foreground-only frequency maps.
+    results : dict
+        Results dictionary potentially containing cached W_D_FG.
+    result_file : str
+        Path to results.npz file for saving cache.
+    run_index : int, optional
+        Noise realization index (default: 0).
+    max_iter : int, optional
+        Maximum L-BFGS iterations (default: 100).
+    force_recompute : bool, optional
+        Force recomputation even if cache exists (default: False).
+
+    Returns
+    -------
+    Stokes
+        Foreground-only CMB reconstruction (W·d_fg).
+    """
     cache_key = f"W_D_FG_{run_index}"
-    if results.get(cache_key) is not None and True:
+    if results.get(cache_key) is not None and not force_recompute:
         print(f"Using {cache_key} from results")
         W = results[cache_key]
         W = Stokes.from_stokes(Q=W[0], U=W[1])
@@ -138,8 +161,24 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     return run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map
 
 
-def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0):
-    """Materialise expensive W_D_FG caches for a group of runs."""
+def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0, force_recompute=False):
+    """Materialise expensive W_D_FG caches for a group of runs.
+
+    Parameters
+    ----------
+    name : str
+        Identifier for this run group.
+    filtered_results : list of str
+        List of result folder paths.
+    nside : int
+        HEALPix resolution parameter.
+    instrument : FGBusterInstrument
+        Instrument configuration.
+    run_index : int, optional
+        Noise realization index (default: 0).
+    force_recompute : bool, optional
+        Force recomputation even if cache exists (default: False).
+    """
     if len(filtered_results) == 0:
         print(f"No results found for {name}")
         return
@@ -149,9 +188,14 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
     for i, folder in enumerate(filtered_results):
         print(f"  Processing folder {i + 1}/{len(filtered_results)}: {folder}")
 
-        if check_cache_keys_exist(f"{folder}/results.npz", run_index):
+        cache_exists = check_cache_keys_exist(f"{folder}/results.npz", run_index)
+
+        if cache_exists and not force_recompute:
             print(f"    Cache already exists for index {run_index}, skipping...")
             continue
+
+        if cache_exists and force_recompute:
+            print(f"    Force recomputing cache for index {run_index}...")
 
         try:
             result = load_run_data_for_cache(folder, nside, instrument, run_index)
@@ -160,13 +204,15 @@ def cache_expensive_computations(name, filtered_results, nside, instrument, run_
 
             run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map = result
 
-            print("    Computing/caching W_D_FG...")
+            if not cache_exists:
+                print("    Computing/caching W_D_FG...")
             _ = compute_w(
                 instrument.frequency,
                 fg_map,
                 run_data,
                 result_file=f"{folder}/results.npz",
                 run_index=run_index,
+                force_recompute=force_recompute,
             )
 
             print(f"    ✓ Completed folder {folder}")

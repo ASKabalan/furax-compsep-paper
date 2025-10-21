@@ -500,11 +500,14 @@ def run_analysis():
 
     if args.cache_only:
         print("=" * 60)
-        print("CACHE-ONLY MODE: Computing and caching W_D_FG only")
+        mode = "FORCE RECOMPUTE" if args.force_cache else "CACHE-ONLY"
+        print(f"{mode} MODE: Computing and caching W_D_FG")
+        if args.force_cache:
+            print("WARNING: Existing cached values will be overwritten")
         print("=" * 60)
 
         for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
-            cache_expensive_computations(name, group_results, nside, instrument, run_index)
+            cache_expensive_computations(name, group_results, nside, instrument, run_index, force_recompute=args.force_cache)
 
         print("=" * 60)
         print("✓ Cache-only mode completed successfully!")
