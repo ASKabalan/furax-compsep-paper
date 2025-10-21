@@ -20,7 +20,8 @@
 \usepackage{wrapfig}
 \setlength{\intextsep}{6pt plus 2pt minus 2pt} % space above/below in-text floats
 \setlength{\columnsep}{12pt}                   % gap between text and figure
-
+\usepackage{graphicx}
+\usepackage{wrapfig}
 
 % ---------- Header / Footer ----------
 \newcommand{\soptitle}{Research Statement}
@@ -78,24 +79,25 @@ I am a PhD candidate in computational cosmology at the AstroParticule et Cosmolo
 % CMB
 % =========================
 \section*{CMB: Spatially Varying Component Separation}
-Primordial B-modes provide a decisive test of inflation and are summarized by the tensor-to-scalar ratio \(r\) \citep{Kamionkowski2016}. Constraints are increasingly limited by spatially varying Galactic foregrounds rather than instrument noise: dust and synchrotron spectra change across the sky; enforcing constant spectral parameters leaks power into large-scale B-modes and biases \(r\) \citep{Planck2018IV}.
+% (ensure these once in your preamble)
 
-This spatial variability challenges even modern parametric component-separation frameworks: assumptions of sky-constant (or coarse-region) spectral parameters can lead to leakage and bias when SEDs drift across the sky \citep{Planck2018IV,FGBusterASCL}. This motivates a spatially varying, parametric approach that is computationally tractable at survey scale and remains differentiable end-to-end, so we can search over many partitions and propagate uncertainties.
 
-I built a JAX-native component-separation pipeline by contributing to \textbf{FURAX}\wk{[WHAT TO CITE]} within the SciPol project\footnote{SciPol Project: \url{https://github.com/CMBSciPol}}. Foreground spectral parameters are modeled as spatially varying fields; we assign clustered, per-patch \((\beta_d, T_d, \beta_s)\) and fit them jointly across frequencies using GPU-accelerated L-BFGS from \textbf{Optax} \citep{Optax} in \textbf{JAX} \citep{Bradbury2018JAX}. Per-patch parameters are applied to pixels via mask-aware, vectorized JAX indexing on HEALPix maps, keeping the full path from parameters to cleaned CMB maps end-to-end differentiable. To capture spatial variation robustly, I generate candidate spherical clusterings on HEALPix~\citep{Gorski2005,healpy} grids with \textbf{jax-healpy}~\citep{jax-healpy} and run a vectorized sweep using \textbf{jax-grid-search}~\citep{jax-grid-search} to evaluate many clusterings, noise realizations, and sky regions in parallel—batched/sharded across GPUs so the procedure remains inside JAX and reproducible. I then select the partition that minimizes the variance of the cleaned CMB under the mask.
+Primordial B-modes provide a decisive test of inflation, summarized by the tensor-to-scalar ratio $r$ \citep{KamionkowskiKovetz2016}. Current limits are increasingly set by \emph{spatially varying} Galactic foregrounds rather than instrument noise: dust and synchrotron spectra drift across the sky, and enforcing sky-constant spectral parameters leaks power into large-scale $B$ modes and biases $r$ \citep{Planck2018IV}. This motivates a spatially varying, parametric approach that remains tractable at survey scale and fully differentiable, so we can scan many sky partitions and propagate uncertainties.
 
-FURAX follows and modernizes the parametric component-separation approach of \textbf{FGBuster}, replacing its core with a \textbf{JAX} backend; on identical configurations at moderate $n_{\rm side}$, we measure up to $\sim$200$\times$ speedups \citep{FGBusterASCL}.
-
-\begin{wrapfigure}[12]{r}{0.47\textwidth} % try 8–14 until it fits
-  \vspace{-25pt}
+\begin{wrapfigure}{r}{0.47\textwidth}
   \centering
-  \includegraphics[width=\linewidth]{figs/r_likelihood_distribution.pdf}
-  \caption{Posteriors for $r$ across partitionings. The selected spherical clustering shifts $\hat r$ toward the injected value and lowers low-$\ell$ residuals.}\label{fig:rposterior}
+  \includegraphics[width=\linewidth]{figs/r_vs_clusters_total.png} 
+  \vspace{-1.5\baselineskip}
+  \caption{\textbf{Partition scan reduces bias.} Repeated component separation on the same simulation across distinct spherical foreground clusterings. Each point is a different partition; the metric $r+\sigma(r)$ ranks solutions by bias and variance, and the dashed line marks unbiased recovery.}
+  \label{fig:r-vs-clusters}
+  \vspace{-1.2\baselineskip}
 \end{wrapfigure}
 
 
+I built a JAX-native parametric component-separation pipeline by contributing to \textsc{FURAX} \citep{FURAX}, authored \texttt{jax-grid-search} to orchestrate vectorized partition scans, and extended \texttt{jax-healpy} for the HEALPix map operations used in the analysis. Keeping map operations and likelihoods inside JAX lets gradients flow from patchwise spectral parameters $(\beta_d,T_d,\beta_s)$ to the cleaned CMB maps \citep{BradburyJAX2018}, and these parameters are fit jointly across frequencies with GPU-accelerated L-BFGS via Optax \citep{Optax2020}. Candidate spherical clusterings are generated on HEALPix grids \citep{Gorski2005,Zonca2019} and evaluated in parallel using \texttt{jax-grid-search} \citep{jax-grid-search}; each candidate yields a cleaned CMB map and the posterior for $r$, and we rank configurations by $r+\sigma(r)$ to select the least-biased solution (Fig.~\ref{fig:r-vs-clusters}). Relative to a traditional FGBuster-style loop, this JAX backend provides order-of-magnitude to $\sim 200\times$ speedups at matched settings \citep{FGBusterASCL}, which is what makes thousands of end-to-end partition trials feasible.
 
-On Simons Observatory– and LiteBIRD–like simulations \citep{SO2019,LiteBIRD2019} constructed with \textbf{PySM} (\texttt{c1d1s1}, spatially varying SEDs) \citep{PySM}, the data-selected partition lowers residual \(C_\ell^{BB}\) at low \(\ell\) and moves \(\hat r\) toward the injected value relative to uniform-parameter or fixed multi-\(n_{\text{side}}\) schemes. As seen in Fig.~\ref{fig:rposterior} (right), the posterior \(p(r\mid\text{data})\) centers nearer \(r_{\rm true}\) with comparable or tighter 68\% intervals.
+On Simons Observatory– and LiteBIRD–like simulations \citep{Ade2019,Hazumi2019} built with PySM scenes that include spatially varying SEDs \citep{Thorne2017}, the automated scan reliably chooses partitions with $\sim 3\times 10^{4}$ clusters, lowers low-$\ell$ residual $C_\ell^{BB}$, and moves $\hat r$ toward the injected value compared to uniform-parameter or fixed multi-$N_{\rm side}$ baselines (Fig.~\ref{fig:r-vs-clusters}).
+
 
 \newpage
 
