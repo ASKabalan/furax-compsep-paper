@@ -44,8 +44,8 @@ gibbs = "furax_cs.scripts.gibbs:main"
 single-patch = "furax_cs.scripts.single_patch:main"
 kmeans-model = "furax_cs.scripts.kmeans_model:main"
 r_analysis = "furax_cs.r_analysis.main:main"
-generate_data = "furax_cs.data.generate_maps:generate_needed_maps"
-
+generate_data = "furax_cs.data.generate_maps:main"
+generate_masks = "furax_cs.data.masks.downgrade:main"
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = {find = {where = ["src"], include = ["furax_cs*"]}}

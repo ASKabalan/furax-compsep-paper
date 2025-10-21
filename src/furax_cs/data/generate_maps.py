@@ -1,5 +1,6 @@
 # FGBUSTER IMPORTS
 
+import argparse
 import os
 import pickle
 from pathlib import Path
@@ -20,6 +21,25 @@ from furax.obs.operators import (
 
 
 def save_to_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    """Generate and cache frequency maps for component separation.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    noise : bool, optional
+        Whether to include noise in simulations (default: False).
+    instrument_name : str, optional
+        Instrument configuration name (default: "LiteBIRD").
+    sky : str, optional
+        Sky model preset string (e.g., "c1d0s0" for CMB only) (default: "c1d0s0").
+
+    Returns
+    -------
+    tuple
+        (frequencies, freq_maps) where frequencies are in GHz and freq_maps
+        have shape (n_freq, 3, n_pix) for Stokes I, Q, U.
+    """
     instrument = get_instrument(instrument_name)
     # Define cache file path
     cache_dir = "freq_maps_cache"
@@ -44,6 +64,29 @@ def save_to_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
 
 
 def load_from_cache(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    """Load cached frequency maps from disk.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    noise : bool, optional
+        Whether maps include noise (default: False).
+    instrument_name : str, optional
+        Instrument configuration name (default: "LiteBIRD").
+    sky : str, optional
+        Sky model preset string (default: "c1d0s0").
+
+    Returns
+    -------
+    tuple
+        (frequencies, freq_maps) loaded from cache.
+
+    Raises
+    ------
+    FileNotFoundError
+        If cache file does not exist.
+    """
     # Define cache file path
     instrument = get_instrument(instrument_name)
     noise_str = "noise" if noise else "no_noise"
@@ -72,17 +115,67 @@ def strip_cmb_tag(sky_string):
 
 
 def save_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    """Generate and cache foreground-only frequency maps (CMB excluded).
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    noise : bool, optional
+        Whether to include noise (default: False).
+    instrument_name : str, optional
+        Instrument configuration name (default: "LiteBIRD").
+    sky : str, optional
+        Sky model preset string, CMB component automatically removed (default: "c1d0s0").
+
+    Returns
+    -------
+    tuple
+        (frequencies, freq_maps) containing only foreground contributions.
+    """
     print(f"Generating fg map for nside {nside}, noise {noise}, instrument {instrument_name}")
     stripped_sky = strip_cmb_tag(sky)
     return save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
 
 def load_fg_map(nside, noise=False, instrument_name="LiteBIRD", sky="c1d0s0"):
+    """Load cached foreground-only frequency maps.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    noise : bool, optional
+        Whether maps include noise (default: False).
+    instrument_name : str, optional
+        Instrument configuration name (default: "LiteBIRD").
+    sky : str, optional
+        Sky model preset string, CMB automatically excluded (default: "c1d0s0").
+
+    Returns
+    -------
+    tuple
+        (frequencies, freq_maps) containing only foreground contributions.
+    """
     stripped_sky = strip_cmb_tag(sky)
     return load_from_cache(nside, noise=noise, instrument_name=instrument_name, sky=stripped_sky)
 
 
 def save_cmb_map(nside, sky="c1d0s0"):
+    """Generate and cache CMB-only maps for template generation.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    sky : str, optional
+        Sky model preset string (default: "c1d0s0").
+
+    Returns
+    -------
+    ndarray
+        CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
+    """
     print(f"Generating CMB map for nside {nside}, sky {sky}")
     # Define cache file path
     cache_dir = "freq_maps_cache"
@@ -109,6 +202,25 @@ def save_cmb_map(nside, sky="c1d0s0"):
 
 
 def load_cmb_map(nside, sky="c1d0s0"):
+    """Load cached CMB-only maps.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    sky : str, optional
+        Sky model preset string (default: "c1d0s0").
+
+    Returns
+    -------
+    ndarray
+        CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
+
+    Raises
+    ------
+    FileNotFoundError
+        If cache file does not exist.
+    """
     # Define cache file path
     cache_dir = "freq_maps_cache"
     preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
@@ -147,6 +259,28 @@ def load_cmb_map(nside, sky="c1d0s0"):
 
 
 def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+    """Construct mixing matrix operators for CMB and foregrounds.
+
+    Parameters
+    ----------
+    params : dict
+        Spectral parameters (temp_dust, beta_dust, beta_pl).
+    patch_indices : dict
+        Patch assignment indices for each parameter.
+    nu : array_like
+        Frequency array in GHz.
+    sky : dict
+        Sky component dictionary from FURAX.
+    dust_nu0 : float
+        Dust reference frequency in GHz.
+    synchrotron_nu0 : float
+        Synchrotron reference frequency in GHz.
+
+    Returns
+    -------
+    tuple
+        (MixingMatrixOperator with CMB, MixingMatrixOperator without CMB).
+    """
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
     in_structure = first_element.structure_for((size,))
@@ -175,6 +309,28 @@ def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrot
 
 
 def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+    """Simulate observed frequency maps given spectral parameters.
+
+    Parameters
+    ----------
+    params : dict
+        Spectral parameters (temp_dust, beta_dust, beta_pl).
+    patch_indices : dict
+        Patch assignment indices for each parameter.
+    nu : array_like
+        Frequency array in GHz.
+    sky : dict
+        Sky component dictionary.
+    dust_nu0 : float
+        Dust reference frequency in GHz.
+    synchrotron_nu0 : float
+        Synchrotron reference frequency in GHz.
+
+    Returns
+    -------
+    tuple
+        (d, d_nocmb) where d includes CMB and d_nocmb excludes it.
+    """
     A, A_nocmb = get_mixin_matrix_operator(
         params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
     )
@@ -201,8 +357,33 @@ MASK_CHOICES = [
 
 
 def get_mask(mask_name="GAL020", nside=64):
-    current_dir = Path(__file__).parent
-    masks_file = f"{current_dir}/masks/GAL_PlanckMasks_{nside}.npz"
+    """Load and process galactic masks at specified resolution.
+
+    Parameters
+    ----------
+    mask_name : str, optional
+        Mask identifier (e.g., "GAL020", "GAL040", "GALACTIC") (default: "GAL020").
+    nside : int, optional
+        HEALPix resolution parameter (default: 64).
+
+    Returns
+    -------
+    ndarray
+        Boolean mask array where True indicates observed pixels.
+
+    Raises
+    ------
+    FileNotFoundError
+        If mask file for given nside does not exist.
+    ValueError
+        If mask_name is invalid.
+
+    Notes
+    -----
+    Available mask choices: ALL, GALACTIC, GAL020, GAL040, GAL060, and
+    their _U (upper) and _L (lower) hemisphere variants.
+    """
+    masks_file = f"masks/GAL_PlanckMasks_{nside}.npz"
 
     try:
         masks = np.load(masks_file)
@@ -262,17 +443,97 @@ def get_mask(mask_name="GAL020", nside=64):
     return zones[mask_name]
 
 
-def generate_needed_maps():
-    for nside in [4, 8, 32, 64, 128]:
-        for noise in [True, False]:
-            instrument_name = "LiteBIRD"
-            for sky in [
-                "c1d0s0",
-                "c1d1s1",
-            ]:
+def generate_needed_maps(nside_list=None, noise_list=None, instrument_name="LiteBIRD", sky_list=None):
+    """Batch generate and cache all required frequency maps.
+
+    Parameters
+    ----------
+    nside_list : list of int, optional
+        HEALPix resolutions to generate (default: [4, 8, 32, 64, 128]).
+    noise_list : list of bool, optional
+        Noise configurations (default: [True, False]).
+    instrument_name : str, optional
+        Instrument configuration (default: "LiteBIRD").
+    sky_list : list of str, optional
+        Sky model presets (default: ["c1d0s0", "c1d1s1"]).
+
+    Notes
+    -----
+    Generates full frequency maps, foreground-only maps, and CMB-only maps
+    for all combinations of input parameters.
+    """
+    if nside_list is None:
+        nside_list = [4, 8, 32, 64, 128]
+    if noise_list is None:
+        noise_list = [True, False]
+    if sky_list is None:
+        sky_list = ["c1d0s0", "c1d1s1"]
+
+    for nside in nside_list:
+        for noise in noise_list:
+            for sky in sky_list:
                 save_to_cache(nside, noise=noise, instrument_name=instrument_name, sky=sky)
 
-    save_fg_map(64, noise=False, instrument_name="LiteBIRD", sky="c1d1s1")
-    save_cmb_map(64, sky="c1d1s1")
-    save_fg_map(64, noise=False, instrument_name="LiteBIRD", sky="c1d0s0")
-    save_cmb_map(64, sky="c1d0s0")
+    for sky in sky_list:
+        for nside in nside_list:
+            save_fg_map(nside, noise=False, instrument_name=instrument_name, sky=sky)
+            save_cmb_map(nside, sky=sky)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate cached frequency maps for CMB component separation"
+    )
+    parser.add_argument(
+        "--nside",
+        type=int,
+        nargs="+",
+        default=[4, 8, 32, 64, 128],
+        help="HEALPix resolution(s) to generate maps for (default: 4 8 32 64 128)",
+    )
+    parser.add_argument(
+        "--noise",
+        action="store_true",
+        help="Generate only noise simulations (default: generate both noise and no-noise)",
+    )
+    parser.add_argument(
+        "--no-noise",
+        action="store_true",
+        help="Generate only no-noise simulations (default: generate both noise and no-noise)",
+    )
+    parser.add_argument(
+        "--instrument",
+        type=str,
+        default="LiteBIRD",
+        help="Instrument name (default: LiteBIRD)",
+    )
+    parser.add_argument(
+        "--sky",
+        type=str,
+        nargs="+",
+        default=["c1d0s0", "c1d1s1"],
+        help="Sky model tag(s) (default: c1d0s0 c1d1s1)",
+    )
+
+    args = parser.parse_args()
+
+    if args.noise and args.no_noise:
+        parser.error("Cannot specify both --noise and --no-noise")
+
+    if args.noise:
+        noise_list = [True]
+    elif args.no_noise:
+        noise_list = [False]
+    else:
+        noise_list = [True, False]
+
+    generate_needed_maps(
+        nside_list=args.nside,
+        noise_list=noise_list,
+        instrument_name=args.instrument,
+        sky_list=args.sky,
+    )
+
+
+if __name__ == "__main__":
+    main()

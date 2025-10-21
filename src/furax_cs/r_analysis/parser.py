@@ -2,6 +2,14 @@ import argparse
 
 
 def parse_args():
+    """Parse command-line arguments for the r_analysis tool.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments with fields controlling input data,
+        computation options, and plotting behavior.
+    """
     parser = argparse.ArgumentParser(
         description="Benchmark FGBuster and Furax Component Separation Methods"
     )
@@ -156,12 +164,32 @@ def parse_args():
         "--compute-residuals",
         type=str,
         choices=["all", "total", "statistical", "systematic", "none"],
-        default="none",
+        default="all",
         help="Which residuals to compute: all, total, statistical, systematic, or none",
     )
     parser.add_argument(
         "--snapshot",
         type=str,
         help="Directory to save snapshot data for incremental plotting",
+    )
+    parser.add_argument(
+        "-ird",
+        "--input-results-dir",
+        type=str,
+        default="results",
+        help="Directory where results are stored",
+    )
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        choices=["png", "pdf", "show"],
+        default="png",
+        help="Output format for plots: png (save as PNG), pdf (save as PDF), or show (display inline)",
+    )
+    parser.add_argument(
+        "-mi",
+        "--max-iterations",
+        type=int,
+        default=100,
     )
     return parser.parse_args()

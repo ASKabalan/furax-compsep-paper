@@ -24,6 +24,24 @@ plt.rcParams.update(
     }
 )
 
+_OUTPUT_FORMAT = "png"
+
+
+def set_output_format(output_format):
+    """Set global output format for all plotting functions."""
+    global _OUTPUT_FORMAT
+    _OUTPUT_FORMAT = output_format
+
+
+def save_or_show(filename):
+    """Save figure to file or show inline based on output format."""
+    if _OUTPUT_FORMAT == "show":
+        plt.show()
+    else:
+        ext = "pdf" if _OUTPUT_FORMAT == "pdf" else "png"
+        dpi = 300 if ext == "png" else None
+        plt.savefig(f"{out_folder}/{filename}.{ext}", dpi=dpi, bbox_inches="tight")
+
 
 def get_min_variance(cmb_map):
     """Select the realization with minimum variance across Q/U components."""
@@ -70,7 +88,7 @@ def plot_params(name, params, plot_vertical=False):
             )
 
         plt.tight_layout()
-        plt.savefig(f"{out_folder}/params_{name}.pdf", transparent=True, dpi=1200)
+        save_or_show(f"params_{name}")
         params_dict = {
             "beta_dust": params["beta_dust"],
             "temp_dust": params["temp_dust"],
@@ -132,7 +150,7 @@ def plot_patches(name, patches, plot_vertical=False):
                 cbar=True,
             )
         plt.tight_layout()
-        plt.savefig(f"{out_folder}/patches_{name}.pdf", transparent=True, dpi=1200)
+        save_or_show(f"patches_{name}")
 
 
 def plot_validation_curves(name, updates_history, value_history):
@@ -174,7 +192,7 @@ def plot_validation_curves(name, updates_history, value_history):
         axs[i, 1].legend()
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/validation_curves_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"validation_curves_{name}")
 
 
 def plot_all_cmb(names, cmb_pytree_list):
@@ -225,7 +243,7 @@ def plot_all_cmb(names, cmb_pytree_list):
 
     plt.tight_layout()
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"cmb_recon_{name}")
 
 
 def plot_all_variances(names, cmb_pytree_list):
@@ -283,9 +301,7 @@ def plot_all_variances(names, cmb_pytree_list):
     plt.tight_layout(pad=2.0)
     name = "_".join(names)
     name = "all_metrics"
-    plt.savefig(
-        f"{out_folder}/metric_distributions_histogram_{name}.pdf", transparent=True, dpi=300
-    )
+    save_or_show(f"metric_distributions_histogram_{name}")
 
 
 def plot_all_cl_residuals(names, cl_pytree_list):
@@ -372,7 +388,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.legend(fontsize="small", ncol=2)
     plt.tight_layout()
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"bb_spectra_{name}")
 
 
 def plot_all_systematic_residuals(names, syst_map_list):
@@ -414,7 +430,7 @@ def plot_all_systematic_residuals(names, syst_map_list):
 
     plt.tight_layout()
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/all_systematic_residuals_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"all_systematic_residuals_{name}")
 
 
 def plot_all_statistical_residuals(names, stat_map_list):
@@ -458,7 +474,7 @@ def plot_all_statistical_residuals(names, stat_map_list):
 
     plt.tight_layout()
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/all_statistical_residuals_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"all_statistical_residuals_{name}")
 
 
 def plot_all_r_estimation(names, r_pytree_list):
@@ -512,7 +528,7 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.legend(fontsize="medium")
     plt.tight_layout()
     name = "_".join(names)
-    plt.savefig(f"{out_folder}/r_likelihood_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"r_likelihood_{name}")
 
 
 def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list):
@@ -614,7 +630,7 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    plt.savefig(f"{out_folder}/r_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300)
+    save_or_show(f"r_vs_clusters_{filename_suffix}")
     plt.close()
 
 
@@ -703,9 +719,7 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    plt.savefig(
-        f"{out_folder}/variance_vs_clusters_{filename_suffix}.pdf", transparent=True, dpi=300
-    )
+    save_or_show(f"variance_vs_clusters_{filename_suffix}")
     plt.close()
 
 
@@ -807,7 +821,7 @@ def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.tight_layout()
 
     filename_suffix = "total" if is_total else patch_key.replace("_patches", "")
-    plt.savefig(f"{out_folder}/variance_vs_r_{filename_suffix}.pdf", transparent=True, dpi=300)
+    save_or_show(f"variance_vs_r_{filename_suffix}")
     plt.close()
 
 
@@ -869,7 +883,7 @@ def plot_systematic_residual_maps(name, syst_map):
     )
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/systematic_residual_maps_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"systematic_residual_maps_{name}")
 
 
 def plot_statistical_residual_maps(name, stat_maps):
@@ -906,7 +920,7 @@ def plot_statistical_residual_maps(name, stat_maps):
     )
 
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/statistical_residual_maps_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"statistical_residual_maps_{name}")
 
 
 def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
@@ -965,7 +979,7 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
     )
     plt.title(f"{name} CMB Reconstruction")
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/cmb_recon_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"cmb_recon_{name}")
 
 
 def plot_cl_residuals(
@@ -1014,7 +1028,7 @@ def plot_cl_residuals(
     plt.grid(True, which="both", ls="--", alpha=0.4)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{out_folder}/bb_spectra_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"bb_spectra_{name}")
 
 
 def plot_r_estimator(
@@ -1055,6 +1069,6 @@ def plot_r_estimator(
     plt.legend()
     plt.tight_layout()
 
-    plt.savefig(f"{out_folder}/r_likelihood_{name}.pdf", transparent=True, dpi=1200)
+    save_or_show(f"r_likelihood_{name}")
 
     print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")

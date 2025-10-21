@@ -44,6 +44,7 @@ from .plotting import (
     plot_validation_curves,
     plot_variance_vs_clusters,
     plot_variance_vs_r,
+    set_output_format,
 )
 from .r_estimate import estimate_r, get_camb_templates
 from .residuals import (
@@ -61,7 +62,29 @@ out_folder = "plots/"
 
 
 def compute_results(name, filtered_results, nside, instrument, args, run_index=0):
-    """Aggregate intermediate products needed for plotting a run group."""
+    """Aggregate intermediate products needed for plotting a run group.
+
+    Parameters
+    ----------
+    name : str
+        Identifier for this run group.
+    filtered_results : list of str
+        List of result folder paths matching the run specification.
+    nside : int
+        HEALPix resolution parameter.
+    instrument : FGBusterInstrument
+        Instrument configuration object.
+    args : argparse.Namespace
+        Command-line arguments controlling which computations to perform.
+    run_index : int, optional
+        Index of the noise realization to analyze (default: 0).
+
+    Returns
+    -------
+    tuple or None
+        (cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data) if successful,
+        None if no valid data found.
+    """
     if len(filtered_results) == 0:
         print("No results")
         return
@@ -158,16 +181,17 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
                 run_data,
                 result_file=f"{folder}/results.npz",
                 run_index=run_index,
+                max_iter=args.max_iterations,
             )
         else:
             wd = None
 
-        if args.plot_illustrations or args.plot_params or args.plot_patches:
+        if args.plot_illustrations or args.plot_params or args.plot_patches or args.plot_all:
             params, patches, previous_mask_size = params_to_maps(run_data, previous_mask_size)
             params_list.append(params)
             patches_list.append(patches)
 
-        if args.plot_validation_curves:
+        if args.plot_validation_curves or args.plot_all or args.plot_all_metrics:
             updates_history.append(run_data["update_history"][..., 0])
             value_history.append(run_data["update_history"][..., 1])
 
@@ -207,6 +231,9 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
             "temp_dust_patches": np.zeros(hp.nside2npix(nside)),
             "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
         }
+    
+    print(f"patches map keys: {list(patches_map.keys())}")
+    print(patches_map["beta_dust_patches"])
 
     needs_sky = compute_syst or compute_stat or compute_total
     if needs_sky:
@@ -306,7 +333,25 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
 
 
 def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data, args):
-    """Generate per-run plots according to CLI flags."""
+    """Generate per-run plots according to CLI flags.
+
+    Parameters
+    ----------
+    name : str
+        Run identifier for labeling plots.
+    cmb_pytree : dict
+        CMB reconstruction data (cmb, cmb_recon, patches_map, etc.).
+    cl_pytree : dict
+        Power spectra data (cl_bb_r1, cl_syst_res, cl_total_res, etc.).
+    r_pytree : dict
+        Tensor-to-scalar ratio estimation data (r_best, sigma_r_neg, sigma_r_pos, etc.).
+    residual_pytree : dict
+        Residual map data (syst_map, stat_maps).
+    plotting_data : dict
+        Additional plotting data (params_map, updates_history, value_history).
+    args : argparse.Namespace
+        Command-line arguments controlling which plots to generate.
+    """
     cmb_stokes = cmb_pytree["cmb"]
     combined_cmb_recon = cmb_pytree["cmb_recon"]
     patches_map = cmb_pytree["patches_map"]
@@ -334,15 +379,15 @@ def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plottin
     updates_history = plotting_data.get("updates_history")
     value_history = plotting_data.get("value_history")
 
-    if args.plot_params and params_map is not None:
+    if (args.plot_params or args.plot_all) and params_map is not None:
         plot_params(name, params_map)
-    if args.plot_patches and patches_map is not None:
+    if (args.plot_patches or args.plot_all) and patches_map is not None:
         plot_patches(name, patches_map)
 
-    if args.plot_validation_curves and updates_history is not None:
+    if (args.plot_validation_curves or args.plot_all) and updates_history is not None:
         plot_validation_curves(name, updates_history, value_history)
 
-    if args.plot_cmb_recon:
+    if (args.plot_cmb_recon or args.plot_all) and cmb_stokes is not None and combined_cmb_recon is not None:
         plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
 
     if (args.plot_systematic_maps or args.plot_all) and syst_map is not None:
@@ -377,19 +422,32 @@ def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plottin
 
 
 def run_analysis():
-    """Entry point for the r_analysis CLI driver."""
+    """Entry point for the r_analysis CLI driver.
+
+    This function orchestrates the complete analysis pipeline:
+    1. Loads component separation results from disk.
+    2. Filters results based on user-specified run specifications.
+    3. Computes systematic and statistical residuals, power spectra, and r estimates.
+    4. Generates individual and aggregate plots.
+    5. Optionally caches expensive computations or saves snapshots.
+
+    The analysis flow is controlled by command-line arguments parsed via :func:`parse_args`.
+    """
 
     args = parse_args()
+    set_output_format(args.output_format)
     nside = args.nside
     instrument = get_instrument(args.instrument)
     # get name of current folder
-    folder_name = os.path.dirname(os.path.abspath(__file__))
-    result_folder = f"{folder_name}/../results/"
+    result_folder = args.input_results_dir
+    if not os.path.exists(result_folder):
+        raise ValueError(f"Results folder '{result_folder}' does not exist.")
     print("Loading data...")
     results = os.listdir(result_folder)
     results_kw = {name: name.split("_") for name in results}
 
-    os.makedirs(out_folder, exist_ok=True)
+    if args.output_format != "show":
+        os.makedirs(out_folder, exist_ok=True)
 
     if args.plot_all:
         args.plot_cmb_recon = True
@@ -565,7 +623,11 @@ def run_analysis():
 
 
 def main():
-    """CLI entry point."""
+    """CLI entry point for the r_analysis tool.
+
+    This is the primary entry point registered as the ``r_analysis`` console script
+    in pyproject.toml. It simply invokes :func:`run_analysis`.
+    """
     run_analysis()
 
 

@@ -33,10 +33,38 @@ jax.config.update("jax_enable_x64", True)
 
 
 def filter_constant_param(input_dict, indx):
+    """Extract parameter values at a specific index from nested dict.
+
+    Parameters
+    ----------
+    input_dict : dict
+        Nested dictionary with array values.
+    indx : int
+        Index to extract from each array.
+
+    Returns
+    -------
+    dict
+        Dictionary with same structure but scalar or reduced-dimension values.
+    """
     return jax.tree.map(lambda x: x[indx], input_dict)
 
 
 def sort_results(results, key):
+    """Sort all arrays in results dictionary by values of a specific key.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary of result arrays.
+    key : str
+        Key whose values define the sort order.
+
+    Returns
+    -------
+    dict
+        Sorted results dictionary.
+    """
     indices = np.argsort(results[key])
     return jax.tree.map(lambda x: x[indices], results)
 
@@ -215,6 +243,17 @@ def plot_healpix_projection_with_noise(mask, nside, results, best_params, out_fo
 
 
 def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
+    """Plot CMB variance and NLL vs number of dust index patches.
+
+    Parameters
+    ----------
+    results : dict
+        Grid search results dictionary.
+    best_params : dict
+        Best parameter configuration.
+    out_folder : str
+        Output directory for saving plots.
+    """
     sns.set_context("paper")
     # Extract values from the grid search results
     B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
@@ -293,6 +332,21 @@ def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
 
 
 def plot_healpix_projection(mask, nside, results, best_params, out_folder):
+    """Project best beta_dust parameters onto full HEALPix sky.
+
+    Parameters
+    ----------
+    mask : ndarray
+        Boolean sky mask.
+    nside : int
+        HEALPix resolution parameter.
+    results : dict
+        Grid search results.
+    best_params : dict
+        Best parameter configuration.
+    out_folder : str
+        Output directory path.
+    """
     sns.set_context("paper")
 
     (indices,) = jnp.where(mask == 1)
@@ -323,7 +377,8 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
 def plot_grid_search_results(
     results, out_folder, best_metric="value", nb_best=9, plot_style="errorbars", noise_runs=50
 ):
-    """
+    """Visualize grid search results for best (T_d, B_s) combinations.
+
     1) Select the nb_best combos by the chosen best_metric ('value' or 'NLL').
     2) Plot them in a grid (3 columns x enough rows), each cell split into two panels:
        - Top: 'value' vs. B_d
