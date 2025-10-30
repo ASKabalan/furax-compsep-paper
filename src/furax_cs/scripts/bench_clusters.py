@@ -33,7 +33,7 @@ from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 jax.config.update("jax_enable_x64", True)
 
 
-def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer):
+def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer, max_iter):
     print(f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}...")
 
     d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
@@ -41,7 +41,7 @@ def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, nu
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 1000
+    max_centroids = cluster_count
 
     temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -62,8 +62,8 @@ def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, nu
     freq_maps_fg = jnp.stack([d.q, d.u], axis=1)
 
     bounds = [(0.0, 5.0), (10.0, 40), (-6.0, 0.0)]
-    tol = 1e-18
-    options = {"disp": False, "gtol": tol, "eps": tol, "maxiter": 10000, "tol": tol}
+    tol = 1e-6
+    options = {"disp": False, "gtol": tol, "eps": tol, "maxiter": max_iter, "tol": tol}
     method = "TNC"
     instrument = get_instrument("LiteBIRD")
 
@@ -106,7 +106,7 @@ def run_jax_lbfgs(
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 1000
+    max_centroids = cluster_count
 
     temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -142,7 +142,7 @@ def run_jax_lbfgs(
             nll,
             solver,
             max_iter=max_iter,
-            tol=1e-5,
+            tol=1e-6,
         )
         return final_params["beta_pl"], final_params
 
@@ -166,6 +166,7 @@ def run_jax_tnc(
     dust_nu0,
     synchrotron_nu0,
     numpy_timer,
+    max_iter,
 ):
     """Run JAX-based negative log-likelihood."""
 
@@ -189,7 +190,7 @@ def run_jax_tnc(
     mask = jnp.ones_like(d.q[0]).astype(jnp.int64)
 
     (indices,) = jnp.where(mask == 1)
-    max_centroids = 1000
+    max_centroids = cluster_count
 
     temp_dust_patch_indices = find_kmeans_clusters(
         mask, indices, cluster_count, jax.random.PRNGKey(0), max_centroids=max_centroids
@@ -218,7 +219,7 @@ def run_jax_tnc(
     )
 
     def furax_adaptative_comp_sep(guess_params):
-        scipy_solver = jaxopt.ScipyMinimize(fun=nll, method="TNC", jit=True, tol=1e-6)
+        scipy_solver = jaxopt.ScipyMinimize(fun=nll, method="TNC", jit=True, tol=1e-6, maxiter=max_iter)
         result = scipy_solver.run(guess_params)
         return result.params
 
@@ -314,7 +315,7 @@ def main():
 
                 # Run Furax TNC from FGBuster
                 final_params, cmb_variance, last_L = run_fg_buster(
-                    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, np_timer
+                    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, np_timer, args.max_iter
                 )
                 data = {
                     "final_params": final_params,
@@ -362,6 +363,7 @@ def main():
                     dust_nu0,
                     synchrotron_nu0,
                     np_timer,
+                    args.max_iter,
                 )
                 data = {
                     "final_params": final_params,
