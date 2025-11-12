@@ -174,7 +174,9 @@ cython_debug/
 *.pkl
 runs/
 results*
-src/furax_cs/data/**/*.npz
+*.npz
+*.npy
+*.pdf
 !src/furax_cs/data/masks/GAL_PlanckMasks_2048.npz
 
 
@@ -235,3 +237,4 @@ apssampNotes.bib
 .mplcache
 plots*
 publication*
+manifest.json
