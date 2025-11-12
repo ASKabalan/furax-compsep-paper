@@ -123,9 +123,7 @@ def main():
 
     # Define the output folder and create it if necessary
     ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}"
-    out_folder = (
-        f"PTEP_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
-    )
+    out_folder = f"PTEP_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     os.makedirs(out_folder, exist_ok=True)
 
     # Set up parameters

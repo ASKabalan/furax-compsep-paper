@@ -462,7 +462,7 @@ def run_analysis():
         args.plot_all_r_estimation = True
         args.plot_validation_curves = True
         args.plot_illustrations = True
-    
+
     run_specs = args.runs or []
     title_specs = args.titles or []
     if run_specs and not title_specs:

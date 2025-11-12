@@ -204,9 +204,7 @@ def main():
     args = parse_args()
 
     patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}"
-    out_folder = (
-        f"kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
-    )
+    out_folder = f"kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     os.makedirs(out_folder, exist_ok=True)
 
     # Step 2: Initialize physical and computational parameters

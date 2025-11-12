@@ -136,7 +136,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    out_folder = f"noise_validation_model{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
+    out_folder = (
+        f"noise_validation_model{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
+    )
     if args.plot:
         out_folder = f"../results/{out_folder}"
         assert os.path.exists(out_folder), "noise model not found, please run the model first"

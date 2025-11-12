@@ -441,8 +441,7 @@ def parse_mask_expression(expr: str, nside: int) -> np.ndarray:
     # Multiple tokens - evaluate left to right
     if len(tokens) % 2 == 0:
         raise ValueError(
-            f"Invalid expression syntax: {expr}. "
-            f"Expected format: MASK [+/-] MASK [+/-] MASK ..."
+            f"Invalid expression syntax: {expr}. Expected format: MASK [+/-] MASK [+/-] MASK ..."
         )
 
     # Start with first mask

@@ -27,10 +27,6 @@ def generate_masks(nside_list=None):
 
     mask = np.load(f"{current_folder}/GAL_PlanckMasks_2048.npz")
     mask = dict(mask)
-
-    nside = np.sqrt(mask["GAL060"].size / 12).astype(int)
-    npix = hp.nside2npix(nside)
-
     mask_folder = "masks/"
     os.makedirs(mask_folder, exist_ok=True)
 
