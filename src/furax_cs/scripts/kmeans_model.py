@@ -84,6 +84,7 @@ from furax_cs.data.generate_maps import (
     load_cmb_map,
     load_fg_map,
     load_from_cache,
+    sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
 
@@ -144,8 +145,9 @@ def parse_args():
         "--mask",
         type=str,
         default="GAL020_U",
-        choices=MASK_CHOICES,
-        help="Galactic mask: GAL020/040/060 (20%%/40%%/60%% sky coverage), _U/_L for upper/lower",
+        help=f"Galactic mask: GAL020/040/060 (20%%/40%%/60%% sky coverage), _U/_L for upper/lower. "
+        f"Available masks: {MASK_CHOICES}. "
+        "Combine with + (union) or - (subtract), e.g., GAL020+GAL040 or ALL-GALACTIC",
     )
     parser.add_argument(
         "-i",
@@ -203,7 +205,7 @@ def main():
 
     patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}"
     out_folder = (
-        f"kmeans_{args.tag}_{patches}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+        f"kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     )
     os.makedirs(out_folder, exist_ok=True)
 

@@ -21,7 +21,12 @@ from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
 from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-from furax_cs.data.generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from furax_cs.data.generate_maps import (
+    MASK_CHOICES,
+    get_mask,
+    sanitize_mask_name,
+    simulate_D_from_params,
+)
 from furax_cs.data.plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
 
 jax.config.update("jax_enable_x64", True)
@@ -50,8 +55,8 @@ def parse_args():
         "--mask",
         type=str,
         default="GAL020",
-        choices=MASK_CHOICES,
-        help="Mask to use",
+        help=f"Mask to use. Available masks: {MASK_CHOICES}. "
+        "Combine with + (union) or - (subtract), e.g., GAL020+GAL040 or ALL-GALACTIC",
     )
     parser.add_argument(
         "-b",
@@ -72,7 +77,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    out_folder = f"validation_model_{args.mask}"
+    out_folder = f"validation_model_{sanitize_mask_name(args.mask)}"
     if args.plot:
         assert os.path.exists(out_folder), "Validation model not found, please run the model first"
 

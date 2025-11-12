@@ -27,6 +27,7 @@ from furax_cs.data.generate_maps import (
     load_cmb_map,
     load_fg_map,
     load_from_cache,
+    sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
 
@@ -79,8 +80,8 @@ def parse_args():
         "--mask",
         type=str,
         default="GAL020_U",
-        choices=MASK_CHOICES,
-        help="Mask to use",
+        help=f"Mask to use. Available masks: {MASK_CHOICES}. "
+        "Combine with + (union) or - (subtract), e.g., GAL020+GAL040 or ALL-GALACTIC",
     )
     parser.add_argument(
         "-i",
@@ -123,7 +124,7 @@ def main():
     # Define the output folder and create it if necessary
     ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}"
     out_folder = (
-        f"PTEP_{args.tag}_{ud_grades}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+        f"PTEP_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     )
     os.makedirs(out_folder, exist_ok=True)
 

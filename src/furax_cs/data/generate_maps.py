@@ -355,13 +355,152 @@ MASK_CHOICES = [
 ]
 
 
+def sanitize_mask_name(mask_expr: str) -> str:
+    """Convert mask expression to valid folder name.
+
+    Parameters
+    ----------
+    mask_expr : str
+        Mask expression potentially containing + (union) or - (subtract) operators.
+
+    Returns
+    -------
+    str
+        Sanitized folder name with operators replaced by descriptive names.
+
+    Examples
+    --------
+    >>> sanitize_mask_name("GAL020+GAL040")
+    'GAL020_UNION_GAL040'
+    >>> sanitize_mask_name("ALL-GALACTIC")
+    'ALL_SUBTRACT_GALACTIC'
+    """
+    sanitized = mask_expr.replace("+", "_UNION_").replace("-", "_SUBTRACT_")
+    return sanitized
+
+
+def parse_mask_expression(expr: str, nside: int) -> np.ndarray:
+    """Parse and evaluate boolean mask expressions.
+
+    Supports left-to-right evaluation of expressions with + (union) and - (subtraction)
+    operators. Does not support parentheses.
+
+    Parameters
+    ----------
+    expr : str
+        Mask expression with optional boolean operators.
+        Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
+    nside : int
+        HEALPix resolution parameter.
+
+    Returns
+    -------
+    ndarray
+        Boolean mask array where True indicates observed pixels.
+
+    Raises
+    ------
+    ValueError
+        If expression contains invalid mask names or syntax.
+
+    Examples
+    --------
+    >>> mask = parse_mask_expression("GAL020+GAL040", nside=64)
+    >>> mask = parse_mask_expression("ALL-GALACTIC", nside=64)
+    """
+    # Tokenize the expression while preserving operators
+    tokens = []
+    current_token = ""
+
+    for char in expr:
+        if char in ["+", "-"]:
+            if current_token:
+                tokens.append(current_token.strip())
+                current_token = ""
+            tokens.append(char)
+        else:
+            current_token += char
+
+    if current_token:
+        tokens.append(current_token.strip())
+
+    if not tokens:
+        raise ValueError(f"Empty mask expression: {expr}")
+
+    # Validate that we have alternating mask names and operators
+    if len(tokens) == 1:
+        # Single mask, no operators
+        mask_name = tokens[0]
+        if mask_name not in MASK_CHOICES:
+            raise ValueError(
+                f"Invalid mask name '{mask_name}' in expression '{expr}'. "
+                f"Choose from: {MASK_CHOICES}"
+            )
+        return get_mask(mask_name, nside)
+
+    # Multiple tokens - evaluate left to right
+    if len(tokens) % 2 == 0:
+        raise ValueError(
+            f"Invalid expression syntax: {expr}. "
+            f"Expected format: MASK [+/-] MASK [+/-] MASK ..."
+        )
+
+    # Start with first mask
+    result = None
+    i = 0
+
+    while i < len(tokens):
+        if i == 0:
+            # First token must be a mask name
+            mask_name = tokens[i]
+            if mask_name not in MASK_CHOICES:
+                raise ValueError(
+                    f"Invalid mask name '{mask_name}' in expression '{expr}'. "
+                    f"Choose from: {MASK_CHOICES}"
+                )
+            result = get_mask(mask_name, nside)
+            i += 1
+        else:
+            # Even indices are operators, odd are mask names
+            operator = tokens[i]
+            if operator not in ["+", "-"]:
+                raise ValueError(
+                    f"Expected operator (+ or -) at position {i} in expression '{expr}', "
+                    f"got '{operator}'"
+                )
+
+            if i + 1 >= len(tokens):
+                raise ValueError(f"Operator '{operator}' at end of expression '{expr}'")
+
+            mask_name = tokens[i + 1]
+            if mask_name not in MASK_CHOICES:
+                raise ValueError(
+                    f"Invalid mask name '{mask_name}' in expression '{expr}'. "
+                    f"Choose from: {MASK_CHOICES}"
+                )
+
+            next_mask = get_mask(mask_name, nside)
+
+            if operator == "+":
+                # Union
+                result = np.logical_or(result, next_mask)
+            elif operator == "-":
+                # Subtraction
+                result = np.logical_and(result, np.logical_not(next_mask))
+
+            i += 2
+
+    return result
+
+
 def get_mask(mask_name="GAL020", nside=64):
     """Load and process galactic masks at specified resolution.
 
     Parameters
     ----------
     mask_name : str, optional
-        Mask identifier (e.g., "GAL020", "GAL040", "GALACTIC") (default: "GAL020").
+        Mask identifier (e.g., "GAL020", "GAL040", "GALACTIC") or boolean expression
+        (e.g., "GAL020+GAL040", "ALL-GALACTIC") (default: "GAL020").
     nside : int, optional
         HEALPix resolution parameter (default: 64).
 
@@ -381,7 +520,17 @@ def get_mask(mask_name="GAL020", nside=64):
     -----
     Available mask choices: ALL, GALACTIC, GAL020, GAL040, GAL060, and
     their _U (upper) and _L (lower) hemisphere variants.
+
+    Boolean operations are supported:
+    - Use + for union (logical OR)
+    - Use - for subtraction (logical AND NOT)
+    - Expressions are evaluated left-to-right
+    - Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
     """
+    # Check if mask_name contains boolean operators
+    if "+" in mask_name or "-" in mask_name:
+        return parse_mask_expression(mask_name, nside)
+
     masks_file = f"masks/GAL_PlanckMasks_{nside}.npz"
 
     try:

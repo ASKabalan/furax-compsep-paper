@@ -76,6 +76,7 @@ from furax_cs.data.generate_maps import (
     load_cmb_map,
     load_fg_map,
     load_from_cache,
+    sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
 from furax_cs.data.plotting import plot_grid_search_results
@@ -127,8 +128,8 @@ def parse_args():
         "--mask",
         type=str,
         default="GAL020_U",
-        choices=MASK_CHOICES,
-        help="Mask to use",
+        help=f"Mask to use. Available masks: {MASK_CHOICES}. "
+        "Combine with + (union) or - (subtract), e.g., GAL020+GAL040 or ALL-GALACTIC",
     )
     parser.add_argument(
         "-i",
@@ -179,7 +180,7 @@ def clean_up(folder):
 def main():
     args = parse_args()
 
-    out_folder = f"compsep_{args.tag}_{args.instrument}_{args.mask}_{int(args.noise_ratio * 100)}"
+    out_folder = f"compsep_{args.tag}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     if args.plot:
         assert os.path.exists(out_folder), "output not found, please run the model first"
         results = np.load(f"{out_folder}/results.npz")

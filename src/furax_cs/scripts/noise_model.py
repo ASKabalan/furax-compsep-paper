@@ -44,7 +44,12 @@ from jax_healpy.clustering import (
 )
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
-from furax_cs.data.generate_maps import MASK_CHOICES, get_mask, simulate_D_from_params
+from furax_cs.data.generate_maps import (
+    MASK_CHOICES,
+    get_mask,
+    sanitize_mask_name,
+    simulate_D_from_params,
+)
 from furax_cs.data.instruments import get_instrument
 from furax_cs.data.plotting import (
     plot_cmb_nll_vs_B_d_patches_with_noise,
@@ -102,8 +107,8 @@ def parse_args():
         "--mask",
         type=str,
         default="GAL020",
-        choices=MASK_CHOICES,
-        help="Mask to use",
+        help=f"Mask to use. Available masks: {MASK_CHOICES}. "
+        "Combine with + (union) or - (subtract), e.g., GAL020+GAL040 or ALL-GALACTIC",
     )
     parser.add_argument(
         "-i",
@@ -131,7 +136,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    out_folder = f"noise_validation_model{args.mask}_{int(args.noise_ratio * 100)}"
+    out_folder = f"noise_validation_model{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
     if args.plot:
         out_folder = f"../results/{out_folder}"
         assert os.path.exists(out_folder), "noise model not found, please run the model first"
