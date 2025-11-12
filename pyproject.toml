@@ -22,7 +22,7 @@ dependencies = [
     "matplotlib",
     "numpyro",
     "optax",
-    "fgbuster @ git+https://github.com/fgbuster/fgbuster@clusters",
+    "fgbuster @ git+https://github.com/fgbuster/fgbuster",
     "pre-commit",
     "ipython",
     "ipykernel",
