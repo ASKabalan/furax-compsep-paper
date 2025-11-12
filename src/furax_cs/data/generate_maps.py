@@ -3,7 +3,6 @@
 import argparse
 import os
 import pickle
-from pathlib import Path
 
 import healpy as hp
 import numpy as np
@@ -443,7 +442,9 @@ def get_mask(mask_name="GAL020", nside=64):
     return zones[mask_name]
 
 
-def generate_needed_maps(nside_list=None, noise_list=None, instrument_name="LiteBIRD", sky_list=None):
+def generate_needed_maps(
+    nside_list=None, noise_list=None, instrument_name="LiteBIRD", sky_list=None
+):
     """Batch generate and cache all required frequency maps.
 
     Parameters

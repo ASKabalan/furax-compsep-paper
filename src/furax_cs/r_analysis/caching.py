@@ -161,7 +161,9 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     return run_data, best_params, mask, indices, f_sky, cmb_recon, fg_map
 
 
-def cache_expensive_computations(name, filtered_results, nside, instrument, run_index=0, force_recompute=False, max_iter=100):
+def cache_expensive_computations(
+    name, filtered_results, nside, instrument, run_index=0, force_recompute=False, max_iter=100
+):
     """Materialise expensive W_D_FG caches for a group of runs.
 
     Parameters

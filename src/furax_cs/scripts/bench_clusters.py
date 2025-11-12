@@ -33,7 +33,9 @@ from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 jax.config.update("jax_enable_x64", True)
 
 
-def run_fg_buster(nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer, max_iter):
+def run_fg_buster(
+    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer, max_iter
+):
     print(f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}...")
 
     d = Stokes.from_stokes(Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
@@ -219,7 +221,9 @@ def run_jax_tnc(
     )
 
     def furax_adaptative_comp_sep(guess_params):
-        scipy_solver = jaxopt.ScipyMinimize(fun=nll, method="TNC", jit=True, tol=1e-6, maxiter=max_iter)
+        scipy_solver = jaxopt.ScipyMinimize(
+            fun=nll, method="TNC", jit=True, tol=1e-6, maxiter=max_iter
+        )
         result = scipy_solver.run(guess_params)
         return result.params
 
@@ -315,7 +319,13 @@ def main():
 
                 # Run Furax TNC from FGBuster
                 final_params, cmb_variance, last_L = run_fg_buster(
-                    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, np_timer, args.max_iter
+                    nside,
+                    cluster_count,
+                    freq_maps,
+                    dust_nu0,
+                    synchrotron_nu0,
+                    np_timer,
+                    args.max_iter,
                 )
                 data = {
                     "final_params": final_params,

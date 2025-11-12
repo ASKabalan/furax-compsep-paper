@@ -618,7 +618,7 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.xlabel(f"Number of Clusters ({patch_name})")
     plt.ylabel(r"$r + \sigma(r)$")
     plt.title(r"$r + \sigma(r)$ vs. Number of Clusters" + f" ({patch_name})")
-    #plt.ylim(-0.001, 0.01)
+    # plt.ylim(-0.001, 0.01)
     plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
 

@@ -231,7 +231,7 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
             "temp_dust_patches": np.zeros(hp.nside2npix(nside)),
             "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
         }
-    
+
     print(f"patches map keys: {list(patches_map.keys())}")
     print(patches_map["beta_dust_patches"])
 
@@ -387,7 +387,11 @@ def plot_results(name, cmb_pytree, cl_pytree, r_pytree, residual_pytree, plottin
     if (args.plot_validation_curves or args.plot_all) and updates_history is not None:
         plot_validation_curves(name, updates_history, value_history)
 
-    if (args.plot_cmb_recon or args.plot_all) and cmb_stokes is not None and combined_cmb_recon is not None:
+    if (
+        (args.plot_cmb_recon or args.plot_all)
+        and cmb_stokes is not None
+        and combined_cmb_recon is not None
+    ):
         plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon)
 
     if (args.plot_systematic_maps or args.plot_all) and syst_map is not None:
@@ -458,7 +462,7 @@ def run_analysis():
         args.plot_all_r_estimation = True
         args.plot_validation_curves = True
         args.plot_illustrations = True
-
+    
     run_specs = args.runs or []
     title_specs = args.titles or []
     if run_specs and not title_specs:
@@ -507,7 +511,15 @@ def run_analysis():
         print("=" * 60)
 
         for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
-            cache_expensive_computations(name, group_results, nside, instrument, run_index, force_recompute=args.force_cache,max_iter=args.max_iterations)
+            cache_expensive_computations(
+                name,
+                group_results,
+                nside,
+                instrument,
+                run_index,
+                force_recompute=args.force_cache,
+                max_iter=args.max_iterations,
+            )
 
         print("=" * 60)
         print("✓ Cache-only mode completed successfully!")
