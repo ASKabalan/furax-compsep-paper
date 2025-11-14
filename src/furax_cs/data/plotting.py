@@ -9,10 +9,12 @@ import jax.numpy as jnp
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+import scienceplots  # noqa: F401
 import seaborn as sns
-from grid_search_data import select_best_params
 from jax_healpy.clustering import get_fullmap_from_cutout
 from matplotlib import cm, cycler
+
+from furax_cs.data.grid_search_data import select_best_params
 
 # Set the style for the plots
 plt.style.use("science")

@@ -56,12 +56,6 @@ def parse_args():
         help="Number of noise simulations (single run uses 1)",
     )
     parser.add_argument(
-        "-p",
-        "--plot",
-        action="store_true",
-        help="Plot the results",
-    )
-    parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,

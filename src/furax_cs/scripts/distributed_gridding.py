@@ -14,10 +14,17 @@ space for dust and synchrotron foreground components.
 Usage:
     python 04-distributed-gridding.py -n 64 -ns 100 -nr 1.0 -tag c1d1s1 -m GAL020 -i LiteBIRD
 
+    # Dump default search space configuration to customize:
+    python 04-distributed-gridding.py --dump-search-space my_search_space.yaml
+
+    # Use custom search space:
+    python 04-distributed-gridding.py -n 64 -ss my_search_space.yaml
+
 Key Features:
     - Distributed execution across multiple GPUs using JAX
     - Grid search over dust temperature, dust spectral index, and synchrotron index
     - Automatic sky region partitioning based on galactic masks
+    - Configurable search space via YAML files
     - Results saved in structured format for analysis
 
 Author: FURAX Team
@@ -79,7 +86,7 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
-from furax_cs.data.plotting import plot_grid_search_results
+from furax_cs.data.search_space import dump_default_search_space, load_search_space
 
 jax.config.update("jax_enable_x64", True)
 
@@ -102,12 +109,6 @@ def parse_args():
         type=int,
         default=50,
         help="Number of noise simulations",
-    )
-    parser.add_argument(
-        "-p",
-        "--plot",
-        action="store_true",
-        help="Plot the results",
     )
     parser.add_argument(
         "-nr",
@@ -159,6 +160,20 @@ def parse_args():
         default=1000,
         help="Maximum number of optimization iterations for L-BFGS solver",
     )
+    parser.add_argument(
+        "-ss",
+        "--search-space",
+        type=str,
+        default=None,
+        help="Path to custom search space YAML file. If not provided, uses default configuration.",
+    )
+    parser.add_argument(
+        "-d",
+        "--dump-search-space",
+        type=str,
+        default=None,
+        help="Dump the default search space configuration to specified YAML file and exit.",
+    )
     return parser.parse_args()
 
 
@@ -180,14 +195,14 @@ def clean_up(folder):
 def main():
     args = parse_args()
 
-    out_folder = f"compsep_{args.tag}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
-    if args.plot:
-        assert os.path.exists(out_folder), "output not found, please run the model first"
-        results = np.load(f"{out_folder}/results.npz")
-        plot_grid_search_results(
-            results, out_folder, best_metric="value", nb_best=12, noise_runs=args.noise_sim
-        )
+    # Handle dump mode: save default search space and exit
+    if args.dump_search_space is not None:
+        dump_default_search_space(args.dump_search_space)
+        print(f"\nSearch space template saved to: {args.dump_search_space}")
+        print("You can now customize this file and use it with --search-space option.")
         return
+
+    out_folder = f"compsep_{args.tag}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
 
     if args.clean_up is not None:
         clean_up(args.clean_up)
@@ -237,11 +252,13 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
-    search_space = {
-        "T_d_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
-        "B_d_patches": jnp.arange(4000, 10001, 1000),
-        "B_s_patches": jnp.array([1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]),
-    }
+    # Load search space configuration from YAML
+    if args.search_space is not None:
+        print(f"Loading custom search space from: {args.search_space}")
+        search_space = load_search_space(args.search_space)
+    else:
+        print("Using default search space configuration")
+        search_space = load_search_space()
 
     # Ensure we do not have more patches than pixels
     search_space = jax.tree.map(lambda x: jnp.clip(x, 1, indices.size), search_space)
