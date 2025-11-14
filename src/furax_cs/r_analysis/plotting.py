@@ -27,6 +27,13 @@ plt.rcParams.update(
 _OUTPUT_FORMAT = "png"
 
 
+def _truncate_name_if_too_long(name, max_length=50):
+    """Truncate long names for plot titles and filenames."""
+    if len(name) > max_length:
+        return name[: max_length - 3] + "..."
+    return name
+
+
 def set_output_format(output_format):
     """Set global output format for all plotting functions."""
     global _OUTPUT_FORMAT
@@ -40,6 +47,7 @@ def save_or_show(filename):
     else:
         ext = "pdf" if _OUTPUT_FORMAT == "pdf" else "png"
         dpi = 300 if ext == "png" else None
+        filename = _truncate_name_if_too_long(filename)
         plt.savefig(f"{out_folder}/{filename}.{ext}", dpi=dpi, bbox_inches="tight")
 
 
@@ -535,7 +543,6 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     """Scatter plot of r + σ(r) vs clusters for one parameter."""
     method_dict = {}
     base_patch_keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
-    other_patch_keys = [k for k in base_patch_keys if k != patch_key]
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         if r_data["r_best"] is None:
@@ -550,14 +557,9 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
             for key in base_patch_keys:
                 patch_data = patches[key]
                 n_clusters += np.unique(patch_data[patch_data != hp.UNSEEN]).size
-            total_clusters = n_clusters
         else:
             patch_data = patches[patch_key]
             n_clusters = np.unique(patch_data[patch_data != hp.UNSEEN]).size
-            total_clusters = n_clusters
-            for other_key in other_patch_keys:
-                other_patch_data = patches[other_key]
-                total_clusters += np.unique(other_patch_data[other_patch_data != hp.UNSEEN]).size
 
         if n_clusters in method_dict:
             existing_r_values = method_dict[n_clusters]["r_best"]
@@ -569,7 +571,6 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
             "r_best": r_data["r_best"],
             "sigma_r_neg": r_data["sigma_r_neg"],
             "sigma_r_pos": r_data["sigma_r_pos"],
-            "total_clusters": total_clusters,
         }
 
     plt.figure(figsize=(8, 6))
@@ -580,36 +581,21 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         return
 
     sorted_items = sorted(method_dict.items(), key=lambda item: item[0])
-    total_cluster_values = np.array([data["total_clusters"] for _, data in sorted_items])
-
-    total_min = float(total_cluster_values.min())
-    total_max = float(total_cluster_values.max())
-    if total_min == total_max:
-        total_min -= 0.5
-        total_max += 0.5
-
-    cmap = plt.cm.viridis
-    norm = Normalize(vmin=total_min, vmax=total_max)
 
     cluster_points = []
     r_plus_sigma_vals = []
-    color_vals = []
-
-    for (n_clusters, data), total_clusters in zip(sorted_items, total_cluster_values):
+    for n_clusters, data in sorted_items:
         r_best = data["r_best"]
         sigma_r_pos = data["sigma_r_pos"]
-        color = cmap(norm(total_clusters))
-
         r_plus_sigma = r_best + sigma_r_pos
 
         cluster_points.append(n_clusters)
         r_plus_sigma_vals.append(r_plus_sigma)
-        color_vals.append(color)
 
     plt.scatter(
         cluster_points,
         r_plus_sigma_vals,
-        c=color_vals,
+        color="#1f77b4",
         s=100,
         edgecolors="black",
         linewidths=1,
@@ -621,11 +607,6 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     # plt.ylim(-0.001, 0.01)
     plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
-
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=plt.gca())
-    cbar.set_label("Total Number of Clusters")
 
     plt.tight_layout()
 
