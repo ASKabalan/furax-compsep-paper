@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize
 
+from .logging_utils import success, warning
+
 plt.style.use("science")
 
 out_folder = "plots/"
@@ -27,6 +29,33 @@ plt.rcParams.update(
 _OUTPUT_FORMAT = "png"
 
 
+def get_run_color(index):
+    """Get consistent color for run based on position.
+
+    Position-based color assignment:
+    - 1st run: red
+    - 2nd run: blue
+    - 3rd run: green
+    - 4th+ runs: tab10 colormap colors
+
+    Parameters
+    ----------
+    index : int
+        Zero-based index of the run
+
+    Returns
+    -------
+    color
+        Color specification (string or RGB tuple from colormap)
+    """
+    base_colors = ["red", "blue", "green"]
+    base_colors = ["red", "green", "purple"]
+    if index < len(base_colors):
+        return base_colors[index]
+    else:
+        return plt.cm.tab10(index % 10)
+
+
 def _truncate_name_if_too_long(name, max_length=50):
     """Truncate long names for plot titles and filenames."""
     if len(name) > max_length:
@@ -40,6 +69,28 @@ def set_output_format(output_format):
     _OUTPUT_FORMAT = output_format
 
 
+def set_font_size(size):
+    """Set global font size for all plotting functions.
+
+    Parameters
+    ----------
+    size : int
+        Font size to use for all plot elements.
+    """
+    global font_size
+    font_size = size
+    plt.rcParams.update(
+        {
+            "font.size": font_size,
+            "axes.labelsize": font_size,
+            "xtick.labelsize": font_size,
+            "ytick.labelsize": font_size,
+            "legend.fontsize": font_size,
+            "axes.titlesize": font_size,
+        }
+    )
+
+
 def save_or_show(filename):
     """Save figure to file or show inline based on output format."""
     if _OUTPUT_FORMAT == "show":
@@ -48,7 +99,9 @@ def save_or_show(filename):
         ext = "pdf" if _OUTPUT_FORMAT == "pdf" else "png"
         dpi = 300 if ext == "png" else None
         filename = _truncate_name_if_too_long(filename)
-        plt.savefig(f"{out_folder}/{filename}.{ext}", dpi=dpi, bbox_inches="tight")
+        filepath = f"{out_folder}/{filename}.{ext}"
+        plt.savefig(filepath, dpi=dpi, bbox_inches="tight")
+        success(f"Saved: {filepath}")
 
 
 def get_min_variance(cmb_map):
@@ -95,7 +148,6 @@ def plot_params(name, params, plot_vertical=False):
                 cbar=True,
             )
 
-        plt.tight_layout()
         save_or_show(f"params_{name}")
         params_dict = {
             "beta_dust": params["beta_dust"],
@@ -157,7 +209,6 @@ def plot_patches(name, patches, plot_vertical=False):
                 bgcolor=(0.0,) * 4,
                 cbar=True,
             )
-        plt.tight_layout()
         save_or_show(f"patches_{name}")
 
 
@@ -249,7 +300,6 @@ def plot_all_cmb(names, cmb_pytree_list):
             notext=True,
         )
 
-    plt.tight_layout()
     name = "_".join(names)
     save_or_show(f"cmb_recon_{name}")
 
@@ -281,7 +331,7 @@ def plot_all_variances(names, cmb_pytree_list):
 
     for ax, (title, entries) in zip(axs, metrics.items()):
         for i, (name, values) in enumerate(entries):
-            color = plt.cm.tab10(i % 10)
+            color = get_run_color(i)
             label = f"{name}"
             ax.hist(
                 values,
@@ -317,7 +367,7 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     _ = plt.figure(figsize=(8, 6))
 
     if len(cl_pytree_list) == 0:
-        print("No results")
+        warning("No power spectra results to plot")
         return
 
     cl_bb_r1 = cl_pytree_list[0]["cl_bb_r1"]
@@ -343,23 +393,10 @@ def plot_all_cl_residuals(names, cl_pytree_list):
         linewidth=2,
     )
 
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
     for i, (name, cl_pytree) in enumerate(zip(names, cl_pytree_list)):
-        if "This work" in name or "K-means" in name:
-            color = "red"
-            linewidth = 2
-        elif "Multi-nside" in name:
-            if "(1)" in name:
-                color = "blue"
-            elif "(2)" in name:
-                color = "green"
-            else:
-                color = "blue"
-            linewidth = 1.5
-        else:
-            color = colors[i % len(colors)]
-            linewidth = 1
+        color = get_run_color(i)
+        linewidth = 1.5
+
         if cl_pytree["cl_total_res"] is not None:
             plt.plot(
                 ell_range,
@@ -403,7 +440,7 @@ def plot_all_systematic_residuals(names, syst_map_list):
     """Plot systematic residual Q/U maps for multiple runs."""
     nb_runs = len(syst_map_list)
     if nb_runs == 0:
-        print("No systematic residual maps to plot")
+        warning("No systematic residual maps available to plot")
         return
 
     plt.figure(figsize=(12, 4 * nb_runs))
@@ -436,7 +473,6 @@ def plot_all_systematic_residuals(names, syst_map_list):
             notext=True,
         )
 
-    plt.tight_layout()
     name = "_".join(names)
     save_or_show(f"all_systematic_residuals_{name}")
 
@@ -445,7 +481,7 @@ def plot_all_statistical_residuals(names, stat_map_list):
     """Plot statistical residual Q/U maps for multiple runs."""
     nb_runs = len(stat_map_list)
     if nb_runs == 0:
-        print("No statistical residual maps to plot")
+        warning("No statistical residual maps available to plot")
         return
 
     plt.figure(figsize=(12, 4 * nb_runs))
@@ -480,7 +516,6 @@ def plot_all_statistical_residuals(names, stat_map_list):
             notext=True,
         )
 
-    plt.tight_layout()
     name = "_".join(names)
     save_or_show(f"all_statistical_residuals_{name}")
 
@@ -488,11 +523,10 @@ def plot_all_statistical_residuals(names, stat_map_list):
 def plot_all_r_estimation(names, r_pytree_list):
     """Compare r likelihood curves across runs in a single figure."""
     plt.figure(figsize=(8, 6))
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     for i, (name, r_data) in enumerate(zip(names, r_pytree_list)):
         if r_data["r_best"] is None:
-            print(f"WARNING: No r estimation for {name}, skipping plot.")
+            warning(f"No r estimation for {name}, skipping plot.")
             continue
 
         r_grid = r_data["r_grid"]
@@ -501,7 +535,7 @@ def plot_all_r_estimation(names, r_pytree_list):
         sigma_r_neg = r_data["sigma_r_neg"]
         sigma_r_pos = r_data["sigma_r_pos"]
 
-        color = colors[i % len(colors)]
+        color = get_run_color(i)
         likelihood = L_vals / L_vals.max()
 
         plt.plot(
@@ -546,7 +580,7 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         if r_data["r_best"] is None:
-            print(f"WARNING: No r estimation for {name}, skipping plot.")
+            warning(f"No r estimation for {name}, skipping plot.")
             continue
 
         base_name = re.sub(r" \(\d+\)$", "", name)
@@ -576,7 +610,7 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.figure(figsize=(8, 6))
 
     if len(method_dict) == 0:
-        print(f"WARNING: No valid data points for {patch_key} in r_vs_clusters plot.")
+        warning(f"No valid data points for {patch_key} in r_vs_clusters plot.")
         plt.close()
         return
 
@@ -584,7 +618,9 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
 
     cluster_points = []
     r_plus_sigma_vals = []
-    for n_clusters, data in sorted_items:
+    min_point = None
+
+    for idx, (n_clusters, data) in enumerate(sorted_items):
         r_best = data["r_best"]
         sigma_r_pos = data["sigma_r_pos"]
         r_plus_sigma = r_best + sigma_r_pos
@@ -592,7 +628,14 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         cluster_points.append(n_clusters)
         r_plus_sigma_vals.append(r_plus_sigma)
 
-    plt.scatter(
+        if (min_point is None) or (r_plus_sigma < min_point["value"]):
+            min_point = {
+                "index": idx,
+                "clusters": n_clusters,
+                "value": r_plus_sigma,
+            }
+
+    scatter_all = plt.scatter(
         cluster_points,
         r_plus_sigma_vals,
         color="#1f77b4",
@@ -601,12 +644,43 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         linewidths=1,
     )
 
+    if min_point is not None:
+        min_idx = min_point["index"]
+        min_clusters = cluster_points[min_idx]
+        min_value = r_plus_sigma_vals[min_idx]
+
+        scatter_min = plt.scatter(
+            [min_clusters],
+            [min_value],
+            color="red",
+            s=120,
+            edgecolors="black",
+            linewidths=1.5,
+            zorder=3,
+        )
+        min_label = (
+            r"Lowest $r+\sigma(r)$ at "
+            f"{int(min_clusters)} clusters: {min_value:.2e}"
+        )
+    else:
+        scatter_min = None
+        min_label = None
+
+    legend_handles = [scatter_all]
+    legend_labels = [r"$r+\sigma(r)$"]
+    if scatter_min is not None and min_label is not None:
+        legend_handles.append(scatter_min)
+        legend_labels.append(min_label)
+
     plt.xlabel(f"Number of Clusters ({patch_name})")
     plt.ylabel(r"$r + \sigma(r)$")
     plt.title(r"$r + \sigma(r)$ vs. Number of Clusters" + f" ({patch_name})")
     # plt.ylim(-0.001, 0.01)
     plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
+
+    if legend_handles:
+        plt.legend(legend_handles, legend_labels)
 
     plt.tight_layout()
 
@@ -659,7 +733,7 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
     plt.figure(figsize=(8, 6))
 
     if len(method_dict) == 0:
-        print(f"WARNING: No valid data points for {patch_key} in variance_vs_clusters plot.")
+        warning(f"No valid data points for {patch_key} in variance_vs_clusters plot.")
         plt.close()
         return
 
@@ -724,7 +798,7 @@ def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_
 
     for name, cmb_pytree, r_data in zip(names, cmb_pytree_list, r_pytree_list):
         if r_data["r_best"] is None:
-            print(f"WARNING: No r estimation for {name}, skipping variance_vs_r point.")
+            warning(f"No r estimation for {name}, skipping variance_vs_r point.")
             continue
 
         patches = cmb_pytree["patches_map"]
@@ -755,7 +829,7 @@ def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_
         )
 
     if len(points) == 0:
-        print("WARNING: No valid data points for variance_vs_r plot.")
+        warning("No valid data points for variance_vs_r plot.")
         return
 
     points.sort(key=lambda p: p[0])
@@ -863,7 +937,6 @@ def plot_systematic_residual_maps(name, syst_map):
         notext=True,
     )
 
-    plt.tight_layout()
     save_or_show(f"systematic_residual_maps_{name}")
 
 
@@ -900,7 +973,6 @@ def plot_statistical_residual_maps(name, stat_maps):
         notext=True,
     )
 
-    plt.tight_layout()
     save_or_show(f"statistical_residual_maps_{name}")
 
 
@@ -913,14 +985,6 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         return jax.tree.map(lambda x, y: jnp.mean((x - y) ** 2), seen_x, seen_y)
 
     cmb_recon_min = get_min_variance(cmb_recon)
-    mse_cmb = mse(cmb_recon_min, cmb_stokes)
-    cmb_recon_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_recon_min)
-    cmb_input_var = jax.tree.map(lambda x: jnp.var(x[x != hp.UNSEEN]), cmb_stokes)
-    print("======================")
-    print(f"MSE CMB: {mse_cmb}")
-    print(f"Reconstructed CMB variance: {cmb_recon_var}")
-    print(f"Input CMB variance: {cmb_input_var}")
-    print("======================")
     unseen_mask = cmb_recon_min.q == hp.UNSEEN
     diff_q = cmb_recon_min.q - cmb_stokes.q
     diff_q = np.where(unseen_mask, hp.UNSEEN, diff_q)
@@ -959,7 +1023,6 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         bgcolor=(0,) * 4,
     )
     plt.title(f"{name} CMB Reconstruction")
-    plt.tight_layout()
     save_or_show(f"cmb_recon_{name}")
 
 

@@ -1,3 +1,5 @@
+import warnings
+
 import camb
 import numpy as np
 
@@ -5,7 +7,10 @@ import numpy as np
 def log_likelihood(r, ell_range, cl_obs, cl_bb_r1, cl_bb_lens, cl_noise, f_sky):
     """Gaussian pseudo-Cℓ log-likelihood for the tensor-to-scalar ratio."""
     cl_model = r.reshape(-1, 1) * cl_bb_r1 + cl_bb_lens + cl_noise
-    term = (2 * ell_range + 1) * (cl_obs / cl_model + np.log(cl_model))
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="invalid value encountered in log")
+        warnings.filterwarnings("ignore", message="divide by zero encountered")
+        term = (2 * ell_range + 1) * (cl_obs / cl_model + np.log(cl_model))
     return -0.5 * f_sky * np.sum(term, axis=1)
 
 

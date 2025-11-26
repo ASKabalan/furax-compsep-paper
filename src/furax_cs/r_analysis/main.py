@@ -13,6 +13,7 @@ import scienceplots  # noqa: F401
 from fgbuster import get_sky
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import combine_masks
+from tqdm import tqdm
 
 from furax_cs.data.instruments import get_instrument
 
@@ -24,6 +25,15 @@ from .caching import (
     load_snapshot,
     save_snapshot_entry,
     write_snapshot_manifest,
+)
+from .logging_utils import (
+    format_cache_summary,
+    format_folder_summary,
+    format_r_result,
+    format_residual_flags,
+    info,
+    success,
+    warning,
 )
 from .parser import parse_args
 from .plotting import (
@@ -44,6 +54,7 @@ from .plotting import (
     plot_validation_curves,
     plot_variance_vs_clusters,
     plot_variance_vs_r,
+    set_font_size,
     set_output_format,
 )
 from .r_estimate import estimate_r, get_camb_templates
@@ -86,7 +97,7 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         None if no valid data found.
     """
     if len(filtered_results) == 0:
-        print("No results")
+        warning(f"No results found matching filter criteria for '{name}'")
         return
 
     cmb_recons, cmb_maps, masks, NLLs = [], [], [], []
@@ -121,9 +132,7 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         compute_total = True
         compute_stat
 
-    print(
-        f"Compute systematic: {compute_syst}, statistical: {compute_stat}, total: {compute_total}"
-    )
+    info(format_residual_flags(compute_syst, compute_stat, compute_total))
 
     needs_camb = (
         args.plot_cl_spectra
@@ -146,10 +155,7 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         "beta_pl_patches": 0,
     }
 
-    for folder in filtered_results:
-        print("--------------------------------------------------")
-        print(f"Processing folder: {folder}")
-        print("--------------------------------------------------")
+    for folder in tqdm(filtered_results, desc=f"  Folders for {name}", leave=False, unit="folder"):
         run_data = dict(np.load(f"{folder}/results.npz"))
         best_params = dict(np.load(f"{folder}/best_params.npz"))
         mask = np.load(f"{folder}/mask.npy")
@@ -160,8 +166,8 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         max_index = len(run_data[first_key]) - 1
 
         if run_index > max_index:
-            print(
-                f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
+            warning(
+                f"Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
             )
             continue
 
@@ -204,9 +210,7 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         NLLs.append(NLL)
 
     if len(masks) == 0:
-        print(
-            f"WARNING: No valid data found for '{name}' with index {run_index}. Skipping this run."
-        )
+        warning(f"No valid data found for '{name}' with index {run_index}. Skipping this run.")
         return None
 
     full_mask = np.logical_or.reduce(masks)
@@ -232,9 +236,6 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
             "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
         }
 
-    print(f"patches map keys: {list(patches_map.keys())}")
-    print(patches_map["beta_dust_patches"])
-
     needs_sky = compute_syst or compute_stat or compute_total
     if needs_sky:
         s_true = get_sky(64, "c1d1s1").components[0].map.value
@@ -247,25 +248,20 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
 
     if compute_syst and wd is not None:
         cl_syst_res, syst_map = compute_systematic_res(wd, f_sky, ell_range)
-        print(f"maximum cl_syst_res: {np.max(cl_syst_res)}")
-
-    print(
-        f"compute_total: {compute_total}, needs_r_estimation: {needs_r_estimation} s_true: {s_true is not None}"
-    )
+        info(f"Systematic residuals: min={np.min(cl_syst_res):.2e}, max={np.max(cl_syst_res):.2e}")
 
     if compute_stat and compute_syst and syst_map is not None:
-        print("Computing statistical residuals...")
         cl_stat_res, stat_maps = compute_statistical_res(
             combined_cmb_recon, s_true, f_sky, ell_range, syst_map
         )
+        info(f"Statistical residuals: min={np.min(cl_stat_res):.2e}, max={np.max(cl_stat_res):.2e}")
 
     if compute_total:
         if cl_syst_res is not None and cl_stat_res is not None:
-            print("Computing total residuals (as sum of syst + stat)...")
             cl_total_res = cl_syst_res + cl_stat_res
         else:
-            print("Computing total residuals (direct computation)...")
             cl_total_res, _ = compute_total_res(combined_cmb_recon, s_true, f_sky, ell_range)
+        info(f"Total residuals: min={np.min(cl_total_res):.2e}, max={np.max(cl_total_res):.2e}")
     else:
         cl_total_res = None
 
@@ -285,11 +281,11 @@ def compute_results(name, filtered_results, nside, instrument, args, run_index=0
         cl_bb_sum = None
 
     if compute_total and needs_r_estimation and cl_bb_obs is not None:
-        print(f"Estimating r for {name}...")
         stat_res_for_r = cl_stat_res if cl_stat_res is not None else np.zeros_like(ell_range)
         r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
             cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, stat_res_for_r, f_sky
         )
+        info(f"r estimation: {r_best:.4f} +{sigma_r_pos:.4f} -{sigma_r_neg:.4f}")
     else:
         r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = None, None, None, None, None
 
@@ -440,13 +436,14 @@ def run_analysis():
 
     args = parse_args()
     set_output_format(args.output_format)
+    set_font_size(args.font_size)
     nside = args.nside
     instrument = get_instrument(args.instrument)
     # get name of current folder
     result_folder = args.input_results_dir
     if not os.path.exists(result_folder):
         raise ValueError(f"Results folder '{result_folder}' does not exist.")
-    print("Loading data...")
+    info("Loading data...")
     results = os.listdir(result_folder)
     results_kw = {name: name.split("_") for name in results}
 
@@ -478,7 +475,7 @@ def run_analysis():
     if snapshot_path is not None:
         entries, snapshot_manifest = load_snapshot(snapshot_path)
         if entries:
-            print(f"Loaded {len(entries)} snapshot entries from {snapshot_path}")
+            info(f"Loaded {len(entries)} snapshot entries from {snapshot_path}")
         for title, payload in entries:
             snapshot_store[title] = payload
 
@@ -498,9 +495,10 @@ def run_analysis():
                 titles_to_plot.append(title)
                 indices_to_plot.append(run_index)
 
-    print("Results to plot: ", results_to_plot)
-    print("Titles: ", titles_to_plot)
-    print("Indices: ", indices_to_plot)
+    if results_to_plot:
+        info(format_folder_summary(results_to_plot))
+        if snapshot_store:
+            info(format_cache_summary(snapshot_store, titles_to_plot))
 
     if args.cache_only:
         print("=" * 60)
@@ -534,9 +532,12 @@ def run_analysis():
     stacked_r = []
     stacked_syst = []
     stacked_stat = []
-    for name, group_results, run_index in zip(titles_to_plot, results_to_plot, indices_to_plot):
+    run_iterator = zip(titles_to_plot, results_to_plot, indices_to_plot)
+    for name, group_results, run_index in tqdm(
+        run_iterator, desc="Processing runs", total=len(titles_to_plot), unit="run"
+    ):
         if name in snapshot_store:
-            print(f"✓ Using cached data for '{name}' from snapshot")
+            success(f"Using cached data for '{name}' from snapshot")
             entry_payload = snapshot_store[name]
             cmb_pytree = entry_payload.get("cmb")
             cl_pytree = entry_payload.get("cl")
@@ -544,7 +545,6 @@ def run_analysis():
             residual_pytree = entry_payload.get("residual", {})
             plotting_data = entry_payload.get("plotting_data", {})
         else:
-            print(f"Computing results for '{name}'...")
             result = compute_results(name, group_results, nside, instrument, args, run_index)
             if result is None:
                 continue
@@ -571,6 +571,13 @@ def run_analysis():
                     snapshot_path, snapshot_manifest, name, serializable_entry
                 )
                 write_snapshot_manifest(snapshot_path, snapshot_manifest)
+            r_msg = format_r_result(
+                r_pytree.get("r_best"), r_pytree.get("sigma_r_neg"), r_pytree.get("sigma_r_pos")
+            )
+            if r_msg:
+                success(f"{name} complete ({r_msg})")
+            else:
+                success(f"{name} complete")
 
         needs_individual_plots = (
             args.plot_params
@@ -595,9 +602,7 @@ def run_analysis():
             and isinstance(r_pytree, dict)
         )
         if not payload_complete:
-            print(
-                f"WARNING: Snapshot entry '{name}' is missing required data, skipping aggregation."
-            )
+            warning(f"Snapshot entry '{name}' is missing required data, skipping aggregation.")
             continue
 
         stacked_titles.append(name)

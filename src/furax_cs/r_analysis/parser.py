@@ -192,6 +192,12 @@ def parse_args():
         help="Output format for plots: png (save as PNG), pdf (save as PDF), or show (display inline)",
     )
     parser.add_argument(
+        "--font-size",
+        type=int,
+        default=14,
+        help="Font size for all plot elements (default: 14)",
+    )
+    parser.add_argument(
         "-mi",
         "--max-iterations",
         type=int,

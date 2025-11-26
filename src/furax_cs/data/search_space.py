@@ -1,14 +1,13 @@
 """Utilities for loading and managing grid search space configurations."""
 
 from pathlib import Path
-from typing import Dict, Union
 
 import jax.numpy as jnp
-import numpy as np
 import yaml
+from jaxtyping import Array
 
 
-def load_search_space(filepath: Union[str, Path, None] = None) -> Dict:
+def load_search_space(filepath: str | Path | None = None) -> dict:
     """Load search space configuration from YAML file.
 
     Parameters
@@ -57,7 +56,7 @@ def load_search_space(filepath: Union[str, Path, None] = None) -> Dict:
     return search_space
 
 
-def search_space_to_jax(config: Dict) -> Dict:
+def search_space_to_jax(config: dict) -> dict:
     """Convert search space configuration from YAML to JAX arrays.
 
     Parameters
@@ -92,7 +91,7 @@ def search_space_to_jax(config: Dict) -> Dict:
     return search_space
 
 
-def dump_default_search_space(output_path: Union[str, Path]) -> None:
+def dump_default_search_space(output_path: str | Path) -> None:
     """Dump the default search space configuration to a YAML file.
 
     This creates a template file that users can customize for their needs.
@@ -127,10 +126,10 @@ def dump_default_search_space(output_path: Union[str, Path]) -> None:
         f.write(default_config)
 
     print(f"Default search space configuration saved to: {output_path}")
-    print(f"You can now edit this file to customize the search space.")
+    print("You can now edit this file to customize the search space.")
 
 
-def validate_search_space(search_space: Dict) -> None:
+def validate_search_space(search_space: dict) -> None:
     """Validate that search space has valid structure and values.
 
     Parameters
@@ -150,7 +149,7 @@ def validate_search_space(search_space: Dict) -> None:
             raise ValueError(f"Search space missing required key: {key}")
 
         arr = search_space[key]
-        if not isinstance(arr, (jnp.ndarray, np.ndarray)):
+        if not isinstance(arr, Array):
             raise ValueError(f"{key} must be an array, got {type(arr)}")
 
         if arr.size == 0:

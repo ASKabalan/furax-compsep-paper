@@ -15,6 +15,9 @@ from furax.obs import negative_log_likelihood, sky_signal
 from furax.obs.stokes import Stokes
 from jax_grid_search import ProgressBar, optimize
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
+from tqdm import tqdm
+
+from .logging_utils import success, warning
 
 
 def compute_w(nu, d, results, result_file, run_index=0, max_iter=100, force_recompute=False):
@@ -146,8 +149,8 @@ def load_run_data_for_cache(folder, nside, instrument, run_index=0):
     max_index = len(run_data[first_key]) - 1
 
     if run_index > max_index:
-        print(
-            f"WARNING: Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
+        warning(
+            f"Index {run_index} out of bounds (max: {max_index}) for folder {folder}. Skipping."
         )
         return None
 
@@ -182,14 +185,10 @@ def cache_expensive_computations(
         Force recomputation even if cache exists (default: False).
     """
     if len(filtered_results) == 0:
-        print(f"No results found for {name}")
+        warning(f"No results found matching filter criteria for '{name}'")
         return
 
-    print(f"Caching expensive computations for {name} (index={run_index})...")
-
-    for i, folder in enumerate(filtered_results):
-        print(f"  Processing folder {i + 1}/{len(filtered_results)}: {folder}")
-
+    for folder in tqdm(filtered_results, desc=f"Caching {name}", unit="folder"):
         cache_exists = check_cache_keys_exist(f"{folder}/results.npz", run_index)
 
         if cache_exists and not force_recompute:
@@ -218,13 +217,11 @@ def cache_expensive_computations(
                 max_iter=max_iter,
             )
 
-            print(f"    ✓ Completed folder {folder}")
+            success(f"Completed {folder}")
 
         except Exception as e:
-            print(f"    ✗ Error processing folder {folder}: {e}")
+            warning(f"Error processing folder {folder}: {e}")
             continue
-
-    print(f"✓ Finished caching for {name}")
 
 
 SNAPSHOT_MANIFEST_NAME = "manifest.json"
