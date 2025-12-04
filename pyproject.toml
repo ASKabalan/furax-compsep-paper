@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "furax-cs"
+version = "0.1.0"
+description = "CMB component separation comparison: FURAX vs FGBuster"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+    {name = "FURAX Team"}
+]
+dependencies = [
+    "furax",
+    "healpy",
+    "jax-healpy",
+    "jax_hpc_profiler",
+    "jax-grid-search @ git+https://github.com/ASKabalan/jax-grid-search",
+    "optax",
+    "camb",
+    "numpy",
+    "pysm3",
+    "astropy",
+]
+
+[project.optional-dependencies]
+plotting = [
+    "matplotlib",
+    "seaborn",
+    "scienceplots",
+]
+optimization = [
+    "jaxopt",
+]
+benchmarks = [
+    "fgbuster @ git+https://github.com/fgbuster/fgbuster",
+]
+dev = [
+    "ruff",
+    "pre-commit",
+    "jupyter",
+    "pytest",
+]
+all = [
+    "furax-cs[plotting,optimization,benchmarks,dev]",
+]
+
+[project.scripts]
+bench-bcp = "furax_cs.scripts.bench_bcp:main"
+bench-clusters = "furax_cs.scripts.bench_clusters:main"
+validation-model = "furax_cs.scripts.validation_model:main"
+noise-model = "furax_cs.scripts.noise_model:main"
+distributed-gridding = "furax_cs.scripts.distributed_gridding:main"
+ptep-model = "furax_cs.scripts.ptep_model:main"
+fgbuster-model = "furax_cs.scripts.fgbuster_model:main"
+kmeans-model = "furax_cs.scripts.kmeans_model:main"
+r_analysis = "furax_cs.r_analysis.main:main"
+generate_data = "furax_cs.data.generate_maps:main"
+generate_masks = "furax_cs.data.masks.downgrade:main"
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = {find = {where = ["src"], include = ["furax_cs*"]}}
+
+[tool.setuptools.package-data]
+"furax_cs.data" = ["*.yaml", "masks/*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+fix = true
+include = ["*.py", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "E203",
+    "E731",
+    "E741",
+    "F722",  # conflicts with jaxtyping Array annotations
+    "E501",
+    "E402",  # module level import not at top of file
+]
