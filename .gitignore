@@ -169,3 +169,74 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignore Results from runs
+*.pkl
+runs/
+results*
+*.npz
+*.npy
+*.pdf
+!src/furax_cs/data/masks/GAL_PlanckMasks_2048.npz
+
+
+# LaTeX intermediate files
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.xdv
+*.ilg
+*.ind
+*.idx
+*.glo
+*.gls
+*.acn
+*.acr
+*.alg
+*.dvi
+*.run.xml
+
+# latexml
+*.ltxml
+
+# Output files
+*.ps
+*.eps
+
+# Editor backups
+*~
+*.swp
+*.bak
+*.backup
+*.tmp
+*.temp
+
+# VS Code project settings (optional)
+.vscode/
+
+# latexmk history
+.latexmkrc
+
+# MacOS
+.DS_Store
+apssampNotes.bib
+
+# Custom
+.mplcache
+plots*
+publication*
+manifest.json
+*err
+*out

@@ -1,0 +1,22 @@
+# Default Grid Search Space Configuration for CMB Component Separation
+#
+# This file defines the search space for distributed grid search optimization
+# to find optimal spectral parameters for CMB component separation.
+#
+# Each parameter controls the number of spatial patches (regions) with
+# different spectral indices or physical parameters across the sky.
+
+# Temperature dust patches: Number of regions with different dust temperatures
+# Higher values allow more fine-grained temperature variations across the sky
+# Range: 1 (uniform) to sky-dependent maximum
+T_d_patches: [1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]
+
+# Beta dust patches: Number of regions with different dust spectral indices
+# Controls spatial variation in dust emission spectral behavior
+# Range: 1 (uniform) to sky-dependent maximum
+B_d_patches: [4000, 5000, 6000, 7000, 8000, 9000, 10000]
+
+# Beta synchrotron patches: Number of regions with different synchrotron spectral indices
+# Controls spatial variation in synchrotron emission spectral behavior
+# Range: 1 (uniform) to sky-dependent maximum
+B_s_patches: [1, 5, 20, 50, 80, 100, 500, 1000, 2000, 5000, 10000]
