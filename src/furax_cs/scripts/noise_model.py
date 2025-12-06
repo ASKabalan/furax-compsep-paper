@@ -26,6 +26,7 @@ if (
 
 import jax.numpy as jnp
 import jax.random
+import matplotlib.pyplot as plt
 import numpy as np
 import optax
 from furax._instruments.sky import get_noise_sigma_from_instrument
@@ -42,6 +43,7 @@ from jax_healpy.clustering import (
     get_cutout_from_mask,
     normalize_by_first_occurrence,
 )
+from matplotlib import cycler
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
@@ -51,9 +53,122 @@ from furax_cs.data.generate_maps import (
     simulate_D_from_params,
 )
 from furax_cs.data.instruments import get_instrument
-from furax_cs.data.plotting import (
-    plot_cmb_nll_vs_B_d_patches_with_noise,
-)
+
+
+def filter_constant_param(input_dict, indx):
+    """Extract parameter values at a specific index from nested dict.
+
+    Parameters
+    ----------
+    input_dict : dict
+        Nested dictionary with array values.
+    indx : int
+        Index to extract from each array.
+
+    Returns
+    -------
+    dict
+        Dictionary with same structure but scalar or reduced-dimension values.
+    """
+    return jax.tree.map(lambda x: x[indx], input_dict)
+
+
+def sort_results(results, key):
+    """Sort all arrays in results dictionary by values of a specific key.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary of result arrays.
+    key : str
+        Key whose values define the sort order.
+
+    Returns
+    -------
+    dict
+        Sorted results dictionary.
+    """
+    indices = np.argsort(results[key])
+    return jax.tree.map(lambda x: x[indices], results)
+
+
+def plot_cmb_nll_vs_B_d_patches_with_noise(
+    results, best_params, out_folder, nb_to_plot, noise_sim_count
+):
+    fig, axs = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
+
+    # Define custom, print-friendly colors
+    colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#4a4a4a"]
+    plt.rc("axes", prop_cycle=cycler(color=colors))
+
+    for i, nb in enumerate(nb_to_plot):
+        run = filter_constant_param(results, nb)
+        B_s = run["B_s_patches"]
+        T_d = run["T_d_patches"]
+
+        mask = (results["B_s_patches"] == B_s) & (results["T_d_patches"] == T_d)
+        filtered = filter_constant_param(results, mask)
+        filtered = sort_results(filtered, "B_d_patches")
+
+        x = filtered["B_d_patches"]
+        y_variance_mean = filtered["value"].mean(axis=1)
+        y_variance_std = filtered["value"].std(axis=1)
+        y_likelihood_mean = -filtered["NLL"].mean(axis=1)
+        y_likelihood_std = filtered["NLL"].std(axis=1)
+
+        label = f"$K_{{T_d}}$={int(T_d)}, $K_{{\\beta_s}}$={int(B_s)}"
+
+        # roll one to the right
+        y_variance_mean = np.roll(y_variance_mean, -1)
+        y_variance_std = np.roll(y_variance_std, -1)
+
+        # CMB Variance plot: line + scatter + error bars
+        axs[0].plot(x, y_variance_mean, "-", alpha=0.7)
+        axs[0].errorbar(
+            x,
+            y_variance_mean,
+            yerr=y_variance_std / np.sqrt(noise_sim_count),
+            fmt="o",
+            label=label,
+            capsize=3,
+        )
+
+        # Likelihood plot: line + scatter + error bars
+        axs[1].plot(x, y_likelihood_mean, "-", alpha=0.7)
+        axs[1].errorbar(
+            x,
+            y_likelihood_mean,
+            yerr=y_likelihood_std / np.sqrt(noise_sim_count),
+            fmt="o",
+            label=label,
+            capsize=3,
+        )
+
+    # Mark best B_d
+    best_B_d = best_params["B_d_patches"]
+    axs[0].axvline(
+        best_B_d, color="red", linestyle="--", label=f"Best $K_{{\\beta_d}}$ = {int(best_B_d)}"
+    )
+    axs[1].axvline(best_B_d, color="red", linestyle="--")
+
+    # Improve axis labels and titles
+    axs[0].set_ylabel(r"Mean CMB Variance ($\mu$K²)")
+    axs[0].set_title("Mean CMB Variance vs Dust Index Patches ($K_{\\beta_d}$)")
+    axs[0].grid(True)
+    axs[0].legend()
+
+    axs[1].set_xlabel("Number of Dust Index Patches ($K_{\\beta_d}$)")
+    axs[1].set_ylabel("Mean Likelihood")
+    axs[1].set_title("Mean Log-Likelihood vs Dust Index Patches ($K_{\\beta_d}$)")
+    axs[1].grid(True)
+    axs[1].legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        f"{out_folder}/validation_likelihood_vs_variance.pdf",
+        dpi=1200,
+        transparent=True,
+    )
 
 
 def parse_args():

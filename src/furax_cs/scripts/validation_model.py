@@ -5,10 +5,13 @@ import argparse
 import operator
 from functools import partial
 
+import healpy as hp
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import numpy as np
 import optax
+import seaborn as sns
 from furax import HomothetyOperator
 from furax._instruments.sky import FGBusterInstrument
 from furax.obs import (
@@ -18,7 +21,11 @@ from furax.obs import (
 )
 from furax.obs.landscapes import HealpixLandscape
 from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
-from jax_healpy.clustering import find_kmeans_clusters, get_cutout_from_mask
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    get_fullmap_from_cutout,
+)
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
@@ -27,9 +34,140 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
     simulate_D_from_params,
 )
-from furax_cs.data.plotting import plot_cmb_nll_vs_B_d_patches, plot_healpix_projection
 
 jax.config.update("jax_enable_x64", True)
+
+
+def plot_cmb_nll_vs_B_d_patches(results, best_params, out_folder):
+    """Plot CMB variance and NLL vs number of dust index patches.
+
+    Parameters
+    ----------
+    results : dict
+        Grid search results dictionary.
+    best_params : dict
+        Best parameter configuration.
+    out_folder : str
+        Output directory for saving plots.
+    """
+    sns.set_context("paper")
+    # Extract values from the grid search results
+    B_d_patches = results["B_d_patches"]  # dust patch count (x-axis)
+    cmb_variance = results["value"]  # CMB variance values from grid search
+    nll = results["NLL"]  # Negative log-likelihood values
+
+    # Create subplots: one for CMB variance, one for NLL
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Handle case where values have multiple realizations (shape: n_configs, n_realizations)
+    if cmb_variance.ndim > 1 and cmb_variance.shape[1] > 1:
+        # Compute mean and std across noise realizations
+        variance_mean = np.mean(cmb_variance, axis=1)
+        variance_std = np.std(cmb_variance, axis=1)
+        nll_mean = np.mean(nll, axis=1)
+        nll_std = np.std(nll, axis=1)
+
+        # Plot with error bars
+        axs[0].errorbar(
+            B_d_patches,
+            variance_mean,
+            yerr=variance_std,
+            fmt="o-",
+            capsize=5,
+            capthick=2,
+            color="blue",
+            label="Grid Search",
+        )
+        axs[1].errorbar(
+            B_d_patches,
+            nll_mean,
+            yerr=nll_std,
+            fmt="o-",
+            capsize=5,
+            capthick=2,
+            color="green",
+            label="Grid Search",
+        )
+    else:
+        # Single realization case - use scatter plot
+        axs[0].scatter(B_d_patches, cmb_variance, color="blue", label="Grid Search")
+        axs[1].scatter(B_d_patches, nll, color="green", label="Grid Search")
+
+    # Add best parameter lines
+    axs[0].axhline(y=best_params["value"], color="red", linestyle="--", label="Best CMB Variance")
+    axs[0].axvline(
+        x=best_params["B_d_patches"],
+        color="orange",
+        linestyle="--",
+        label=r"Best $K_{\beta_d}$",
+    )
+    axs[0].set_xlabel(r"$K_{\beta_d}$")  # Updated to K-notation
+    axs[0].set_ylabel(r"CMB Variance ($\mu$K²)")  # Added units
+    axs[0].set_title(r"CMB Variance vs. $K_{\beta_d}$")  # Updated title
+    axs[0].legend()
+
+    # Plot NLL vs. B_d_patches
+    axs[1].axhline(y=best_params["NLL"], color="red", linestyle="--", label="Best NLL")
+    axs[1].axvline(
+        x=best_params["B_d_patches"],
+        color="orange",
+        linestyle="--",
+        label=r"Best $K_{\beta_d}$",
+    )
+    axs[1].set_xlabel(r"$K_{\beta_d}$")  # Updated to K-notation
+    axs[1].set_ylabel("Negative Log Likelihood")
+    axs[1].set_title(r"NLL vs. $K_{\beta_d}$")  # Updated title
+    axs[1].legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        f"{out_folder}/cmb_nll_vs_B_d_patches.png",
+        dpi=1200,
+        transparent=True,
+    )
+
+
+def plot_healpix_projection(mask, nside, results, best_params, out_folder):
+    """Project best beta_dust parameters onto full HEALPix sky.
+
+    Parameters
+    ----------
+    mask : ndarray
+        Boolean sky mask.
+    nside : int
+        HEALPix resolution parameter.
+    results : dict
+        Grid search results.
+    best_params : dict
+        Best parameter configuration.
+    out_folder : str
+        Output directory path.
+    """
+    sns.set_context("paper")
+
+    (indices,) = jnp.where(mask == 1)
+    best_run = jax.tree.map(lambda x: x[0], results)
+    patches = patches = best_run["beta_dust_patches"]
+    best_spectral_params = best_params["beta_dust"][patches]
+    result_spectral_params = best_run["beta_dust"][patches]
+
+    best_healpix_map = get_fullmap_from_cutout(best_spectral_params, indices, nside)
+    result_healpix_map = get_fullmap_from_cutout(result_spectral_params, indices, nside)
+
+    # Plot the best and result maps
+    plt.figure(figsize=(15, 5))
+    hp.mollview(best_healpix_map, title="Best Beta Dust map", sub=(1, 2, 1), bgcolor=(0.0,) * 4)
+    hp.mollview(
+        result_healpix_map,
+        title="Result Beta Dust map",
+        sub=(1, 2, 2),
+        bgcolor=(0.0,) * 4,
+    )
+    plt.savefig(
+        f"{out_folder}/best_result_healpix_projection.png",
+        dpi=1200,
+        transparent=True,
+    )
 
 
 def parse_args():
