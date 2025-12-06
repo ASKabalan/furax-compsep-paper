@@ -3,6 +3,7 @@
 import argparse
 import os
 import pickle
+from pathlib import Path
 
 import healpy as hp
 import jax.random as jr
@@ -265,7 +266,7 @@ def load_cmb_map(nside, sky="c1d0s0"):
         else:
             raise FileNotFoundError(
                 f"Cache file for freq_maps with nside {nside} not found.\n"
-                f"Please generate it first by calling `generate_maps({nside})`."
+                f"Please generate it first by calling `generate_data --nside {nside}`."
             )
 
     # Check if file exists and load if it does; otherwise raise an error with guidance
@@ -276,7 +277,7 @@ def load_cmb_map(nside, sky="c1d0s0"):
     else:
         raise FileNotFoundError(
             f"Cache file for freq_maps with nside {nside} not found.\n"
-            f"Please generate it first by calling `generate_maps({nside})`."
+            f"Please generate it first by calling `generate_data --nside {nside}`."
         )
 
     return freq_maps
@@ -517,6 +518,39 @@ def parse_mask_expression(expr: str, nside: int) -> np.ndarray:
     return result
 
 
+def _get_or_generate_mask_file(nside: int) -> Path:
+    """Get path to mask file, generating it from 2048 source if needed.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+
+    Returns
+    -------
+    Path
+        Path to the mask file.
+    """
+    mask_dir = Path(__file__).parent / "masks"
+    mask_file = mask_dir / f"GAL_PlanckMasks_{nside}.npz"
+
+    if mask_file.exists():
+        return mask_file
+
+    # Generate from 2048 source
+    source_file = mask_dir / "GAL_PlanckMasks_2048.npz"
+    masks_2048 = np.load(source_file)
+
+    downgraded = {}
+    for key in masks_2048.files:
+        downgraded[key] = hp.ud_grade(masks_2048[key] * 1.0, nside).astype(np.uint8)
+
+    np.savez(mask_file, **downgraded)
+    print(f"Generated and cached mask for nside {nside}")
+
+    return mask_file
+
+
 def get_mask(mask_name="GAL020", nside=64):
     """Load and process galactic masks at specified resolution.
 
@@ -535,8 +569,6 @@ def get_mask(mask_name="GAL020", nside=64):
 
     Raises
     ------
-    FileNotFoundError
-        If mask file for given nside does not exist.
     ValueError
         If mask_name is invalid.
 
@@ -550,22 +582,15 @@ def get_mask(mask_name="GAL020", nside=64):
     - Use - for subtraction (logical AND NOT)
     - Expressions are evaluated left-to-right
     - Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
+
+    Masks are automatically generated and cached on first call for each nside.
     """
     # Check if mask_name contains boolean operators
     if "+" in mask_name or "-" in mask_name:
         return parse_mask_expression(mask_name, nside)
 
-    masks_file = f"masks/GAL_PlanckMasks_{nside}.npz"
-
-    try:
-        masks = np.load(masks_file)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"""
-            Could not find masks file: {masks_file}.
-            please run the downgrade script with nside={nside}
-            by executing:
-            generate_masks.py --nside {nside}
-            """)
+    masks_file = _get_or_generate_mask_file(nside)
+    masks = np.load(masks_file)
 
     if mask_name not in MASK_CHOICES:
         raise ValueError(f"Invalid mask name: {mask_name}. Choose from: {MASK_CHOICES}")

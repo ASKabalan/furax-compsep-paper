@@ -18,7 +18,7 @@ from furax.obs import negative_log_likelihood, sky_signal
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import ProgressBar, optimize
+from jax_grid_search import ProgressBar, condition, optimize
 from jax_healpy.clustering import get_cutout_from_mask
 from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
@@ -31,7 +31,7 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
-from furax_cs.optim import condition, lbfgs_backtrack, lbfgs_zoom
+from furax_cs.optim import lbfgs_backtrack, lbfgs_zoom
 
 jax.config.update("jax_enable_x64", True)
 
@@ -128,16 +128,10 @@ def parse_args():
         help="L-BFGS solver type: 'zoom' for strong Wolfe conditions, 'backtrack' for Armijo backtracking",
     )
     parser.add_argument(
-        "-precond",
-        "--precondition",
+        "-cond",
+        "--cond",
         action="store_true",
-        help="Enable preconditioning for L-BFGS solver",
-    )
-    parser.add_argument(
-        "-postcond",
-        "--postcondition",
-        action="store_true",
-        help="Enable postconditioning for L-BFGS solver",
+        help="Enable conditioning (pre and post) for L-BFGS solver",
     )
     parser.add_argument(
         "-o",
@@ -154,7 +148,7 @@ def main():
 
     # Define the output folder and create it if necessary
     ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
-    config = f"{args.solver}_precond{args.precondition}_postcond{args.postcondition}_noise{int(args.noise_ratio * 100)}"
+    config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
     out_folder = f"{args.output}/ptep_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
     os.makedirs(out_folder, exist_ok=True)
 
@@ -170,7 +164,7 @@ def main():
     (indices,) = jnp.where(mask == 1)
 
     # Load frequency maps and extract the Stokes Q/U maps (for example)
-    _, freqmaps = load_from_cache(nside, noise=False, instrument_name=args.instrument, sky=args.tag)
+    _, freqmaps = load_from_cache(nside, instrument_name=args.instrument, sky=args.tag)
     _, fg_maps = load_fg_map(nside, instrument_name=args.instrument, sky=args.tag)
     cmb_map = load_cmb_map(nside, sky=args.tag)
     d = Stokes.from_stokes(freqmaps[:, 1], freqmaps[:, 2])
@@ -249,14 +243,14 @@ def main():
 
     fn, to_opt, from_opt = condition(
         negative_log_likelihood_fn,
-        lower=lower_bound if args.precondition else None,
-        upper=upper_bound if args.precondition else None,
-        factor=3 * hp.nside2npix(nside) if args.postcondition else 1.0,
+        lower=lower_bound if args.cond else None,
+        upper=upper_bound if args.cond else None,
+        factor=3 * hp.nside2npix(nside) if args.cond else 1.0,
     )
     if args.solver == "zoom":
-        solver = lbfgs_zoom(verbose=True)
+        solver = lbfgs_zoom(verbose=False)
     elif args.solver == "backtrack":
-        solver = lbfgs_backtrack(verbose=True)
+        solver = lbfgs_backtrack(verbose=False)
     elif args.solver == "adam":
         solver = optax.adam(learning_rate=1e-3)
 

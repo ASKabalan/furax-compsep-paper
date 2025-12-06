@@ -17,7 +17,7 @@ dependencies = [
     "healpy",
     "jax-healpy",
     "jax_hpc_profiler",
-    "jax-grid-search @ git+https://github.com/ASKabalan/jax-grid-search",
+    "jax-grid-search>=0.2.0",
     "optax",
     "camb",
     "numpy",
@@ -58,7 +58,7 @@ fgbuster-model = "furax_cs.scripts.fgbuster_model:main"
 kmeans-model = "furax_cs.scripts.kmeans_model:main"
 r_analysis = "furax_cs.r_analysis.main:main"
 generate_data = "furax_cs.data.generate_maps:main"
-generate_masks = "furax_cs.data.masks.downgrade:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = {find = {where = ["src"], include = ["furax_cs*"]}}

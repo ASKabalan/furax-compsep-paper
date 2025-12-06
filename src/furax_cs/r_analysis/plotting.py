@@ -1,3 +1,4 @@
+import os
 import re
 
 import healpy as hp
@@ -6,27 +7,15 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize
+from tqdm.auto import tqdm
 
-from .logging_utils import success, warning
+from .compute import compute_all
+from .logging_utils import error, hint, info, success, warning
+from .snapshot import load_and_filter_snapshot, serialize_snapshot_payload
 
 plt.style.use("science")
 
-out_folder = "plots/"
-font_size = 14
-plt.rcParams.update(
-    {
-        "font.size": font_size,
-        "axes.labelsize": font_size,
-        "xtick.labelsize": font_size,
-        "ytick.labelsize": font_size,
-        "legend.fontsize": font_size,
-        "axes.titlesize": font_size,
-        "font.family": "serif",
-        "legend.frameon": True,
-    }
-)
-
-_OUTPUT_FORMAT = "png"
+PLOT_OUTPUTS = "plots/"
 
 
 def get_run_color(index):
@@ -56,17 +45,11 @@ def get_run_color(index):
         return plt.cm.tab10(index % 10)
 
 
-def _truncate_name_if_too_long(name, max_length=50):
+def _truncate_name_if_too_long(name, max_length=250):
     """Truncate long names for plot titles and filenames."""
     if len(name) > max_length:
         return name[: max_length - 3] + "..."
     return name
-
-
-def set_output_format(output_format):
-    """Set global output format for all plotting functions."""
-    global _OUTPUT_FORMAT
-    _OUTPUT_FORMAT = output_format
 
 
 def set_font_size(size):
@@ -77,7 +60,6 @@ def set_font_size(size):
     size : int
         Font size to use for all plot elements.
     """
-    global font_size
     font_size = size
     plt.rcParams.update(
         {
@@ -91,15 +73,15 @@ def set_font_size(size):
     )
 
 
-def save_or_show(filename):
+def save_or_show(filename, output_format):
     """Save figure to file or show inline based on output format."""
-    if _OUTPUT_FORMAT == "show":
+    if output_format == "show":
         plt.show()
     else:
-        ext = "pdf" if _OUTPUT_FORMAT == "pdf" else "png"
+        ext = "pdf" if output_format == "pdf" else "png"
         dpi = 300 if ext == "png" else None
         filename = _truncate_name_if_too_long(filename)
-        filepath = f"{out_folder}{filename}.{ext}"
+        filepath = f"{PLOT_OUTPUTS}{filename}.{ext}"
         plt.savefig(filepath, dpi=dpi, bbox_inches="tight")
         success(f"Saved: {filepath}")
 
@@ -114,105 +96,85 @@ def get_min_variance(cmb_map):
     return jax.tree.map(lambda x: x[argmin], cmb_map)
 
 
-def plot_params(name, params, plot_vertical=False):
+def plot_params(name, params, output_format, plot_vertical=False):
     """Plot recovered spectral parameter maps for a single configuration."""
-    with plt.rc_context(
-        {
-            "font.size": font_size * 1.6,
-            "axes.labelsize": font_size * 1.6,
-            "xtick.labelsize": font_size * 1.6,
-            "ytick.labelsize": font_size * 1.6,
-            "legend.fontsize": font_size * 1.6,
-            "axes.titlesize": font_size * 1.6,
-        }
-    ):
-        if plot_vertical:
-            fig_size = (8, 16)
-            subplot_args = (3, 1, lambda i: i + 1)
-        else:
-            fig_size = (16, 8)
-            subplot_args = (1, 3, lambda i: i + 1)
+    if plot_vertical:
+        fig_size = (8, 16)
+        subplot_args = (3, 1, lambda i: i + 1)
+    else:
+        fig_size = (16, 8)
+        subplot_args = (1, 3, lambda i: i + 1)
 
-        _ = plt.figure(figsize=fig_size)
+    _ = plt.figure(figsize=fig_size)
 
-        keys = ["beta_dust", "temp_dust", "beta_pl"]
-        names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
+    keys = ["beta_dust", "temp_dust", "beta_pl"]
+    names = ["$\\beta_d$", "$T_d$", "$\\beta_s$"]
 
-        for i, (key, param_name) in enumerate(zip(keys, names)):
-            param_map = params[key]
-            hp.mollview(
-                param_map,
-                title=f"{name} {param_name}",
-                sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
-                bgcolor=(0.0,) * 4,
-                cbar=True,
-            )
+    for i, (key, param_name) in enumerate(zip(keys, names)):
+        param_map = params[key]
+        hp.mollview(
+            param_map,
+            title=f"{name} {param_name}",
+            sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
+            bgcolor=(0.0,) * 4,
+            cbar=True,
+        )
 
-        save_or_show(f"params_{name}")
-        params_dict = {
-            "beta_dust": params["beta_dust"],
-            "temp_dust": params["temp_dust"],
-            "beta_pl": params["beta_pl"],
-        }
-        np.savez(f"{out_folder}/params_{name}.npz", **params_dict)
+    save_or_show(f"params_{name}", output_format)
+    params_dict = {
+        "beta_dust": params["beta_dust"],
+        "temp_dust": params["temp_dust"],
+        "beta_pl": params["beta_pl"],
+    }
+    np.savez(f"{PLOT_OUTPUTS}/params_{name}.npz", **params_dict)
 
 
-def plot_patches(name, patches, plot_vertical=False):
+def plot_patches(name, patches, output_format, plot_vertical=False):
     """Visualise patch assignments (cluster labels) for each spectral parameter."""
-    with plt.rc_context(
-        {
-            "font.size": font_size * 1.6,
-            "axes.labelsize": font_size * 1.6,
-            "xtick.labelsize": font_size * 1.6,
-            "ytick.labelsize": font_size * 1.6,
-            "legend.fontsize": font_size * 1.6,
-            "axes.titlesize": font_size * 1.6,
-        }
-    ):
-        if plot_vertical:
-            fig_size = (8, 16)
-            subplot_args = (3, 1, lambda i: i + 1)
-        else:
-            fig_size = (16, 8)
-            subplot_args = (1, 3, lambda i: i + 1)
+    if plot_vertical:
+        fig_size = (8, 16)
+        subplot_args = (3, 1, lambda i: i + 1)
+    else:
+        fig_size = (16, 8)
+        subplot_args = (1, 3, lambda i: i + 1)
 
-        _ = plt.figure(figsize=fig_size)
+    _ = plt.figure(figsize=fig_size)
 
-        np.random.seed(0)
+    np.random.seed(0)
 
-        def shuffle_labels(arr):
-            unique_vals = np.unique(arr[arr != hp.UNSEEN])
-            shuffled_vals = np.random.permutation(unique_vals)
+    def shuffle_labels(arr):
+        unique_vals = np.unique(arr[arr != hp.UNSEEN])
+        shuffled_vals = np.random.permutation(unique_vals)
 
-            mapping = dict(zip(unique_vals, shuffled_vals))
+        mapping = dict(zip(unique_vals, shuffled_vals))
 
-            shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
-            return shuffled_arr.astype(np.float64)
+        shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
+        return shuffled_arr.astype(np.float64)
 
-        patches_dict = {
-            "beta_dust_patches": patches["beta_dust_patches"],
-            "temp_dust_patches": patches["temp_dust_patches"],
-            "beta_pl_patches": patches["beta_pl_patches"],
-        }
-        np.savez(f"{out_folder}/patches_{name}.npz", **patches_dict)
-        patches = jax.tree.map(shuffle_labels, patches)
+    patches_dict = {
+        "beta_dust_patches": patches["beta_dust_patches"],
+        "temp_dust_patches": patches["temp_dust_patches"],
+        "beta_pl_patches": patches["beta_pl_patches"],
+    }
+    np.savez(f"{PLOT_OUTPUTS}/patches_{name}.npz", **patches_dict)
+    patches = jax.tree.map(shuffle_labels, patches)
 
-        keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
-        names = ["$\\beta_d$ Patches", "$T_d$ Patches", "$\\beta_s$ Patches"]
+    keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
+    names = ["$\\beta_d$ Patches", "$T_d$ Patches", "$\\beta_s$ Patches"]
 
-        for i, (key, patch_name) in enumerate(zip(keys, names)):
-            patch_map = patches[key]
-            hp.mollview(
-                patch_map,
-                title=f"{name} {patch_name}",
-                sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
-                bgcolor=(0.0,) * 4,
-                cbar=True,
-            )
-        save_or_show(f"patches_{name}")
+    for i, (key, patch_name) in enumerate(zip(keys, names)):
+        patch_map = patches[key]
+        hp.mollview(
+            patch_map,
+            title=f"{name} {patch_name}",
+            sub=(subplot_args[0], subplot_args[1], subplot_args[2](i)),
+            bgcolor=(0.0,) * 4,
+            cbar=True,
+        )
+    save_or_show(f"patches_{name}", output_format)
 
 
-def plot_validation_curves(name, updates_history, value_history):
+def plot_validation_curves(name, updates_history, value_history, output_format):
     """Plot optimizer update norms and NLL traces for each run."""
     updates_history = np.array(updates_history)
     value_history = np.array(value_history)
@@ -251,10 +213,10 @@ def plot_validation_curves(name, updates_history, value_history):
         axs[i, 1].legend()
 
     plt.tight_layout()
-    save_or_show(f"validation_curves_{name}")
+    save_or_show(f"validation_curves_{name}", output_format)
 
 
-def plot_all_cmb(names, cmb_pytree_list):
+def plot_all_cmb(names, cmb_pytree_list, output_format):
     """Show reconstructed-minus-true Q/U differences for multiple runs."""
     nb_cmb = len(cmb_pytree_list)
 
@@ -301,10 +263,10 @@ def plot_all_cmb(names, cmb_pytree_list):
         )
 
     name = "_".join(names)
-    save_or_show(f"cmb_recon_{name}")
+    save_or_show(f"cmb_recon_{name}", output_format)
 
 
-def plot_all_variances(names, cmb_pytree_list):
+def plot_all_variances(names, cmb_pytree_list, output_format):
     """Histogram proxy metrics (variance, NLL, ∑Cℓ) across runs."""
 
     def get_all_variances(cmb_map):
@@ -359,12 +321,12 @@ def plot_all_variances(names, cmb_pytree_list):
     plt.tight_layout(pad=2.0)
     name = "_".join(names)
     name = "all_metrics"
-    save_or_show(f"metric_distributions_histogram_{name}")
+    save_or_show(f"metric_distributions_histogram_{name}", output_format)
 
 
-def plot_all_cl_residuals(names, cl_pytree_list):
+def plot_all_cl_residuals(names, cl_pytree_list, output_format):
     """Overlay residual BB spectra for all requested configurations."""
-    _ = plt.figure(figsize=(8, 6))
+    _ = plt.figure(figsize=(10, 8))
 
     if len(cl_pytree_list) == 0:
         warning("No power spectra results to plot")
@@ -430,13 +392,16 @@ def plot_all_cl_residuals(names, cl_pytree_list):
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True, which="both", ls="--", alpha=0.4)
-    plt.legend(fontsize="small", ncol=2)
+
+    plt.legend(loc="best", ncol=2, framealpha=0.95, columnspacing=1.0)
+
     plt.tight_layout()
+
     name = "_".join(names)
-    save_or_show(f"bb_spectra_{name}")
+    save_or_show(f"bb_spectra_{name}", output_format)
 
 
-def plot_all_systematic_residuals(names, syst_map_list):
+def plot_all_systematic_residuals(names, syst_map_list, output_format):
     """Plot systematic residual Q/U maps for multiple runs."""
     nb_runs = len(syst_map_list)
     if nb_runs == 0:
@@ -474,10 +439,10 @@ def plot_all_systematic_residuals(names, syst_map_list):
         )
 
     name = "_".join(names)
-    save_or_show(f"all_systematic_residuals_{name}")
+    save_or_show(f"all_systematic_residuals_{name}", output_format)
 
 
-def plot_all_statistical_residuals(names, stat_map_list):
+def plot_all_statistical_residuals(names, stat_map_list, output_format):
     """Plot statistical residual Q/U maps for multiple runs."""
     nb_runs = len(stat_map_list)
     if nb_runs == 0:
@@ -517,12 +482,12 @@ def plot_all_statistical_residuals(names, stat_map_list):
         )
 
     name = "_".join(names)
-    save_or_show(f"all_statistical_residuals_{name}")
+    save_or_show(f"all_statistical_residuals_{name}", output_format)
 
 
-def plot_all_r_estimation(names, r_pytree_list):
+def plot_all_r_estimation(names, r_pytree_list, output_format):
     """Compare r likelihood curves across runs in a single figure."""
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(6, 5))
 
     for i, (name, r_data) in enumerate(zip(names, r_pytree_list)):
         if r_data["r_best"] is None:
@@ -567,13 +532,17 @@ def plot_all_r_estimation(names, r_pytree_list):
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True, which="both", ls=":")
-    plt.legend(fontsize="medium")
+
+    plt.legend(loc="upper right", frameon=True, framealpha=0.95, fontsize=10)
     plt.tight_layout()
+
     name = "_".join(names)
-    save_or_show(f"r_likelihood_{name}")
+    save_or_show(f"r_likelihood_{name}", output_format)
 
 
-def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list):
+def _create_r_vs_clusters_plot(
+    patch_name, patch_key, names, cmb_pytree_list, r_pytree_list, output_format
+):
     """Scatter plot of r + σ(r) vs clusters for one parameter."""
     method_dict = {}
     base_patch_keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
@@ -685,11 +654,11 @@ def _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    save_or_show(f"r_vs_clusters_{filename_suffix}")
+    save_or_show(f"r_vs_clusters_{filename_suffix}", output_format)
     plt.close()
 
 
-def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list):
+def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, output_format):
     """Scatter plot of cluster count vs minimum variance for one parameter."""
     method_dict = {}
     base_patch_keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
@@ -774,11 +743,11 @@ def _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_l
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    save_or_show(f"variance_vs_clusters_{filename_suffix}")
+    save_or_show(f"variance_vs_clusters_{filename_suffix}", output_format)
     plt.close()
 
 
-def plot_variance_vs_clusters(names, cmb_pytree_list):
+def plot_variance_vs_clusters(names, cmb_pytree_list, output_format):
     """Plot minimum recovered-CMB variance vs cluster count for each parameter."""
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
@@ -788,10 +757,14 @@ def plot_variance_vs_clusters(names, cmb_pytree_list):
     ]
 
     for patch_name, patch_key in patch_configs:
-        _create_variance_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list)
+        _create_variance_vs_clusters_plot(
+            patch_name, patch_key, names, cmb_pytree_list, output_format
+        )
 
 
-def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list):
+def _create_variance_vs_r_plot(
+    patch_name, patch_key, names, cmb_pytree_list, r_pytree_list, output_format
+):
     """Helper to plot variance vs best-fit r for a given parameter/totals."""
     points = []
     is_total = patch_key == "total"
@@ -876,11 +849,11 @@ def _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_
     plt.tight_layout()
 
     filename_suffix = "total" if is_total else patch_key.replace("_patches", "")
-    save_or_show(f"variance_vs_r_{filename_suffix}")
+    save_or_show(f"variance_vs_r_{filename_suffix}", output_format)
     plt.close()
 
 
-def plot_variance_vs_r(names, cmb_pytree_list, r_pytree_list):
+def plot_variance_vs_r(names, cmb_pytree_list, r_pytree_list, output_format):
     """Plot variance vs best-fit r for each spectral parameter and combined."""
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
@@ -890,10 +863,12 @@ def plot_variance_vs_r(names, cmb_pytree_list, r_pytree_list):
     ]
 
     for patch_name, patch_key in patch_configs:
-        _create_variance_vs_r_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list)
+        _create_variance_vs_r_plot(
+            patch_name, patch_key, names, cmb_pytree_list, r_pytree_list, output_format
+        )
 
 
-def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
+def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list, output_format):
     """Plot r + σ(r) vs number of clusters for each parameter."""
     patch_configs = [
         ("$\\beta_d$", "beta_dust_patches"),
@@ -903,10 +878,12 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list):
     ]
 
     for patch_name, patch_key in patch_configs:
-        _create_r_vs_clusters_plot(patch_name, patch_key, names, cmb_pytree_list, r_pytree_list)
+        _create_r_vs_clusters_plot(
+            patch_name, patch_key, names, cmb_pytree_list, r_pytree_list, output_format
+        )
 
 
-def plot_systematic_residual_maps(name, syst_map):
+def plot_systematic_residual_maps(name, syst_map, output_format):
     """Plot systematic residual Q/U maps for a single configuration."""
     syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
     syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
@@ -937,10 +914,10 @@ def plot_systematic_residual_maps(name, syst_map):
         notext=True,
     )
 
-    save_or_show(f"systematic_residual_maps_{name}")
+    save_or_show(f"systematic_residual_maps_{name}", output_format)
 
 
-def plot_statistical_residual_maps(name, stat_maps):
+def plot_statistical_residual_maps(name, stat_maps, output_format):
     """Plot statistical residual Q/U maps for a single configuration."""
     stat_map_first = stat_maps[0]
 
@@ -973,10 +950,10 @@ def plot_statistical_residual_maps(name, stat_maps):
         notext=True,
     )
 
-    save_or_show(f"statistical_residual_maps_{name}")
+    save_or_show(f"statistical_residual_maps_{name}", output_format)
 
 
-def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
+def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
     """Plot reconstructed maps, inputs, and differences for Q/U."""
 
     def mse(a, b):
@@ -1023,7 +1000,7 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon):
         bgcolor=(0,) * 4,
     )
     plt.title(f"{name} CMB Reconstruction")
-    save_or_show(f"cmb_recon_{name}")
+    save_or_show(f"cmb_recon_{name}", output_format)
 
 
 def plot_cl_residuals(
@@ -1037,42 +1014,54 @@ def plot_cl_residuals(
     cl_bb_lens,
     cl_true,
     ell_range,
+    output_format,
 ):
     """Plot detailed BB spectrum decomposition for a single configuration."""
-    _ = plt.figure(figsize=(12, 8))
+    _ = plt.figure(figsize=(10, 8))
 
-    coeff = ell_range * (ell_range + 1) / (2 * np.pi)
+    r_lo, r_hi = 1e-3, 4e-3
+    plt.fill_between(
+        ell_range,
+        r_lo * cl_bb_r1,
+        r_hi * cl_bb_r1,
+        color="grey",
+        alpha=0.35,
+        label=r"$C_\ell^{BB},\; r\in[10^{-3},\,4\cdot10^{-3}]$",
+    )
 
-    plt.plot(ell_range, cl_bb_obs * coeff, label=r"$C_\ell^{\mathrm{obs}}$", color="green")
-    plt.plot(ell_range, cl_total_res * coeff, label=r"$C_\ell^{\mathrm{res}}$", color="black")
-    plt.plot(ell_range, cl_syst_res * coeff, label=r"$C_\ell^{\mathrm{syst}}$", color="blue")
-    plt.plot(ell_range, cl_stat_res * coeff, label=r"$C_\ell^{\mathrm{stat}}$", color="orange")
-    plt.plot(ell_range, cl_bb_r1 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=1)$", color="red")
-    plt.plot(ell_range, cl_bb_r0 * coeff, label=r"$C_\ell^{\mathrm{BB}}(r=0)$", color="orange")
     plt.plot(
         ell_range,
-        cl_true * coeff,
-        label=r"$C_\ell^{\mathrm{true}}$",
+        cl_bb_lens,
+        label=r"$C_\ell^{BB}\,\mathrm{lens}$",
+        color="grey",
+        linestyle="-",
+        linewidth=2,
+    )
+
+    plt.plot(ell_range, cl_bb_obs, label=rf"{name} $C_\ell^{{\mathrm{{obs}}}}$", color="green")
+    plt.plot(ell_range, cl_total_res, label=rf"{name} $C_\ell^{{\mathrm{{res}}}}$", color="black")
+    plt.plot(ell_range, cl_syst_res, label=rf"{name} $C_\ell^{{\mathrm{{syst}}}}$", color="blue")
+    plt.plot(ell_range, cl_stat_res, label=rf"{name} $C_\ell^{{\mathrm{{stat}}}}$", color="orange")
+    plt.plot(
+        ell_range,
+        cl_true,
+        label=rf"{name} $C_\ell^{{\mathrm{{true}}}}$",
         color="purple",
         linestyle="--",
     )
-    plt.plot(
-        ell_range,
-        cl_bb_lens * coeff,
-        label=r"$C_\ell^{\mathrm{lens}}$",
-        color="purple",
-        linestyle=":",
-    )
 
-    plt.title(f"{name} BB Power Spectra")
+    plt.title(None)
     plt.xlabel(r"Multipole $\ell$")
-    plt.ylabel(r"$D_\ell^{BB}$ [$\mu K^2$]")
+    plt.ylabel(r"$C_\ell^{BB}$ [$\mu K^2$]")
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True, which="both", ls="--", alpha=0.4)
-    plt.legend()
+
+    plt.legend(loc="best", ncol=2, framealpha=0.95, columnspacing=1.0)
+
     plt.tight_layout()
-    save_or_show(f"bb_spectra_{name}")
+
+    save_or_show(f"bb_spectra_{name}", output_format)
 
 
 def plot_r_estimator(
@@ -1082,9 +1071,10 @@ def plot_r_estimator(
     sigma_r_pos,
     r_grid,
     L_vals,
+    output_format,
 ):
     """Plot one-dimensional likelihood for r with highlighted estimate."""
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(6, 5))
 
     likelihood = L_vals / np.max(L_vals)
 
@@ -1110,9 +1100,368 @@ def plot_r_estimator(
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True)
-    plt.legend()
+
+    plt.legend(loc="upper right", frameon=True, framealpha=0.95, fontsize=10)
     plt.tight_layout()
 
-    save_or_show(f"r_likelihood_{name}")
+    save_or_show(f"r_likelihood_{name}", output_format)
 
-    print(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+    info(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
+
+
+def plot_gradient_validation(name, validation_results):
+    """Plot NLL and gradient norms validation across multiple scales.
+
+    Parameters
+    ----------
+    name : str
+        Run identifier.
+    validation_results : dict
+        Dictionary containing validation data:
+        - 'scales': list of scales used
+        - 'steps': array of step indices
+        - 'results': dict mapping scale -> {
+            'nll': array of NLL values,
+            'grads_beta_dust': array of gradient norms,
+            'grads_beta_pl': array of gradient norms,
+            'grads_temp_dust': array of gradient norms
+          }
+    """
+    scales = validation_results["scales"]
+    steps = validation_results["steps"]
+    results = validation_results["results"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # Use a color map for different scales
+    colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
+
+    for i, scale in enumerate(scales):
+        res = results[scale]
+        label = f"Scale {scale:.1e}"
+        color = colors[i]
+
+        # Plot 1: Negative Log Likelihood
+        ax = axes[0, 0]
+        ax.plot(steps, res["nll"], "o-", linewidth=2, color=color, label=label, alpha=0.8)
+
+        # Plot 2: Gradient Norm - Beta Dust
+        ax = axes[0, 1]
+        ax.plot(
+            steps,
+            res["grads_beta_dust"],
+            "s-",
+            linewidth=2,
+            color=color,
+            label=label,
+            alpha=0.8,
+        )
+
+        # Plot 3: Gradient Norm - Beta PL
+        ax = axes[1, 0]
+        ax.plot(
+            steps,
+            res["grads_beta_pl"],
+            "^-",
+            linewidth=2,
+            color=color,
+            label=label,
+            alpha=0.8,
+        )
+
+        # Plot 4: Gradient Norm - Temp Dust
+        ax = axes[1, 1]
+        ax.plot(
+            steps,
+            res["grads_temp_dust"],
+            "d-",
+            linewidth=2,
+            color=color,
+            label=label,
+            alpha=0.8,
+        )
+
+    # Formatting
+    titles = [
+        "Negative Log-Likelihood",
+        r"Gradient Norm: $\beta_d$",
+        r"Gradient Norm: $\beta_s$",
+        r"Gradient Norm: $T_d$",
+    ]
+
+    for ax, title in zip(axes.flat, titles):
+        ax.set_title(title)
+        ax.set_xlabel("Perturbation Steps (x Scale)")
+        ax.grid(True, alpha=0.3)
+        ax.axvline(0, color="red", linestyle="--", alpha=0.5)
+        if ax == axes[0, 0]:  # Only legend on first plot to avoid clutter
+            ax.legend()
+
+    axes[0, 0].set_ylabel("NLL")
+    axes[0, 1].set_ylabel("L2 Norm")
+    axes[1, 0].set_ylabel("L2 Norm")
+    axes[1, 1].set_ylabel("L2 Norm")
+
+    plt.suptitle(f"Optimization Verification - {name}", fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    save_or_show(f"validation_gradients_{name}")
+
+
+def get_plot_flags(args):
+    indiv_flags = {
+        "plot_illustration": args.plot_illustrations,
+        "plot_params": args.plot_params,
+        "plot_patches": args.plot_patches,
+        "plot_validation_curves": args.plot_validation_curves,
+        "plot_cl_spectra": args.plot_cl_spectra,
+        "plot_cmb_recon": args.plot_cmb_recon,
+        "plot_systematic_maps": args.plot_systematic_maps,
+        "plot_statistical_maps": args.plot_statistical_maps,
+        "plot_r_estimation": args.plot_r_estimation,
+    }
+    aggregate_flags = {
+        "plot_all_spectra": args.plot_all_spectra,
+        "plot_all_cmb_recon": args.plot_all_cmb_recon,
+        "plot_all_systematic_maps": args.plot_all_systematic_maps,
+        "plot_all_statistical_maps": args.plot_all_statistical_maps,
+        "plot_all_r_estimation": args.plot_all_r_estimation,
+        "plot_r_vs_c": args.plot_r_vs_c,
+        "plot_v_vs_c": args.plot_v_vs_c,
+        "plot_r_vs_v": args.plot_r_vs_v,
+        "plot_all_metrics": args.plot_all_metrics,
+    }
+
+    if args.plot_all:
+        for key in indiv_flags:
+            indiv_flags[key] = True
+        for key in aggregate_flags:
+            aggregate_flags[key] = True
+
+    return indiv_flags, aggregate_flags
+
+
+def plot_indiv_results(name, computed_results, indiv_flags, output_format):
+    """Generate per-run plots according to CLI flags.
+
+    Parameters
+    ----------
+    name : str
+        Run identifier for labeling plots.
+    cmb_pytree : dict
+        CMB reconstruction data (cmb, cmb_recon, patches_map, etc.).
+    cl_pytree : dict
+        Power spectra data (cl_bb_r1, cl_syst_res, cl_total_res, etc.).
+    r_pytree : dict
+        Tensor-to-scalar ratio estimation data (r_best, sigma_r_neg, sigma_r_pos, etc.).
+    residual_pytree : dict
+        Residual map data (syst_map, stat_maps).
+    plotting_data : dict
+        Additional plotting data (params_map, updates_history, value_history).
+    args : argparse.Namespace
+        Command-line arguments controlling which plots to generate.
+    """
+
+    cmb_pytree = computed_results.get("cmb", None)
+    cl_pytree = computed_results.get("cl", None)
+    r_pytree = computed_results.get("r", None)
+    residual_pytree = computed_results.get("residual", None)
+    plotting_data = computed_results.get("plotting_data", None)
+
+    if cmb_pytree is not None:
+        cmb_stokes = cmb_pytree["cmb"]
+        combined_cmb_recon = cmb_pytree["cmb_recon"]
+        patches_map = cmb_pytree["patches_map"]
+
+    if cl_pytree is not None:
+        cl_bb_r1 = cl_pytree["cl_bb_r1"]
+        cl_true = cl_pytree["cl_true"]
+        ell_range = cl_pytree["ell_range"]
+        cl_bb_obs = cl_pytree["cl_bb_obs"]
+        cl_bb_lens = cl_pytree["cl_bb_lens"]
+        cl_syst_res = cl_pytree["cl_syst_res"]
+        cl_total_res = cl_pytree["cl_total_res"]
+        cl_stat_res = cl_pytree["cl_stat_res"]
+        cl_bb_r0 = cl_pytree.get("cl_bb_r0")
+
+    if r_pytree is not None:
+        r_best = r_pytree["r_best"]
+        sigma_r_neg = r_pytree["sigma_r_neg"]
+        sigma_r_pos = r_pytree["sigma_r_pos"]
+        r_grid = r_pytree["r_grid"]
+        L_vals = r_pytree["L_vals"]
+
+    if residual_pytree is not None:
+        syst_map = residual_pytree.get("syst_map")
+        stat_maps = residual_pytree.get("stat_maps")
+
+    if plotting_data is not None:
+        params_map = plotting_data.get("params_map")
+        updates_history = plotting_data.get("updates_history")
+        value_history = plotting_data.get("value_history")
+
+    if indiv_flags["plot_params"]:
+        plot_params(name, params_map, output_format)
+    if indiv_flags["plot_patches"]:
+        plot_patches(name, patches_map, output_format)
+
+    if indiv_flags["plot_validation_curves"]:
+        plot_validation_curves(name, updates_history, value_history, output_format)
+
+    if indiv_flags["plot_cmb_recon"]:
+        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon, output_format)
+
+    if indiv_flags["plot_systematic_maps"]:
+        plot_systematic_residual_maps(name, syst_map, output_format)
+
+    if indiv_flags["plot_statistical_maps"]:
+        plot_statistical_residual_maps(name, stat_maps, output_format)
+
+    if indiv_flags["plot_cl_spectra"]:
+        plot_cl_residuals(
+            name,
+            cl_bb_obs,
+            cl_syst_res,
+            cl_total_res,
+            cl_stat_res,
+            cl_bb_r1,
+            cl_bb_r0,
+            cl_bb_lens,
+            cl_true,
+            ell_range,
+            output_format,
+        )
+
+    if indiv_flags["plot_r_estimation"]:
+        plot_r_estimator(
+            name,
+            r_best,
+            sigma_r_neg,
+            sigma_r_pos,
+            r_grid,
+            L_vals,
+            output_format,
+        )
+
+
+def plot_aggregate_results(
+    names,
+    computed_results,
+    aggregate_flags,
+    output_format,
+):
+    # Aggregate plots
+    # Stack all relevant data for aggregate plots
+    stacked_titles = []
+    stacked_cmb = []
+    stacked_cl = []
+    stacked_r = []
+    stacked_syst = []
+    stacked_stat = []
+
+    for name, (kw, computed_res) in zip(names, computed_results.items()):
+        cmb_pytree = computed_res.get("cmb", None)
+        cl_pytree = computed_res.get("cl", None)
+        r_pytree = computed_res.get("r", None)
+        residual_pytree = computed_res.get("residual", None)
+        stacked_titles.append(name)
+        if cmb_pytree is not None:
+            stacked_cmb.append(cmb_pytree)
+
+        if cl_pytree is not None:
+            stacked_cl.append(cl_pytree)
+
+        if r_pytree is not None:
+            stacked_r.append(r_pytree)
+
+        if residual_pytree is not None:
+            syst_map = residual_pytree.get("syst_map", None)
+            stat_maps = residual_pytree.get("stat_maps", None)
+            if syst_map is not None:
+                stacked_syst.append(syst_map)
+            if stat_maps is not None:
+                stacked_stat.append(stat_maps)
+
+    if aggregate_flags["plot_r_vs_c"]:
+        plot_r_vs_clusters(stacked_titles, stacked_cmb, stacked_r, output_format)
+        plt.close("all")
+    if aggregate_flags["plot_v_vs_c"]:
+        plot_variance_vs_clusters(stacked_titles, stacked_cmb, output_format)
+        plt.close("all")
+    if aggregate_flags["plot_r_vs_v"]:
+        plot_variance_vs_r(stacked_titles, stacked_cmb, stacked_r, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_systematic_maps"]:
+        plot_all_systematic_residuals(stacked_titles, stacked_syst, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_statistical_maps"]:
+        plot_all_statistical_residuals(stacked_titles, stacked_stat, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_cmb_recon"]:
+        plot_all_cmb(stacked_titles, stacked_cmb, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_spectra"]:
+        plot_all_cl_residuals(stacked_titles, stacked_cl, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_r_estimation"]:
+        plot_all_r_estimation(stacked_titles, stacked_r, output_format)
+        plt.close("all")
+
+    if aggregate_flags["plot_all_metrics"]:
+        plot_all_variances(stacked_titles, stacked_cmb, output_format)
+        plt.close("all")
+
+
+def run_plot(
+    matched_results: dict,
+    titles,
+    nside: int,
+    instrument,
+    snapshot_path,
+    flags,
+    indiv_flags,
+    aggregate_flags,
+    max_iter,
+    output_format,
+    font_size,
+):
+    if output_format != "show":
+        os.makedirs(PLOT_OUTPUTS, exist_ok=True)
+
+    if len(titles) != len(matched_results):
+        error("Number of titles does not match number of existing results.")
+        return -1
+
+    existing, to_compute = load_and_filter_snapshot(snapshot_path, matched_results)
+
+    if to_compute:
+        warning(f"{len(to_compute)} run groups are not in the snapshot.")
+        hint(
+            "Consider running 'r_analysis snap ...' to cache these results "
+            "for faster plotting next time."
+        )
+        computed = compute_all(to_compute, nside, instrument, flags, max_iter)
+        # Serialize computed results for snapshot storage
+        serialized_computed = {kw: serialize_snapshot_payload(res) for kw, res in computed.items()}
+        existing.update(serialized_computed)
+
+    if False:
+        for name, (kw, computed_results) in tqdm(
+            zip(titles, existing.items()), desc="Generating per group plots", leave=False
+        ):
+            plot_indiv_results(name, computed_results, indiv_flags, output_format)
+            plt.close("all")
+
+    plot_aggregate_results(
+        titles,
+        existing,
+        aggregate_flags,
+        output_format,
+    )
+
+    return 0
