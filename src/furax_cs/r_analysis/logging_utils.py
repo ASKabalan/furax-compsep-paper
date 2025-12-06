@@ -13,6 +13,7 @@ class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     RED = "\033[91m"
+    CYAN = "\033[96m"
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
@@ -29,6 +30,7 @@ class Colors:
         cls.GREEN = ""
         cls.YELLOW = ""
         cls.RED = ""
+        cls.CYAN = ""
         cls.RESET = ""
         cls.BOLD = ""
         cls.DIM = ""
@@ -70,6 +72,28 @@ def warning(message):
         Warning message to print
     """
     print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} {message}")
+
+
+def error(message):
+    """Print an error message.
+
+    Parameters
+    ----------
+    message : str
+        Error message to print
+    """
+    print(f"{Colors.RED}[ERROR]{Colors.RESET} {message}", file=sys.stderr)
+
+
+def hint(message):
+    """Print a hint message for user guidance.
+
+    Parameters
+    ----------
+    message : str
+        Hint message to print
+    """
+    print(f"{Colors.CYAN}[HINT]{Colors.RESET} {message}")
 
 
 def debug(message):
