@@ -44,7 +44,7 @@ jax.config.update("jax_enable_x64", True)
 
 
 def run_fg_buster(
-    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer, max_iter
+    nside, cluster_count, freq_maps, dust_nu0, synchrotron_nu0, numpy_timer, max_iter, tol
 ):
     print(f"Running FGBuster TNC Comp sep nside={nside} cluster_count={cluster_count}...")
 
@@ -74,7 +74,6 @@ def run_fg_buster(
     freq_maps_fg = jnp.stack([d.q, d.u], axis=1)
 
     bounds = [(0.0, 5.0), (10.0, 40), (-6.0, 0.0)]
-    tol = 1e-6
     options = {"disp": False, "gtol": tol, "eps": tol, "maxiter": max_iter, "tol": tol}
     method = "TNC"
     instrument = get_instrument("LiteBIRD")
@@ -96,7 +95,7 @@ def run_fg_buster(
 
 
 def run_jax_lbfgs(
-    nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100
+    nside, cluster_count, freq_maps, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter, tol
 ):
     """Run JAX-based negative log-likelihood."""
 
@@ -154,7 +153,7 @@ def run_jax_lbfgs(
             nll,
             solver,
             max_iter=max_iter,
-            tol=1e-6,
+            tol=tol,
         )
         return final_params["beta_pl"], final_params
 
@@ -179,6 +178,7 @@ def run_jax_tnc(
     synchrotron_nu0,
     numpy_timer,
     max_iter,
+    tol,
 ):
     """Run JAX-based negative log-likelihood."""
 
@@ -232,7 +232,7 @@ def run_jax_tnc(
 
     def furax_adaptative_comp_sep(guess_params):
         scipy_solver = jaxopt.ScipyMinimize(
-            fun=nll, method="TNC", jit=True, tol=1e-6, maxiter=max_iter
+            fun=nll, method="TNC", jit=True, tol=tol, maxiter=max_iter
         )
         result = scipy_solver.run(guess_params)
         return result.params
@@ -298,8 +298,14 @@ def parse_args():
         "-mi",
         "--max-iter",
         type=int,
-        default=100,
+        default=1000,
         help="Maximum number of optimization iterations for L-BFGS solver",
+    )
+    parser.add_argument(
+        "--tol",
+        type=float,
+        default=1e-15,
+        help="Tolerance for optimization convergence",
     )
     return parser.parse_args()
 
