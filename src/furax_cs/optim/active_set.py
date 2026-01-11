@@ -1,0 +1,342 @@
+from typing import NamedTuple
+
+import jax
+import jax.lax as lax
+import jax.numpy as jnp
+import jax.tree_util as jtu
+import optax
+import optax.tree_utils as otu
+from jaxtyping import Array, Float, Int, PyTree
+
+# --- Utilities ---
+
+
+def tree_full_like(tree, fill_value):
+    return jtu.tree_map(lambda x: jnp.full_like(x, fill_value), tree)
+
+
+def tree_where(condition, x, y):
+    return jtu.tree_map(lambda c, a, b: jnp.where(c, a, b), condition, x, y)
+
+
+# --- Helper Logic ---
+
+
+def compute_initial_pivot(y, lower, upper, scale, offset):
+    """Compute initial pivot based on position relative to bounds."""
+
+    def _leaf_pivot(y_leaf, lo, up, sc, off):
+        EPS = 1e-8  # Slightly relaxed tolerance for float32/64 stability
+        # Calculate physical bounds tolerance
+        # Handle inf: if lo is -inf, tol doesn't matter as we check bounds later
+        tol_lower = EPS * 10.0 * (jnp.abs(lo) + 1.0)
+        tol_upper = EPS * 10.0 * (jnp.abs(up) + 1.0)
+
+        is_constant = (sc == 0.0) | (lo == up)
+
+        # Calculate physical Y to check bounds
+        y_phys = y_leaf * sc + off
+
+        # Check bounds only if they are finite
+        is_finite_lower = lo > -1e20
+        is_finite_upper = up < 1e20
+
+        at_lower = is_finite_lower & (y_phys - lo <= tol_lower) & ~is_constant
+        at_upper = is_finite_upper & (up - y_phys <= tol_upper) & ~is_constant
+
+        p = jnp.zeros_like(y_leaf, dtype=jnp.int32)
+        p = jnp.where(at_lower, -1, p)
+        p = jnp.where(at_upper, 1, p)
+        p = jnp.where(is_constant, 2, p)
+        return p
+
+    return jtu.tree_map(_leaf_pivot, y, lower, upper, scale, offset)
+
+
+def compute_step_max(step_limit, y_int, direction, pivot, lower, upper, scale, offset):
+    """Compute max step size alpha such that y + alpha * d stays in bounds."""
+
+    def _leaf_step(y_leaf, d_leaf, p_leaf, lo, up, sc, off):
+        # Only check bounds if we are moving towards them
+
+        # Internal bounds
+        lo_int = (lo - off) / jnp.where(sc == 0, 1.0, sc)
+        up_int = (up - off) / jnp.where(sc == 0, 1.0, sc)
+
+        # If d < 0, we worry about lower bound
+        # alpha * d >= lo_int - y  =>  alpha <= (lo_int - y) / d  (flip sign)
+        t_lower = jnp.where(d_leaf < -1e-12, (lo_int - y_leaf) / d_leaf, jnp.inf)
+
+        # If d > 0, we worry about upper bound
+        # alpha * d <= up_int - y  => alpha <= (up_int - y) / d
+        t_upper = jnp.where(d_leaf > 1e-12, (up_int - y_leaf) / d_leaf, jnp.inf)
+
+        return jnp.minimum(t_lower, t_upper)
+
+    max_steps = jtu.tree_map(_leaf_step, y_int, direction, pivot, lower, upper, scale, offset)
+
+    # Global minimum step across all parameters
+    flat_steps = jtu.tree_leaves(max_steps)
+    if not flat_steps:
+        return step_limit
+
+    dist_to_bound = jnp.min(jnp.stack([jnp.min(s) for s in flat_steps]))
+
+    # We take the smaller of the proposed step limit or the distance to bound
+    return jnp.minimum(step_limit, dist_to_bound)
+
+
+def update_pivot_at_boundary(y_int, direction, pivot, lower, upper, scale, offset, step_size):
+    """Update pivot if we landed exactly on a boundary."""
+
+    def _leaf_add(y_leaf, d_leaf, p_leaf, lo, up, sc, off):
+        # Predict where we landed
+        y_next = y_leaf + step_size * d_leaf
+        y_next_phys = y_next * sc + off
+
+        EPS = 1e-8
+        tol_lower = EPS * 10.0 * (jnp.abs(lo) + 1.0)
+        tol_upper = EPS * 10.0 * (jnp.abs(up) + 1.0)
+
+        # If we were free (0) and now hit bound, update
+        is_free = p_leaf == 0
+
+        # Check if we hit lower
+        hits_lower = is_free & (d_leaf < 0) & (y_next_phys - lo <= tol_lower)
+        # Check if we hit upper
+        hits_upper = is_free & (d_leaf > 0) & (up - y_next_phys <= tol_upper)
+
+        new_p = p_leaf
+        new_p = jnp.where(hits_lower, -1, new_p)
+        new_p = jnp.where(hits_upper, 1, new_p)
+        return new_p
+
+    return jtu.tree_map(
+        lambda y, d, p, l, u, s, o: _leaf_add(y, d, p, l, u, s, o),
+        y_int,
+        direction,
+        pivot,
+        lower,
+        upper,
+        scale,
+        offset,
+    )
+
+
+def release_constraints(pivot, gradients_int):
+    """
+    Release constraints if the negative gradient points into the feasible region.
+    TNC checks: if pivot=-1 (at lower) and -grad > 0 (descent direction is up), release.
+    """
+
+    def _release(p, g):
+        # descent direction is -g
+        # if at lower bound (-1), we want -g > 0 (move up) => g < 0
+        should_free_lower = (p == -1) & (g < 0)
+        # if at upper bound (1), we want -g < 0 (move down) => g > 0
+        should_free_upper = (p == 1) & (g > 0)
+
+        new_p = p
+        new_p = jnp.where(should_free_lower | should_free_upper, 0, new_p)
+        return new_p
+
+    return jtu.tree_map(_release, pivot, gradients_int)
+
+
+# --- Active Set Component ---
+
+
+class ActiveSetState(NamedTuple):
+    count: Int[Array, ""]
+    pivot: PyTree
+    xscale: PyTree
+    offset: PyTree
+    lower: PyTree
+    upper: PyTree
+    fscale: Float[Array, ""]
+    stepmx: Float[Array, ""]
+    direction_state: optax.OptState
+    linesearch_state: optax.OptState
+
+
+def active_set(
+    direction_solver: optax.GradientTransformation,
+    linesearch_solver: optax.GradientTransformation,
+    lower: PyTree | None = None,
+    upper: PyTree | None = None,
+    rescale_threshold: float = 1.3,
+    stepmx_init: float = 10.0,
+    verbose: bool = False,
+) -> optax.GradientTransformation:
+    def init_fn(params):
+        lo = lower if lower is not None else tree_full_like(params, -jnp.inf)
+        up = upper if upper is not None else tree_full_like(params, jnp.inf)
+
+        # Init Scale & Offset logic from TNC
+        def _init_scale(p, l, u):
+            is_bounded = (l > -1e20) & (u < 1e20)
+            s_b = u - l
+            s_u = 1.0 + jnp.abs(p)
+            return jnp.where(is_bounded, s_b, s_u)
+
+        def _init_offset(p, l, u):
+            is_bounded = (l > -1e20) & (u < 1e20)
+            o_b = (l + u) * 0.5
+            o_u = p
+            return jnp.where(is_bounded, o_b, o_u)
+
+        xscale = jtu.tree_map(_init_scale, params, lo, up)
+        offset = jtu.tree_map(_init_offset, params, lo, up)
+
+        # Calculate internal Y: y = (x - offset) / scale
+        y_int = otu.tree_div(otu.tree_sub(params, offset), xscale)
+        pivot = compute_initial_pivot(y_int, lo, up, xscale, offset)
+
+        return ActiveSetState(
+            count=jnp.array(0, dtype=jnp.int32),
+            pivot=pivot,
+            xscale=xscale,
+            offset=offset,
+            lower=lo,
+            upper=up,
+            fscale=jnp.array(1.0),
+            stepmx=jnp.array(stepmx_init),
+            direction_state=direction_solver.init(params),
+            linesearch_state=linesearch_solver.init(params),
+        )
+
+    def update_fn(grads, state, params=None, value=None, grad=None, value_fn=None, **kwargs):
+        if params is None or value_fn is None:
+            raise ValueError("active_set requires 'params' and 'value_fn' arguments.")
+
+        # --- 1. Internal Representation ---
+        # Current internal point y
+        y_int = otu.tree_div(otu.tree_sub(params, state.offset), state.xscale)
+
+        # Scale Gradients to Internal Space: g_int = g_phys * xscale * fscale
+        grads_int = otu.tree_scale(state.fscale, otu.tree_mul(grads, state.xscale))
+
+        # --- 2. Release Active Constraints ---
+        # If gradient points inward from a bound, release it (set pivot to 0)
+        # TNC does this *before* projection
+        pivot = release_constraints(state.pivot, grads_int)
+
+        # --- 3. Project Gradients (Input Masking) ---
+        # If pivot != 0, set gradient to 0 so the solver "thinks" we are optimal there
+        pivot_is_zero = jtu.tree_map(lambda p: p == 0, state.pivot)
+        grads_int_proj = tree_where(pivot_is_zero, grads_int, tree_full_like(grads_int, 0))
+
+        # --- 4. Dynamic Rescaling (TNC Logic) ---
+        gnorm = otu.tree_norm(grads_int_proj)
+        safe_gnorm = gnorm + 1e-20
+        should_rescale = (gnorm > 1e-20) & (jnp.abs(jnp.log10(safe_gnorm)) > rescale_threshold)
+
+        # If rescaling, we scale the gradients AND fscale
+        grads_int_proj = otu.tree_where(
+            should_rescale, otu.tree_scale(1.0 / safe_gnorm, grads_int_proj), grads_int_proj
+        )
+        new_fscale = jnp.where(should_rescale, state.fscale / safe_gnorm, state.fscale)
+
+        # If we rescaled, we technically should reset the optimizer state (Adam moments)
+        # because the magnitude of gradients changed drastically.
+        # For this snippet, we assume Adam adapts, but TNC does a hard reset here.
+        # Let's keep direction state but acknowledge the scale change.
+
+        # --- 5. Compute Direction (pk) ---
+        # Use inner solver (Adam/LBFGS). Note: We pass internal gradients.
+        pk, new_dir_state = direction_solver.update(grads_int_proj, state.direction_state, params)
+
+        # --- FIX 1: Project Direction (Output Masking) ---
+        # CRITICAL: Adam has momentum. Even if input grad is 0, output `pk` might not be.
+        # We must force pk to 0 on active constraints to stop pushing into the wall.
+        pk = tree_where(pivot_is_zero, pk, tree_full_like(pk, 0))
+
+        if verbose:
+            jax.debug.print("grads_int: {}", grads_int)
+            jax.debug.print("pk: {}", pk)
+            jax.debug.print("Iter {i} | gnorm {g}", i=state.count, g=gnorm)
+
+        # --- 6. Step Limit (spe) ---
+        # Calculate maximum step `spe` along `pk` before hitting ANY bound.
+        pk_norm = otu.tree_norm(pk)
+
+        # TNC heuristic for max unconstrained step
+        ustpmax = state.stepmx / (pk_norm + 1e-20)
+
+        # Distance to nearest bound along pk
+        spe = compute_step_max(
+            ustpmax, y_int, pk, pivot, state.lower, state.upper, state.xscale, state.offset
+        )
+
+        # --- 7. Line Search ---
+        # We need to wrap value_fn so Line Search sees Internal Space
+        def internal_value_fn(y_candidate):
+            # Unscale y -> x
+            x_candidate = otu.tree_add(otu.tree_mul(y_candidate, state.xscale), state.offset)
+            # Clip x_candidate to ensure physical bounds aren't violated by float noise
+            x_candidate = jtu.tree_map(jnp.clip, x_candidate, state.lower, state.upper)
+            return value_fn(x_candidate) * new_fscale  # Line search sees scaled function value
+
+        # Optax LS typically calculates: param + update
+        # We pass y_int as params, pk as update.
+        # LS returns `scaled_update` which is (alpha * pk)
+        ls_update_int, new_ls_state = linesearch_solver.update(
+            pk,
+            state.linesearch_state,
+            y_int,
+            value=value * new_fscale,
+            grad=grads_int_proj,
+            value_fn=internal_value_fn,
+        )
+
+        # --- 8. Step Clamping & Pivot Update ---
+        # ls_update_int represents the desired step.
+        # We must clamp its magnitude to `spe` * norm(pk)
+
+        ls_step_len = otu.tree_norm(ls_update_int)  # approx alpha * pk_norm
+
+        # Max length allowed = spe * pk_norm
+        max_len = spe * pk_norm
+
+        # If ls_step_len > max_len, we hit the wall.
+        hit_wall = ls_step_len > max_len + 1e-10
+
+        # Clamp factor
+        clamp_scale = jnp.where(hit_wall, max_len / (ls_step_len + 1e-20), 1.0)
+
+        final_update_int = otu.tree_scale(clamp_scale, ls_update_int)
+
+        # If we clamped (hit wall), we must update the pivot to lock that variable
+        # We pass the step size 'spe' implicitly by calculating where we land
+        final_pivot = lax.cond(
+            hit_wall,
+            lambda: update_pivot_at_boundary(
+                y_int, pk, pivot, state.lower, state.upper, state.xscale, state.offset, spe
+            ),
+            lambda: pivot,  # No change if we didn't hit wall
+        )
+
+        # --- 9. Unscale Updates ---
+        # x_new = x_old + dx
+        # y_new = y_old + dy
+        # (x_new - off)/sc = (x_old - off)/sc + dy
+        # x_new = x_old + dy * sc
+        # So physical update = internal update * xscale
+        updates_phys = otu.tree_mul(final_update_int, state.xscale)
+
+        new_state = ActiveSetState(
+            count=state.count + 1,
+            pivot=final_pivot,
+            xscale=state.xscale,
+            offset=state.offset,
+            lower=state.lower,
+            upper=state.upper,
+            fscale=new_fscale,
+            stepmx=state.stepmx,
+            direction_state=new_dir_state,
+            linesearch_state=new_ls_state,
+        )
+
+        return updates_phys, new_state
+
+    return optax.GradientTransformation(init_fn, update_fn)
