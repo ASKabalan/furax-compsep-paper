@@ -61,6 +61,8 @@ except ImportError:
         "  pip install git+https://github.com/fgbuster/fgbuster.git"
     )
 
+from furax._instruments.sky import get_noise_sigma_from_instrument
+from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import (
     find_kmeans_clusters,
@@ -76,6 +78,8 @@ from furax_cs.data.generate_maps import (
     load_from_cache,
     sanitize_mask_name,
 )
+from furax_cs.data.instruments import get_instrument
+from furax_cs.logging_utils import info, success
 
 jax.config.update("jax_enable_x64", True)
 
@@ -194,7 +198,7 @@ def run_fgbuster_comp_sep(
     components,
     instrument,
     max_iter=1000,
-    tol=1e-6,
+    tol=1e-15,
 ):
     """
     Run FGBuster adaptive component separation.
@@ -235,7 +239,7 @@ def run_fgbuster_comp_sep(
         "maxiter": max_iter,
         "tol": tol,
     }
-    method = "L-BFGS-B"
+    method = "TNC"
 
     # Convert to numpy arrays for FGBuster
     freq_maps_np = np.asarray(freq_maps)
@@ -285,16 +289,20 @@ def main():
     # Setup output directory
     patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}"
     out_folder = f"{args.output}/fgbuster_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{int(args.noise_ratio * 100)}"
-    os.makedirs(out_folder, exist_ok=True)
 
     # Step 2: Initialize physical and computational parameters
     nside = args.nside
     dust_nu0 = 160.0  # Dust reference frequency (GHz) - Match kmeans-model
     synchrotron_nu0 = 20.0  # Synchrotron reference frequency (GHz)
 
+    # Get instrument for noise generation
+    furax_instrument = get_instrument(args.instrument)
+    f_landscapes = FrequencyLandscape(nside, furax_instrument.frequency, "QU")
+
     # Step 3: Load galactic mask and extract valid pixel indices
     mask = get_mask(args.mask)
     (indices,) = jnp.where(mask == 1)
+    (unseen_indices,) = jnp.where(mask != 1)
 
     # Step 4: Determine maximum cluster counts (limited by available pixels)
     B_dust_patches = min(args.patch_count[0], indices.size)
@@ -302,7 +310,7 @@ def main():
     B_synchrotron_patches = min(args.patch_count[2], indices.size)
 
     # Step 5: Load frequency maps and component maps
-    print(f"Loading data for nside={nside}, tag={args.tag}, instrument={args.instrument}")
+    info(f"Loading data for nside={nside}, tag={args.tag}, instrument={args.instrument}")
     _, freqmaps = load_from_cache(nside, instrument_name=args.instrument, sky=args.tag)
     _, fg_maps = load_fg_map(nside, instrument_name=args.instrument, sky=args.tag)
     cmb_map = load_cmb_map(nside, sky=args.tag)
@@ -312,20 +320,35 @@ def main():
     fg_stokes = Stokes.from_stokes(fg_maps[:, 1], fg_maps[:, 2])
     cmb_map_stokes = Stokes.from_stokes(cmb_map[1], cmb_map[2])
 
+    # Generate and add noise to full maps BEFORE masking
+    if args.noise_ratio > 0:
+        key = jax.random.PRNGKey(0)  # Fixed seed for reproducibility
+        white_noise = f_landscapes.normal(key) * args.noise_ratio  # Full map noise
+        sigma = get_noise_sigma_from_instrument(furax_instrument, nside, stokes_type="QU")
+        noise = white_noise * sigma  # Scale by instrument noise
+        noised_d = jax.tree.map(lambda x, n: x + n, d, noise)  # Add to full map
+        info(f"Added noise: ratio={args.noise_ratio}")
+    else:
+        noised_d = d
+        info("No noise added (noise_ratio=0)")
+
     # FGBuster PROCESSING: Uses full HEALPix maps with hp.UNSEEN for masked pixels
     # This is required by FGBuster's adaptive_comp_sep function
+    # Noise is added to full maps before masking
     # Apply mask by setting masked pixels to hp.UNSEEN (not extracting cutouts yet)
-    masked_d = jax.tree.map(lambda x: x.at[..., indices].set(hp.UNSEEN), d)
-    masked_fg = jax.tree.map(lambda x: x.at[..., indices].set(hp.UNSEEN), fg_stokes)
-    masked_cmb = jax.tree.map(lambda x: x.at[indices].set(hp.UNSEEN), cmb_map_stokes)
+    masked_d = jax.tree.map(lambda x: x.at[..., unseen_indices].set(hp.UNSEEN), d)
+    noised_d = jax.tree.map(lambda x: x.at[..., unseen_indices].set(hp.UNSEEN), noised_d)
+    masked_fg = jax.tree.map(lambda x: x.at[..., unseen_indices].set(hp.UNSEEN), fg_stokes)
+    masked_cmb = jax.tree.map(lambda x: x.at[..., unseen_indices].set(hp.UNSEEN), cmb_map_stokes)
 
     # to numpy for FGBuster
     masked_d = jax.tree.map(np.asarray, masked_d)
+    noised_d = jax.tree.map(np.asarray, noised_d)
     masked_fg = jax.tree.map(np.asarray, masked_fg)
     masked_cmb = jax.tree.map(np.asarray, masked_cmb)
 
     # Step 6: Perform K-means clustering for patch indices
-    print(
+    info(
         f"Computing K-means clusters: T_dust={T_dust_patches}, B_dust={B_dust_patches}, B_sync={B_synchrotron_patches}"
     )
 
@@ -360,13 +383,13 @@ def main():
 
     # Step 7: Prepare frequency maps for FGBuster
     # FGBuster expects shape (n_freq, n_stokes, n_pix) with Q, U stokes
-    freq_maps_fg = jnp.stack([masked_d.q, masked_d.u], axis=1)
+    freq_maps_fg = jnp.stack([noised_d.q, noised_d.u], axis=1)
 
     # Get FGBuster instrument
     instrument = get_fgbuster_instrument(args.instrument)
 
     # Step 8: Run FGBuster component separation
-    print(f"Running FGBuster adaptive_comp_sep with max_iter={args.max_iter}")
+    info(f"Running FGBuster adaptive_comp_sep with max_iter={args.max_iter}")
     components = [CMB(), Dust(dust_nu0), Synchrotron(synchrotron_nu0)]
     components[1]._set_default_of_free_symbols(
         beta_d=args.starting_params[0], temp=args.starting_params[1]
@@ -382,7 +405,7 @@ def main():
         max_iter=args.max_iter,
     )
     end_time = perf_counter()
-    print(f"Component separation took {end_time - start_time:.2f} seconds")
+    info(f"Component separation took {end_time - start_time:.2f} seconds")
 
     # Step 9: Extract results
     # OUTPUT CONVERSION: Convert FGBuster outputs from full maps to cutouts
@@ -397,13 +420,17 @@ def main():
     # Compute variance on cutout (not full map)
     cmb_var = np.var(cmb_q) + np.var(cmb_u)
 
-    print(f"Component separation complete. CMB variance: {cmb_var:.6e}")
-    print(f"Final objective function value: {result.fun}")
+    info(f"Component separation complete. CMB variance: {cmb_var:.6e}")
+    info(f"Final objective function value: {result.fun}")
 
     # Step 10: Prepare results for saving
 
     # Prepare results dictionary
     cmb_np = np.stack([cmb_q, cmb_u])  # Already cutout from Step 9
+
+    info(f"Min /Max beta_dust: {result.x[0].min():.3f}/{result.x[0].max():.3f}")
+    info(f"Min /Max temp_dust: {result.x[1].min():.3f}/{result.x[1].max():.3f}")
+    info(f"Min /Max beta_pl: {result.x[2].min():.3f}/{result.x[2].max():.3f}")
 
     # Extract cutout patch indices (convert from full map to cutout)
     beta_dust_patches_cutout = get_cutout_from_mask(guess_clusters["beta_dust_patches"], indices)
@@ -411,7 +438,9 @@ def main():
     beta_pl_patches_cutout = get_cutout_from_mask(guess_clusters["beta_pl_patches"], indices)
 
     results = {
-        "update_history": np.zeros((1, 1, args.max_iter, 2)),  # Placeholder - scipy doesn't track this
+        "update_history": np.zeros(
+            (1, 1, args.max_iter, 2)
+        ),  # Placeholder - scipy doesn't track this
         "value": np.array([cmb_var])[np.newaxis, ...],  # Add axes to match kmeans_model format
         "CMB_O": cmb_np[np.newaxis, np.newaxis, ...],  # Shape: (1, 1, 2, n_unmasked)
         "NLL": np.array([result.fun])[np.newaxis, ...],
@@ -423,6 +452,7 @@ def main():
         "beta_pl_patches": np.asarray(beta_pl_patches_cutout)[np.newaxis, ...],
     }
 
+    os.makedirs(out_folder, exist_ok=True)
     if not args.best_only:
         np.savez(f"{out_folder}/results.npz", **results)
 
@@ -433,14 +463,20 @@ def main():
     masked_d_cutout = get_cutout_from_mask(masked_d, indices, axis=1)
 
     best_params = {}
-    best_params["I_CMB"] = np.stack([np.asarray(masked_cmb_cutout.q), np.asarray(masked_cmb_cutout.u)], axis=0)
-    best_params["I_D"] = np.stack([np.asarray(masked_d_cutout.q), np.asarray(masked_d_cutout.u)], axis=1)
-    best_params["I_D_NOCMB"] = np.stack([np.asarray(masked_fg_cutout.q), np.asarray(masked_fg_cutout.u)], axis=1)
+    best_params["I_CMB"] = np.stack(
+        [np.asarray(masked_cmb_cutout.q), np.asarray(masked_cmb_cutout.u)], axis=0
+    )
+    best_params["I_D"] = np.stack(
+        [np.asarray(masked_d_cutout.q), np.asarray(masked_d_cutout.u)], axis=1
+    )
+    best_params["I_D_NOCMB"] = np.stack(
+        [np.asarray(masked_fg_cutout.q), np.asarray(masked_fg_cutout.u)], axis=1
+    )
 
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", np.asarray(mask))
 
-    print(f"Run complete. Results saved to {out_folder}")
+    success(f"Run complete. Results saved to {out_folder}")
 
 
 if __name__ == "__main__":

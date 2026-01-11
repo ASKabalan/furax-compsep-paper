@@ -11,16 +11,15 @@ import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
+import lineax as lx
 import numpy as np
-import optax
+from furax import Config
 from furax._instruments.sky import get_noise_sigma_from_instrument
 from furax.obs import negative_log_likelihood, sky_signal
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import ProgressBar, condition, optimize
 from jax_healpy.clustering import get_cutout_from_mask
-from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
@@ -31,7 +30,9 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
-from furax_cs.optim import lbfgs_backtrack, lbfgs_zoom
+from furax_cs.logging_utils import info, success
+from furax_cs.optim import minimize
+
 
 jax.config.update("jax_enable_x64", True)
 
@@ -123,9 +124,10 @@ def parse_args():
         "-s",
         "--solver",
         type=str,
-        default="zoom",
-        choices=["zoom", "backtrack", "adam"],
-        help="L-BFGS solver type: 'zoom' for strong Wolfe conditions, 'backtrack' for Armijo backtracking",
+        default="optax_lbfgs_zoom",
+        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        "optimistix_bfgs_wolfe, optimistix_lbfgs_wolfe, optimistix_ncg_hs_wolfe, "
+        "scipy_tnc, zoom (alias), backtrack (alias), adam",
     )
     parser.add_argument(
         "-cond",
@@ -150,7 +152,6 @@ def main():
     ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
     config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
     out_folder = f"{args.output}/ptep_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
-    os.makedirs(out_folder, exist_ok=True)
 
     # Set up parameters
     nside = args.nside
@@ -238,37 +239,15 @@ def main():
 
     sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
-        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
+        negative_log_likelihood,
+        dust_nu0=dust_nu0,
+        synchrotron_nu0=synchrotron_nu0,
+        analytical_gradient=True,
     )
 
-    fn, to_opt, from_opt = condition(
-        negative_log_likelihood_fn,
-        lower=lower_bound if args.cond else None,
-        upper=upper_bound if args.cond else None,
-        factor=3 * hp.nside2npix(nside) if args.cond else 1.0,
-    )
-    if args.solver == "zoom":
-        solver = lbfgs_zoom(verbose=False)
-    elif args.solver == "backtrack":
-        solver = lbfgs_backtrack(verbose=False)
-    elif args.solver == "adam":
-        solver = optax.adam(learning_rate=1e-3)
-
-    solver = optax.chain(
-        solver,
-        # WARNING: Some solvers may encouter NaNs during optimization; this prevents that.
-        # However, it may hide underlying issues in the optimization process.
-        # In the tests produced by the paper Full conditioned wolfe (zoom) L-BFGS performed well without this line.
-        # optax.zero_nans(),
-    )
-
-    progress_columns = [
-        "[progress.description]{task.description}",
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ]
+    guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
+    lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+    upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
     def single_run(noise_id):
         key = jax.random.PRNGKey(noise_id)
@@ -283,34 +262,24 @@ def main():
 
         N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
-        guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
-        guess_params = to_opt(guess_params)
-        lower_bound_tree = to_opt(lower_bound_tree)
-        upper_bound_tree = to_opt(upper_bound_tree)
+      
+        final_params, final_state = minimize(
+            fn=negative_log_likelihood_fn,
+            init_params=guess_params,
+            solver_name=args.solver,
+            max_iter=args.max_iter,
+            atol=1e-15,
+            rtol=1e-10,
+            lower_bound=lower_bound_tree,
+            upper_bound=upper_bound_tree,
+            precondition=args.cond,
+            nu=nu,
+            N=N,
+            d=noised_d,
+            patch_indices=patch_indices,
+        )
 
-        with ProgressBar(*progress_columns) as p:
-            opt = solver
-            final_params, final_state = optimize(
-                guess_params,
-                fn,
-                opt,
-                max_iter=args.max_iter,
-                tol=1e-10,
-                lower_bound=lower_bound_tree,
-                upper_bound=upper_bound_tree,
-                nu=nu,
-                N=N,
-                d=noised_d,
-                progress=p,
-                progress_id=noise_id,
-                patch_indices=patch_indices,
-                log_updates=True,
-            )
-
-        final_params = from_opt(final_params)
 
         s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices)
         cmb = s["cmb"]
@@ -322,7 +291,6 @@ def main():
             final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices
         )
         return {
-            "update_history": final_state.update_history,
             "value": cmb_var,
             "CMB_O": cmb_np,
             "NLL": nll,
@@ -337,15 +305,17 @@ def main():
         results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
         jax.tree.map(lambda x: x.block_until_ready(), results)
         end_time = perf_counter()
-        print(f"Component separation took {end_time - start_time:.2f} seconds")
+        info(f"Component separation took {end_time - start_time:.2f} seconds")
 
         results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
         results["temp_dust_patches"] = patch_indices["temp_dust_patches"]
         results["beta_pl_patches"] = patch_indices["beta_pl_patches"]
         # Add a new axis to the results so it matches the shape of grid search results
+        os.makedirs(out_folder, exist_ok=True)
         results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
         np.savez(f"{out_folder}/results.npz", **results)
 
+    os.makedirs(out_folder, exist_ok=True)
     best_params = {}
     cmb_map = np.stack([masked_cmb.q, masked_cmb.u], axis=0)
     fg_map = np.stack([masked_fg.q, masked_fg.u], axis=1)
@@ -356,7 +326,7 @@ def main():
 
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
-    print("Run complete. Results saved to", out_folder)
+    success(f"Run complete. Results saved to {out_folder}")
 
 
 if __name__ == "__main__":
