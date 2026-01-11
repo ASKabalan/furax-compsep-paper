@@ -102,15 +102,31 @@ def set_font_size(size):
     )
 
 
-def save_or_show(filename, output_format):
-    """Save figure to file or show inline based on output format."""
+def save_or_show(filename, output_format, subfolder=None):
+    """Save figure to file or show inline based on output format.
+
+    Parameters
+    ----------
+    filename : str
+        Base filename (without extension).
+    output_format : str
+        'png', 'pdf', or 'show'.
+    subfolder : str, optional
+        Subdirectory under PLOT_OUTPUTS for grouped results.
+    """
     if output_format == "show":
         plt.show()
     else:
         ext = "pdf" if output_format == "pdf" else "png"
         dpi = 300 if ext == "png" else None
         filename = _truncate_name_if_too_long(filename)
-        filepath = f"{PLOT_OUTPUTS}{filename}.{ext}"
+
+        base_dir = PLOT_OUTPUTS
+        if subfolder:
+            base_dir = os.path.join(PLOT_OUTPUTS, subfolder)
+            os.makedirs(base_dir, exist_ok=True)
+
+        filepath = os.path.join(base_dir, f"{filename}.{ext}")
         plt.savefig(filepath, dpi=dpi, bbox_inches="tight")
         success(f"Saved: {filepath}")
 
@@ -125,7 +141,7 @@ def get_min_variance(cmb_map):
     return jax.tree.map(lambda x: x[argmin], cmb_map)
 
 
-def plot_params(name, params, output_format, plot_vertical=False):
+def plot_params(name, params, output_format, plot_vertical=False, subfolder=None):
     """Plot recovered spectral parameter maps for a single configuration."""
     if plot_vertical:
         fig_size = (8, 16)
@@ -149,16 +165,18 @@ def plot_params(name, params, output_format, plot_vertical=False):
             cbar=True,
         )
 
-    save_or_show(f"params_{name}", output_format)
+    save_or_show(f"params_{name}", output_format, subfolder=subfolder)
+    base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
+    os.makedirs(base_dir, exist_ok=True)
     params_dict = {
         "beta_dust": params["beta_dust"],
         "temp_dust": params["temp_dust"],
         "beta_pl": params["beta_pl"],
     }
-    np.savez(f"{PLOT_OUTPUTS}/params_{name}.npz", **params_dict)
+    np.savez(os.path.join(base_dir, f"params_{name}.npz"), **params_dict)
 
 
-def plot_patches(name, patches, output_format, plot_vertical=False):
+def plot_patches(name, patches, output_format, plot_vertical=False, subfolder=None):
     """Visualise patch assignments (cluster labels) for each spectral parameter."""
     if plot_vertical:
         fig_size = (8, 16)
@@ -180,12 +198,14 @@ def plot_patches(name, patches, output_format, plot_vertical=False):
         shuffled_arr = np.vectorize(lambda x: mapping.get(x, hp.UNSEEN))(arr)
         return shuffled_arr.astype(np.float64)
 
+    base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
+    os.makedirs(base_dir, exist_ok=True)
     patches_dict = {
         "beta_dust_patches": patches["beta_dust_patches"],
         "temp_dust_patches": patches["temp_dust_patches"],
         "beta_pl_patches": patches["beta_pl_patches"],
     }
-    np.savez(f"{PLOT_OUTPUTS}/patches_{name}.npz", **patches_dict)
+    np.savez(os.path.join(base_dir, f"patches_{name}.npz"), **patches_dict)
     patches = jax.tree.map(shuffle_labels, patches)
 
     keys = ["beta_dust_patches", "temp_dust_patches", "beta_pl_patches"]
@@ -200,10 +220,10 @@ def plot_patches(name, patches, output_format, plot_vertical=False):
             bgcolor=(0.0,) * 4,
             cbar=True,
         )
-    save_or_show(f"patches_{name}", output_format)
+    save_or_show(f"patches_{name}", output_format, subfolder=subfolder)
 
 
-def plot_validation_curves(name, updates_history, value_history, output_format):
+def plot_validation_curves(name, updates_history, value_history, output_format, subfolder=None):
     """Plot optimizer update norms and NLL traces for each run."""
     updates_history = np.array(updates_history)
     value_history = np.array(value_history)
@@ -242,7 +262,7 @@ def plot_validation_curves(name, updates_history, value_history, output_format):
         axs[i, 1].legend()
 
     plt.tight_layout()
-    save_or_show(f"validation_curves_{name}", output_format)
+    save_or_show(f"validation_curves_{name}", output_format, subfolder=subfolder)
 
 
 def plot_all_cmb(names, cmb_pytree_list, output_format):
@@ -932,7 +952,7 @@ def plot_r_vs_clusters(names, cmb_pytree_list, r_pytree_list, output_format):
         )
 
 
-def plot_systematic_residual_maps(name, syst_map, output_format):
+def plot_systematic_residual_maps(name, syst_map, output_format, subfolder=None):
     """Plot systematic residual Q/U maps for a single configuration."""
     syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
     syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
@@ -965,10 +985,10 @@ def plot_systematic_residual_maps(name, syst_map, output_format):
         notext=True,
     )
 
-    save_or_show(f"systematic_residual_maps_{name}", output_format)
+    save_or_show(f"systematic_residual_maps_{name}", output_format, subfolder=subfolder)
 
 
-def plot_statistical_residual_maps(name, stat_maps, output_format):
+def plot_statistical_residual_maps(name, stat_maps, output_format, subfolder=None):
     """Plot statistical residual Q/U maps for a single configuration."""
     stat_map_first = stat_maps[0]
 
@@ -1003,10 +1023,10 @@ def plot_statistical_residual_maps(name, stat_maps, output_format):
         notext=True,
     )
 
-    save_or_show(f"statistical_residual_maps_{name}", output_format)
+    save_or_show(f"statistical_residual_maps_{name}", output_format, subfolder=subfolder)
 
 
-def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
+def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format, subfolder=None):
     """Plot reconstructed maps, inputs, and differences for Q/U."""
 
     def mse(a, b):
@@ -1055,7 +1075,7 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
         bgcolor=(0,) * 4,
     )
     plt.title(f"{name} CMB Reconstruction")
-    save_or_show(f"cmb_recon_{name}", output_format)
+    save_or_show(f"cmb_recon_{name}", output_format, subfolder=subfolder)
 
 
 def plot_cl_residuals(
@@ -1069,6 +1089,7 @@ def plot_cl_residuals(
     cl_true,
     ell_range,
     output_format,
+    subfolder=None,
 ):
     """Plot detailed BB spectrum decomposition for a single configuration."""
     _ = plt.figure(figsize=(10, 8))
@@ -1115,7 +1136,7 @@ def plot_cl_residuals(
 
     plt.tight_layout()
 
-    save_or_show(f"bb_spectra_{name}", output_format)
+    save_or_show(f"bb_spectra_{name}", output_format, subfolder=subfolder)
 
 
 def plot_r_estimator(
@@ -1126,6 +1147,7 @@ def plot_r_estimator(
     r_grid,
     L_vals,
     output_format,
+    subfolder=None,
 ):
     """Plot one-dimensional likelihood for r with highlighted estimate."""
     plt.figure(figsize=(6, 5))
@@ -1158,7 +1180,7 @@ def plot_r_estimator(
     plt.legend(loc="upper right", frameon=True, framealpha=0.95, fontsize=10)
     plt.tight_layout()
 
-    save_or_show(f"r_likelihood_{name}", output_format)
+    save_or_show(f"r_likelihood_{name}", output_format, subfolder=subfolder)
 
     info(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
@@ -1195,25 +1217,21 @@ def get_plot_flags(args):
     return indiv_flags, aggregate_flags
 
 
-def plot_indiv_results(name, computed_results, indiv_flags, output_format):
+def plot_indiv_results(name, computed_results, indiv_flags, output_format, subfolder=None):
     """Generate per-run plots according to CLI flags.
 
     Parameters
     ----------
     name : str
         Run identifier for labeling plots.
-    cmb_pytree : dict
-        CMB reconstruction data (cmb, cmb_recon, patches_map, etc.).
-    cl_pytree : dict
-        Power spectra data (cl_bb_r1, cl_syst_res, cl_total_res, etc.).
-    r_pytree : dict
-        Tensor-to-scalar ratio estimation data (r_best, sigma_r_neg, sigma_r_pos, etc.).
-    residual_pytree : dict
-        Residual map data (syst_map, stat_maps).
-    plotting_data : dict
-        Additional plotting data (params_map, updates_history, value_history).
-    args : argparse.Namespace
-        Command-line arguments controlling which plots to generate.
+    computed_results : dict
+        Dictionary containing cmb, cl, r, residual, and plotting_data.
+    indiv_flags : dict
+        Flags controlling which plots to generate.
+    output_format : str
+        'png', 'pdf', or 'show'.
+    subfolder : str, optional
+        Subdirectory under plots/ for grouped results.
     """
 
     cmb_pytree = computed_results.get("cmb", None)
@@ -1254,21 +1272,21 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
         # value_history = plotting_data.get("value_history")
 
     if indiv_flags["plot_params"]:
-        plot_params(name, params_map, output_format)
+        plot_params(name, params_map, output_format, subfolder=subfolder)
     if indiv_flags["plot_patches"]:
-        plot_patches(name, patches_map, output_format)
+        plot_patches(name, patches_map, output_format, subfolder=subfolder)
 
     # if indiv_flags["plot_validation_curves"]:
-    #    plot_validation_curves(name, updates_history, value_history, output_format)
+    #    plot_validation_curves(name, updates_history, value_history, output_format, subfolder)
 
     if indiv_flags["plot_cmb_recon"]:
-        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon, output_format)
+        plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon, output_format, subfolder)
 
     if indiv_flags["plot_systematic_maps"]:
-        plot_systematic_residual_maps(name, syst_map, output_format)
+        plot_systematic_residual_maps(name, syst_map, output_format, subfolder)
 
     if indiv_flags["plot_statistical_maps"]:
-        plot_statistical_residual_maps(name, stat_maps, output_format)
+        plot_statistical_residual_maps(name, stat_maps, output_format, subfolder)
 
     if indiv_flags["plot_cl_spectra"]:
         plot_cl_residuals(
@@ -1282,6 +1300,7 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
             cl_true,
             ell_range,
             output_format,
+            subfolder,
         )
 
     if indiv_flags["plot_r_estimation"]:
@@ -1293,6 +1312,7 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
             r_grid,
             L_vals,
             output_format,
+            subfolder,
         )
 
 
@@ -1406,7 +1426,7 @@ def run_plot(
     for name, (kw, computed_results) in tqdm(
         zip(titles, existing.items()), desc="Generating per group plots", leave=False
     ):
-        plot_indiv_results(name, computed_results, indiv_flags, output_format)
+        plot_indiv_results(name, computed_results, indiv_flags, output_format, subfolder=kw)
         plt.close("all")
 
     plot_aggregate_results(
