@@ -58,7 +58,6 @@ import operator
 import jax.numpy as jnp
 import jax.random
 import numpy as np
-import optax
 from furax._instruments.sky import (
     get_noise_sigma_from_instrument,
 )
@@ -69,13 +68,12 @@ from furax.obs import (
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import DistributedGridSearch, ProgressBar, condition, optimize
+from jax_grid_search import DistributedGridSearch
 from jax_healpy.clustering import (
     find_kmeans_clusters,
     get_cutout_from_mask,
     normalize_by_first_occurrence,
 )
-from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
@@ -87,7 +85,9 @@ from furax_cs.data.generate_maps import (
 )
 from furax_cs.data.instruments import get_instrument
 from furax_cs.data.search_space import dump_default_search_space, load_search_space
-from furax_cs.optim import lbfgs_backtrack, lbfgs_zoom
+from furax_cs.logging_utils import info, success
+from furax_cs.optim import condition
+from furax_cs.optim import optimize as furax_optimize
 
 jax.config.update("jax_enable_x64", True)
 
@@ -187,9 +187,10 @@ def parse_args():
         "-s",
         "--solver",
         type=str,
-        default="zoom",
-        choices=["zoom", "backtrack", "adam"],
-        help="L-BFGS solver type: 'zoom' for strong Wolfe conditions, 'backtrack' for Armijo backtracking",
+        default="optax_lbfgs_zoom",
+        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        "optimistix_bfgs_wolfe, optimistix_lbfgs_wolfe, optimistix_ncg_hs_wolfe, "
+        "scipy_tnc, zoom (alias), backtrack (alias), adam",
     )
     parser.add_argument(
         "-cond",
@@ -219,7 +220,7 @@ def clean_up(folder):
     output_path = os.path.join(output_folder, "results.npz")
 
     np.savez(output_path, **sorted_results)
-    print(f"Saved stacked results to {output_path}")
+    success(f"Saved stacked results to {output_path}")
 
 
 def main():
@@ -228,8 +229,8 @@ def main():
     # Handle dump mode: save default search space and exit
     if args.dump_search_space is not None:
         dump_default_search_space(args.dump_search_space)
-        print(f"\nSearch space template saved to: {args.dump_search_space}")
-        print("You can now customize this file and use it with --search-space option.")
+        success(f"\nSearch space template saved to: {args.dump_search_space}")
+        info("You can now customize this file and use it with --search-space option.")
         return
 
     config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
@@ -270,7 +271,10 @@ def main():
 
     sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
-        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
+        negative_log_likelihood,
+        dust_nu0=dust_nu0,
+        synchrotron_nu0=synchrotron_nu0,
+        analytical_gradient=True,
     )
 
     fn, to_opt, from_opt = condition(
@@ -278,20 +282,6 @@ def main():
         lower=lower_bound if args.cond else None,
         upper=upper_bound if args.cond else None,
         factor=3 * nside**2 * 12 if args.cond else 1.0,
-    )
-    if args.solver == "zoom":
-        solver = lbfgs_zoom(verbose=False)
-    elif args.solver == "backtrack":
-        solver = lbfgs_backtrack(verbose=False)
-    elif args.solver == "adam":
-        solver = optax.adam(learning_rate=1e-3)
-
-    solver = optax.chain(
-        solver,
-        # WARNING: Some solvers may encouter NaNs during optimization; this prevents that.
-        # However, it may hide underlying issues in the optimization process.
-        # In the tests produced by the paper Full conditioned wolfe (zoom) L-BFGS performed well without this line.
-        # optax.zero_nans(),
     )
 
     _, freqmaps = load_from_cache(nside, instrument_name=args.instrument, sky=args.tag)
@@ -306,10 +296,10 @@ def main():
 
     # Load search space configuration from YAML
     if args.search_space is not None:
-        print(f"Loading custom search space from: {args.search_space}")
+        info(f"Loading custom search space from: {args.search_space}")
         search_space = load_search_space(args.search_space)
     else:
-        print("Using default search space configuration")
+        info("Using default search space configuration")
         search_space = load_search_space()
 
     # Ensure we do not have more patches than pixels
@@ -326,13 +316,12 @@ def main():
         "beta_pl_patches": max_count["beta_pl"],
     }
 
-    @partial(jax.jit, static_argnums=(4))
+    @partial(jax.jit, static_argnums=())
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
         B_s_patches,
         indices,
-        progress_bar=None,
     ):
         T_d_patches = T_d_patches.squeeze()
         B_d_patches = B_d_patches.squeeze()
@@ -383,22 +372,17 @@ def main():
 
             N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
-            opt = solver
-            final_params, final_state = optimize(
-                guess_params,
-                fn,
-                opt,
+            final_params, final_state = furax_optimize(
+                fn=fn,
+                init_params=guess_params,
+                solver_name=args.solver,
                 max_iter=args.max_iter,
-                tol=1e-10,
-                progress=progress_bar,
-                progress_id=noise_id,
                 lower_bound=lower_bound_tree,
                 upper_bound=upper_bound_tree,
                 nu=nu,
                 N=N,
                 d=noised_d,
                 patch_indices=guess_clusters,
-                log_updates=True,
             )
 
             final_params = from_opt(final_params)
@@ -416,7 +400,6 @@ def main():
             )
 
             return {
-                "update_history": final_state.update_history,
                 "value": cmb_var,
                 "CMB_O": cmb_np,
                 "NLL": nll,
@@ -439,37 +422,26 @@ def main():
     else:
         old_results = None
 
-    progress_columns = [
-        "[progress.description]{task.description}",
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ]
-
-    with ProgressBar(*progress_columns) as p:
-
-        @jax.jit
-        def objective_function(T_d_patches, B_d_patches, B_s_patches):
-            return compute_minimum_variance(
-                T_d_patches,
-                B_d_patches,
-                B_s_patches,
-                indices,
-                progress_bar=p,
-            )
-
-        grid_search = DistributedGridSearch(
-            objective_function,
-            search_space,
-            batch_size=1,
-            progress_bar=True,
-            result_dir=out_folder,
-            old_results=old_results,
+    @jax.jit
+    def objective_function(T_d_patches, B_d_patches, B_s_patches):
+        return compute_minimum_variance(
+            T_d_patches,
+            B_d_patches,
+            B_s_patches,
+            indices,
         )
-        print(f"Number of combinations: {grid_search.n_combinations}")
-        if not args.best_only:
-            grid_search.run()
+
+    grid_search = DistributedGridSearch(
+        objective_function,
+        search_space,
+        batch_size=1,
+        progress_bar=True,
+        result_dir=out_folder,
+        old_results=old_results,
+    )
+    info(f"Number of combinations: {grid_search.n_combinations}")
+    if not args.best_only:
+        grid_search.run()
 
     if not args.best_only:
         results = grid_search.stack_results(result_folder=out_folder)
@@ -486,7 +458,7 @@ def main():
 
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
-    print("Run complete. Results saved to", out_folder)
+    success(f"Run complete. Results saved to {out_folder}")
 
 
 if __name__ == "__main__":

@@ -7,10 +7,9 @@ def parse_args():
     Structure:
         Global/Common Args: -n, -i, -r, -ird, --no-tex
         Subcommands:
-            1. cache: Compute and store systematics (replaces --cache-only).
-            2. snap:  Compute statistics and save to disk (no plotting).
-            3. plot:  Generate plots (from raw results or snapshot).
-            4. validate: Run NLL validation analysis.
+            1. snap:  Compute statistics and save to disk (no plotting).
+            2. plot:  Generate plots (from raw results or snapshot).
+            3. validate: Run NLL validation analysis.
 
     Returns
     -------
@@ -56,6 +55,15 @@ def parse_args():
         default=1000,
         help="Max iterations for computing systematics",
     )
+    common_parser.add_argument(
+        "-s",
+        "--solver",
+        type=str,
+        default="optax_lbfgs_zoom",
+        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        "optimistix_bfgs_wolfe, optimistix_lbfgs_wolfe, optimistix_ncg_hs_wolfe, "
+        "scipy_tnc, zoom (alias), backtrack (alias), adam",
+    )
 
     # 2. Main Parser
     parser = argparse.ArgumentParser(
@@ -66,19 +74,7 @@ def parse_args():
     subparsers = parser.add_subparsers(dest="subcommand", required=True, help="Mode of operation")
 
     # ==========================================
-    # 1. CACHE SUBCOMMAND
-    # ==========================================
-    parser_cache = subparsers.add_parser(
-        "cache", parents=[common_parser], help="Compute and cache systematics (W_D_FG)"
-    )
-    parser_cache.add_argument(
-        "--force",
-        action="store_true",
-        help="Force recomputation of cached W_D_FG values",
-    )
-
-    # ==========================================
-    # 2. SNAP SUBCOMMAND
+    # 1. SNAP SUBCOMMAND
     # ==========================================
     parser_snap = subparsers.add_parser(
         "snap",
@@ -94,7 +90,7 @@ def parse_args():
     )
 
     # ==========================================
-    # 3. PLOT SUBCOMMAND
+    # 2. PLOT SUBCOMMAND
     # ==========================================
     parser_plot = subparsers.add_parser(
         "plot", parents=[common_parser], help="Generate plots from results or snapshots"
@@ -204,7 +200,7 @@ def parse_args():
     )
 
     # ==========================================
-    # 4. VALIDATE SUBCOMMAND
+    # 3. VALIDATE SUBCOMMAND
     # ==========================================
     parser_validate = subparsers.add_parser(
         "validate", parents=[common_parser], help="Run NLL validation"
@@ -222,16 +218,6 @@ def parse_args():
         help="Noise ratio (0.0 to 1.0). Default: 0.0",
     )
     parser_validate.add_argument(
-        "--tag",
-        type=str,
-        help="Tag for the validation run.",
-    )
-    parser_validate.add_argument(
-        "--mask",
-        type=str,
-        help="Mask file or identifier for validation.",
-    )
-    parser_validate.add_argument(
         "--scales",
         type=float,
         nargs="+",
@@ -240,6 +226,58 @@ def parse_args():
     )
     parser_validate.add_argument(
         "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", required=True
+    )
+
+    # ==========================================
+    # 4. ESTIMATE SUBCOMMAND
+    # ==========================================
+    parser_estimate = subparsers.add_parser(
+        "estimate", help="Estimate tensor-to-scalar ratio r from spectra or maps"
+    )
+
+    # Input data
+    parser_estimate.add_argument(
+        "--cmb",
+        type=str,
+        required=True,
+        help="Path to CMB data (.npy): 1D spectrum C_ell, or 2D map (2, npix) for QU, or (3, npix) for IQU",
+    )
+    parser_estimate.add_argument(
+        "--cmb-hat",
+        type=str,
+        help="Optional path to reconstructed CMB maps (.npy), shape (n_realizations, 2, npix) or (n_realizations, 3, npix)",
+    )
+    parser_estimate.add_argument(
+        "--syst",
+        type=str,
+        help="Optional path to systematic residual map (.npy), shape (2, npix) or (3, npix)",
+    )
+
+    # Parameters
+    parser_estimate.add_argument(
+        "--fsky",
+        type=float,
+        help="Sky fraction (required if input is spectrum, inferred if input is map)",
+    )
+    parser_estimate.add_argument(
+        "--nside",
+        type=int,
+        help="HEALPix resolution (inferred from map if not provided)",
+    )
+
+    # Output
+    parser_estimate.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        help="Optional path to save results (.npz format)",
+    )
+    parser_estimate.add_argument(
+        "--output-format",
+        type=str,
+        choices=["png", "pdf", "show"],
+        default="png",
+        help="Output format for plot: png, pdf, or show (inline)",
     )
 
     return parser.parse_args()

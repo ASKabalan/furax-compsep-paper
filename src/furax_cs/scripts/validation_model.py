@@ -10,7 +10,6 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import optax
 import seaborn as sns
 from furax import HomothetyOperator
 from furax._instruments.sky import FGBusterInstrument
@@ -20,13 +19,12 @@ from furax.obs import (
     spectral_cmb_variance,
 )
 from furax.obs.landscapes import HealpixLandscape
-from jax_grid_search import DistributedGridSearch, ProgressBar, optimize
+from jax_grid_search import DistributedGridSearch
 from jax_healpy.clustering import (
     find_kmeans_clusters,
     get_cutout_from_mask,
     get_fullmap_from_cutout,
 )
-from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
@@ -34,6 +32,8 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
     simulate_D_from_params,
 )
+from furax_cs.logging_utils import success
+from furax_cs.optim import minimize
 
 jax.config.update("jax_enable_x64", True)
 
@@ -209,6 +209,14 @@ def parse_args():
         default=1000,
         help="Maximum number of optimization iterations for L-BFGS solver",
     )
+    parser.add_argument(
+        "-s",
+        "--solver",
+        type=str,
+        default="optax_lbfgs_zoom",
+        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        "optimistix_bfgs, optimistix_lbfgs, scipy_tnc, adam",
+    )
     return parser.parse_args()
 
 
@@ -305,7 +313,10 @@ def main():
         spectral_cmb_variance, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
     )
     negative_log_likelihood_fn = partial(
-        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
+        negative_log_likelihood,
+        dust_nu0=dust_nu0,
+        synchrotron_nu0=synchrotron_nu0,
+        analytical_gradient=True,
     )
 
     best_nll = negative_log_likelihood_fn(
@@ -337,7 +348,7 @@ def main():
         "beta_pl": jnp.max(search_space["B_s_patches"]),
     }
 
-    @partial(jax.jit, static_argnums=(5, 6))
+    @partial(jax.jit, static_argnums=(5,))
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
@@ -345,7 +356,6 @@ def main():
         planck_mask,
         indices,
         max_patches=25,
-        progress_bar=None,
     ):
         T_d_patches = T_d_patches.squeeze()
         B_d_patches = B_d_patches.squeeze()
@@ -369,13 +379,13 @@ def main():
         # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
-        solver = optax.lbfgs()
-        final_params, final_state = optimize(
-            guess_params,
-            negative_log_likelihood_fn,
-            solver,
+        final_params, final_state = minimize(
+            fn=negative_log_likelihood_fn,
+            init_params=guess_params,
+            solver_name=args.solver,
             max_iter=args.max_iter,
-            tol=1e-10,
+            rtol=1e-10,
+            atol=1e-10,
             # lower_bound=lower_bound_tree,
             # upper_bound=upper_bound_tree,
             nu=nu,
@@ -406,46 +416,35 @@ def main():
             "beta_pl_patches": guess_clusters["beta_pl_patches"],
         }
 
-    progress_columns = [
-        "[progress.description]{task.description}",
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ]
-
     # Put the good values for the grid search
     if os.path.exists(out_folder):
         old_results = DistributedGridSearch.stack_results(result_folder=out_folder)
     else:
         old_results = None
 
-    with ProgressBar(*progress_columns) as p:
-
-        @jax.jit
-        def objective_function(T_d_patches, B_d_patches, B_s_patches):
-            return compute_minimum_variance(
-                T_d_patches,
-                B_d_patches,
-                B_s_patches,
-                mask,
-                indices,
-                max_patches=max_centroids,
-                progress_bar=p,
-            )
-
-        grid_search = DistributedGridSearch(
-            objective_function,
-            search_space,
-            batch_size=4,
-            progress_bar=True,
-            log_every=0.1,
-            result_dir=out_folder,
-            old_results=old_results,
+    @jax.jit
+    def objective_function(T_d_patches, B_d_patches, B_s_patches):
+        return compute_minimum_variance(
+            T_d_patches,
+            B_d_patches,
+            B_s_patches,
+            mask,
+            indices,
+            max_patches=max_centroids,
         )
 
-        if not args.best_only:
-            grid_search.run()
+    grid_search = DistributedGridSearch(
+        objective_function,
+        search_space,
+        batch_size=4,
+        progress_bar=True,
+        log_every=0.1,
+        result_dir=out_folder,
+        old_results=old_results,
+    )
+
+    if not args.best_only:
+        grid_search.run()
 
     if not args.best_only:
         results = grid_search.stack_results(result_folder=out_folder)
@@ -464,6 +463,7 @@ def main():
     best_params["beta_pl_patches"] = masked_clusters["beta_pl_patches"]
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
+    success(f"Run complete. Results saved to {out_folder}")
 
 
 if __name__ == "__main__":

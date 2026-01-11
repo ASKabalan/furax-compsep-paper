@@ -3,16 +3,16 @@ import scienceplots  # noqa: F401
 
 from furax_cs.data.instruments import get_instrument
 
-from .caching import cache_systematics
-from .compute import get_compute_flags
-from .logging_utils import (
+from ..logging_utils import (
     error,
 )
+from .compute import get_compute_flags
 from .parser import parse_args
 from .plotting import (
     get_plot_flags,
     run_plot,
 )
+from .r_estimate import run_estimate
 from .run_grep import run_grep
 from .snapshot import (
     run_snapshot,
@@ -26,14 +26,28 @@ def run_analysis():
     """Entry point for the r_analysis CLI driver.
 
     This function orchestrates the complete analysis pipeline using subcommands:
-    - cache: Compute and cache W_D_FG systematics
-    - snap: Compute statistics and save snapshot
+    - snap: Compute statistics and save snapshot (auto-caches W_D_FG)
     - plot: Generate plots from results or snapshots
     - validate: Run NLL validation analysis
+    - estimate: Estimate tensor-to-scalar ratio r from spectra or maps
 
     The analysis flow is controlled by command-line arguments parsed via :func:`parse_args`.
     """
     args = parse_args()
+
+    # Handle estimate subcommand separately (doesn't use common_parser)
+    if args.subcommand == "estimate":
+        return run_estimate(
+            cmb_path=args.cmb,
+            cmb_hat_path=args.cmb_hat,
+            syst_path=args.syst,
+            fsky=args.fsky,
+            nside=args.nside,
+            output_path=args.output,
+            output_format=args.output_format,
+        )
+
+    # For other subcommands, get common arguments
     nside = args.nside
     instrument = get_instrument(args.instrument)
     if args.no_tex:
@@ -49,15 +63,6 @@ def run_analysis():
         return
 
     # Dispatch to subcommand handler
-    if args.subcommand == "cache":
-        return cache_systematics(
-            matched_results,
-            nside,
-            instrument,
-            force_recompute=args.force,
-            max_iter=args.max_iterations,
-        )
-
     if args.subcommand == "snap":
         flags = get_compute_flags(args, snapshot_mode=True)  # compute everything
         return run_snapshot(
@@ -67,6 +72,7 @@ def run_analysis():
             args.output_snapshot,
             flags,
             args.max_iterations,
+            args.solver,
         )
 
     if args.subcommand == "plot":
@@ -82,6 +88,7 @@ def run_analysis():
             indiv_flags,
             aggregate_flags,
             args.max_iterations,
+            args.solver,
             args.output_format,
             args.font_size,
         )

@@ -8,8 +8,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..logging_utils import info, success, warning
 from .compute import compute_all
-from .logging_utils import info, success
 
 SNAPSHOT_MANIFEST_NAME = "manifest.json"
 SNAPSHOT_VERSION = 1
@@ -67,7 +67,7 @@ def load_snapshot(snapshot_dir):
             continue
         payload_path = snapshot_path / filename
         if not payload_path.exists():
-            print(f"WARNING: Snapshot payload missing for '{title}' at {payload_path}")
+            warning(f"Snapshot payload missing for '{title}' at {payload_path}")
             continue
         with payload_path.open("rb") as fh:
             payload = pickle.load(fh)
@@ -227,7 +227,7 @@ def save_snapshot(snapshot_path, results):
     write_snapshot_manifest(snapshot_path, manifest)
 
 
-def run_snapshot(matched_results, nside, instrument, snapshot_path, flags, max_iter):
+def run_snapshot(matched_results, nside, instrument, snapshot_path, flags, max_iter, solver_name):
     """Entry point for 'snap' subcommand.
 
     Computes statistics for matched runs and saves to snapshot directory.
@@ -251,7 +251,7 @@ def run_snapshot(matched_results, nside, instrument, snapshot_path, flags, max_i
 
     if to_compute:
         info(f"Computing {len(to_compute)} missing entries...")
-        computed = compute_all(to_compute, nside, instrument, flags, max_iter)
+        computed = compute_all(to_compute, nside, instrument, flags, max_iter, solver_name)
         save_snapshot(snapshot_path, computed)
         success(f"Saved {len(computed)} new entries to snapshot at {snapshot_path}")
     else:

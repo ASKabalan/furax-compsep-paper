@@ -5,23 +5,22 @@ from collections import OrderedDict
 import healpy as hp
 import jax.numpy as jnp
 import numpy as np
-from furax._instruments.sky import get_sky
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import combine_masks
 from tqdm import tqdm
 
-from .caching import compute_w
-from .logging_utils import format_residual_flags, hint, info, warning
-from .r_estimate import estimate_r, get_camb_templates
+from ..logging_utils import format_residual_flags, hint, info, warning
+from .caching import atomic_save_results, compute_w
+from .r_estimate import estimate_r
 from .residuals import (
     compute_cl_bb_sum,
-    compute_cl_obs_bb,
     compute_cl_true_bb,
     compute_statistical_res,
     compute_systematic_res,
     compute_total_res,
 )
 from .utils import (
+    expand_stokes,
     index_run_data,
     params_to_maps,
 )
@@ -141,6 +140,7 @@ def compute_single_folder(
     flags,
     full_results=None,
     max_iter=100,
+    solver_name="optax_lbfgs_zoom",
 ):
     """Process a single result folder for a specific run index.
 
@@ -206,10 +206,7 @@ def compute_single_folder(
             cached_w = full_results[cache_key]
             wd = Stokes.from_stokes(Q=cached_w[0], U=cached_w[1])
         else:
-            hint(
-                f"Systematics not cached for index {run_index}. "
-                "Use 'r_analysis cache -r ...' for faster loading. Computing now..."
-            )
+            hint(f"Systematics not cached for index {run_index}. Computing now and caching...")
             fg_map = Stokes.from_stokes(
                 Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
             )
@@ -223,7 +220,12 @@ def compute_single_folder(
                 d=fg_map,
                 patches=patches,
                 max_iter=max_iter,
+                solver_name=solver_name,
             )
+            # Persist to results.npz for future runs
+            W_numpy = np.stack([wd.q, wd.u], axis=0)
+            full_results[cache_key] = W_numpy
+            atomic_save_results(f"{folder}/results.npz", full_results)
 
     # Extract params and patches if needed
     params = None
@@ -243,10 +245,10 @@ def compute_single_folder(
     # Extract validation curves if needed
     updates_history = None
     value_history = None
-    if flags["need_validation_curves"] and "update_history" in run_data:
-        updates_history = run_data["update_history"][..., 0]
-        value_history = run_data["update_history"][..., 1]
-
+    # if flags["need_validation_curves"] and "update_history" in run_data:
+    #    updates_history = run_data["update_history"][..., 0]
+    #    value_history = run_data["update_history"][..., 1]
+    #
     return {
         "cmb_recon": cmb_recon,
         "cmb_true": cmb_true,
@@ -263,7 +265,16 @@ def compute_single_folder(
     }
 
 
-def compute_group(title, folders, run_indices, nside, instrument, flags, max_iter=100):
+def compute_group(
+    title,
+    folders,
+    run_indices,
+    nside,
+    instrument,
+    flags,
+    solver_name,
+    max_iter=100,
+):
     """Process a group of folders for given run indices.
 
     Parameters
@@ -329,6 +340,7 @@ def compute_group(title, folders, run_indices, nside, instrument, flags, max_ite
                 flags,
                 full_results=full_results,
                 max_iter=max_iter,
+                solver_name=solver_name,
             )
             if result is None:
                 continue
@@ -382,19 +394,13 @@ def compute_group(title, folders, run_indices, nside, instrument, flags, max_ite
             "beta_pl_patches": np.zeros(hp.nside2npix(nside)),
         }
 
-    # CAMB templates for spectra
-    needs_camb = flags["needs_residual_spectra"] or flags["needs_r_estimation"]
-    if needs_camb:
-        ell_range, cl_bb_r1, cl_bb_r0, cl_bb_lens, _ = get_camb_templates(nside=64)
-    else:
-        ell_range = cl_bb_r1 = cl_bb_r0 = cl_bb_lens = None
+    # Compute ell_range for residual spectra
+    ell_range = np.arange(2, nside * 2 + 2)
 
-    # Get true sky for residuals
-    needs_sky = flags["compute_syst"] or flags["compute_stat"] or flags["compute_total"]
-    if needs_sky:
-        s_true = get_sky(64, "c1d1s1").components[0].map.value
-    else:
-        s_true = None
+    # Get true sky for residuals from the saved CMB in best_params (cmb_stokes)
+    # This uses the actual input CMB map (which may have r != 0)
+    cmb_stokes_expanded = expand_stokes(cmb_stokes)
+    s_true = np.stack([cmb_stokes_expanded.i, cmb_stokes_expanded.q, cmb_stokes_expanded.u], axis=0)
 
     # Compute residuals
     cl_syst_res, syst_map, cl_stat_res, stat_maps = None, None, None, None
@@ -418,16 +424,7 @@ def compute_group(title, folders, run_indices, nside, instrument, flags, max_ite
         info(f"Total residuals: min={np.min(cl_total_res):.2e}, max={np.max(cl_total_res):.2e}")
 
     # True Cl
-    if ell_range is not None and s_true is not None:
-        cl_true = compute_cl_true_bb(s_true, ell_range)
-    else:
-        cl_true = None
-
-    # Observed Cl
-    if flags["compute_total"] and ell_range is not None:
-        cl_bb_obs = compute_cl_obs_bb(cl_total_res, cl_bb_lens)
-    else:
-        cl_bb_obs = None
+    cl_true = compute_cl_true_bb(s_true, ell_range)
 
     # Cl BB sum for illustrations
     if flags["need_patch_maps"] or flags["need_validation_curves"]:
@@ -435,12 +432,13 @@ def compute_group(title, folders, run_indices, nside, instrument, flags, max_ite
     else:
         cl_bb_sum = None
 
-    # R estimation
+    # R estimation (also computes cl_bb_obs, cl_bb_r1, cl_bb_lens internally)
     r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = None, None, None, None, None
-    if flags["compute_total"] and flags["needs_r_estimation"] and cl_bb_obs is not None:
+    cl_bb_obs, cl_bb_r1, cl_bb_lens = None, None, None
+    if flags["compute_total"] and flags["needs_r_estimation"] and cl_total_res is not None:
         stat_res_for_r = cl_stat_res if cl_stat_res is not None else np.zeros_like(ell_range)
-        r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = estimate_r(
-            cl_bb_obs, ell_range, cl_bb_r1, cl_bb_lens, stat_res_for_r, f_sky
+        r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, _, cl_bb_r1, cl_bb_lens, cl_bb_obs = (
+            estimate_r(cl_total_res, nside, stat_res_for_r, f_sky)
         )
         info(f"r estimation: {r_best:.4f} +{sigma_r_pos:.4f} -{sigma_r_neg:.4f}")
 
@@ -454,7 +452,6 @@ def compute_group(title, folders, run_indices, nside, instrument, flags, max_ite
     }
     cl_pytree = {
         "cl_bb_r1": cl_bb_r1,
-        "cl_bb_r0": cl_bb_r0,
         "cl_true": cl_true,
         "ell_range": ell_range,
         "cl_bb_obs": cl_bb_obs,
@@ -489,6 +486,7 @@ def compute_all(
     instrument,
     flags,
     max_iter,
+    solver_name,
     titles=None,
 ):
     """Compute results for all matched run groups.
@@ -535,6 +533,7 @@ def compute_all(
             instrument=instrument,
             flags=flags,
             max_iter=max_iter,
+            solver_name=solver_name,
         )
 
         if result is not None:

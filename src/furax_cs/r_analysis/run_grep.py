@@ -1,6 +1,6 @@
 import os
 
-from .logging_utils import info
+from ..logging_utils import info
 
 
 def parse_run_spec(run_spec):

@@ -33,10 +33,8 @@ import jax
 import jax.numpy as jnp
 
 # Furax imports
-import jaxopt
 import matplotlib.pyplot as plt
 import numpy as np
-import optax
 import seaborn as sns
 
 # Healpy and PySM3 imports
@@ -62,11 +60,12 @@ except ImportError:
 from furax import HomothetyOperator
 from furax.obs import negative_log_likelihood
 from furax.obs.landscapes import Stokes
-from jax_grid_search import optimize
 from jax_hpc_profiler import Timer
 from jax_hpc_profiler.plotting import plot_weak_scaling
 
 from furax_cs.data.generate_maps import load_from_cache, save_to_cache
+from furax_cs.logging_utils import info
+from furax_cs.optim import minimize
 
 jax.config.update("jax_enable_x64", True)
 
@@ -97,7 +96,7 @@ def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
     Times both JIT compilation and execution phases to measure
     realistic performance characteristics.
     """
-    print(f"Running FGBuster Log Likelihood with nside={nside} ...")
+    info(f"Running FGBuster Log Likelihood with nside={nside} ...")
 
     # Step 1: Build mixing matrix and derivative evaluators
     A = MixingMatrix(*components)
@@ -151,7 +150,7 @@ def run_jax_negative_log_prob(
     log-likelihood is the objective function minimized during component
     separation parameter estimation.
     """
-    print(f"Running Furax Log Likelihood nside={nside} ...")
+    info(f"Running Furax Log Likelihood nside={nside} ...")
 
     # Step 1: Convert frequency maps to Stokes data structure
     d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
@@ -176,12 +175,21 @@ def run_jax_negative_log_prob(
         jax_timer.chrono_fun(nll, best_params)
 
 
-def run_jax_lbfgs(
-    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer, max_iter=100
+def run_jax_minimize(
+    nside,
+    freq_maps,
+    best_params,
+    nu,
+    dust_nu0,
+    synchrotron_nu0,
+    jax_timer,
+    max_iter,
+    solver_name,
+    precondition,
 ):
-    """Run JAX-based negative log-likelihood."""
+    """Run JAX-based negative log-likelihood with configurable solver."""
 
-    print(f"Running Furax LBGS Comp sep nside={nside} ...")
+    info(f"Running Furax {solver_name} Comp sep nside={nside} ...")
 
     d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
     invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
@@ -195,8 +203,6 @@ def run_jax_lbfgs(
         synchrotron_nu0=synchrotron_nu0,
     )
 
-    solver = optax.lbfgs()
-
     best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
         lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
@@ -204,12 +210,14 @@ def run_jax_lbfgs(
     )
 
     def basic_comp(guess_params):
-        final_params, _ = optimize(
-            guess_params,
-            nll,
-            solver,
+        final_params, _ = minimize(
+            fn=nll,
+            init_params=guess_params,
+            solver_name=solver_name,
             max_iter=max_iter,
-            tol=1e-5,
+            rtol=1e-5,
+            atol=1e-5,
+            precondition=precondition,
         )
         return final_params["beta_pl"], final_params
 
@@ -218,42 +226,11 @@ def run_jax_lbfgs(
         jax_timer.chrono_fun(basic_comp, guess_params)
 
 
-def run_jax_tnc(nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, numpy_timer):
-    """Run JAX-based negative log-likelihood."""
-
-    print(f"Running Furax TNC From SciPy Comp sep nside={nside} ...")
-
-    d = Stokes.from_stokes(I=freq_maps[:, 0, :], Q=freq_maps[:, 1, :], U=freq_maps[:, 2, :])
-    invN = HomothetyOperator(jnp.ones(1), _in_structure=d.structure)
-
-    nll = partial(
-        negative_log_likelihood,
-        nu=nu,
-        N=invN,
-        d=d,
-        dust_nu0=dust_nu0,
-        synchrotron_nu0=synchrotron_nu0,
-    )
-
-    best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
-    guess_params = jax.tree.map_with_path(
-        lambda path, x: x + jax.random.normal(jax.random.key(path[0].__hash__()), x.shape),
-        best_params,
-    )
-
-    def basic_comp(guess_params):
-        scipy_solver = jaxopt.ScipyMinimize(fun=nll, method="TNC", jit=True, tol=1e-6)
-        result = scipy_solver.run(guess_params)
-        return result.params
-
-    numpy_timer.chrono_jit(basic_comp, guess_params)
-    for _ in range(2):
-        numpy_timer.chrono_fun(basic_comp, guess_params)
-
-
-def run_fgbuster_comp_sep(nside, instrument, best_params, freq_maps, components, numpy_timer):
-    """Run FGBuster log-likelihood."""
-    print(f"Running FGBuster Comp sep nside={nside} ...")
+def run_fgbuster_comp_sep(
+    nside, instrument, best_params, freq_maps, components, numpy_timer, fgbuster_solver
+):
+    """Run FGBuster component separation with configurable solver."""
+    info(f"Running FGBuster {fgbuster_solver} Comp sep nside={nside} ...")
 
     best_params = jax.tree.map(lambda x: jnp.array(x), best_params)
     guess_params = jax.tree.map_with_path(
@@ -331,6 +308,29 @@ def parse_args():
         default=100,
         help="Maximum number of optimization iterations for L-BFGS solver",
     )
+    parser.add_argument(
+        "--jax-solver",
+        type=str,
+        default="optax_lbfgs_zoom",
+        help="JAX solver name (e.g., optax_lbfgs_zoom, optimistix_bfgs, scipy_tnc)",
+    )
+    parser.add_argument(
+        "--fgbuster-solver",
+        type=str,
+        default="TNC",
+        help="FGBuster scipy solver method (e.g., TNC, L-BFGS-B, SLSQP)",
+    )
+    parser.add_argument(
+        "--precondition",
+        action="store_true",
+        help="Enable preconditioning for JAX optimization",
+    )
+    parser.add_argument(
+        "--noise",
+        type=float,
+        default=0.0,
+        help="Noise ratio (0.0 = no noise, 1.0 = 100%% noise)",
+    )
     return parser.parse_args()
 
 
@@ -357,12 +357,12 @@ def main():
 
     if args.likelihood and not args.plot_only:
         for nside in args.nsides:
-            save_to_cache(nside, sky="c1d0s0")
+            save_to_cache(nside, sky="c1d0s0", noise_ratio=args.noise)
 
             if args.cache_run:
                 continue
 
-            nu, freq_maps = load_from_cache(nside, sky="c1d0s0")
+            nu, freq_maps = load_from_cache(nside, sky="c1d0s0", noise_ratio=args.noise)
 
             # Likelihood mode benchmarking
             print(f"Running likelihood benchmarking for nside={nside}...")
@@ -378,23 +378,33 @@ def main():
 
     if args.solvers and not args.plot_only:
         for nside in args.nsides:
-            save_to_cache(nside, sky="c1d1s1")
+            save_to_cache(nside, sky="c1d1s1", noise_ratio=args.noise)
 
             if args.cache_run:
                 continue
 
-            nu, freq_maps = load_from_cache(nside, sky="c1d1s1")
+            nu, freq_maps = load_from_cache(nside, sky="c1d1s1", noise_ratio=args.noise)
 
             # Solver mode benchmarking
             print(f"Running solver benchmarking for nside={nside}...")
             run_fgbuster_comp_sep(
-                nside, instrument, best_params, freq_maps, components, numpy_timer
+                nside,
+                instrument,
+                best_params,
+                freq_maps,
+                components,
+                numpy_timer,
+                args.fgbuster_solver,
             )
-            kwargs = {"function": "FGBuster - TNC", "precision": "float64", "x": nside}
+            kwargs = {
+                "function": f"FGBuster-{args.fgbuster_solver}",
+                "precision": "float64",
+                "x": nside,
+            }
             numpy_timer.report("runs/BCP_FGBUSTER.csv", **kwargs)
 
-            # Run JAX LBFGS from Optax
-            run_jax_lbfgs(
+            # Run JAX with configurable solver
+            run_jax_minimize(
                 nside,
                 freq_maps,
                 best_params,
@@ -403,22 +413,15 @@ def main():
                 synchrotron_nu0,
                 jax_timer,
                 args.max_iter,
+                args.jax_solver,
+                args.precondition,
             )
-            kwargs = {"function": "Furax - LBFGS", "precision": "float64", "x": nside}
+            kwargs = {
+                "function": f"Furax-{args.jax_solver}",
+                "precision": "float64",
+                "x": nside,
+            }
             jax_timer.report("runs/BCP_FURAX.csv", **kwargs)
-
-            # Run TNC from SciPy
-            run_jax_tnc(
-                nside,
-                freq_maps,
-                best_params,
-                nu,
-                dust_nu0,
-                synchrotron_nu0,
-                numpy_timer,
-            )
-            kwargs = {"function": "Furax - TNC", "precision": "float64", "x": nside}
-            numpy_timer.report("runs/BCP_FURAX.csv", **kwargs)
 
     # Plot log-likelihood results
     if args.likelihood and not args.cache_run and args.plot_only:
@@ -442,7 +445,11 @@ def main():
         sns.set_context("paper")
 
         csv_file = ["runs/BCP_FGBUSTER.csv", "runs/BCP_FURAX.csv"]
-        solvers = ["Furax - TNC", "Furax - LBFGS", "FGBuster - TNC"]
+        # Note: Update solvers list to match actual benchmarked configurations
+        solvers = [
+            f"Furax-{args.jax_solver}",
+            f"FGBuster-{args.fgbuster_solver}",
+        ]
 
         plot_weak_scaling(
             csv_files=csv_file,

@@ -62,9 +62,9 @@ from time import perf_counter
 
 import jax.numpy as jnp
 import jax.random
-import jax_healpy as jhp
+import lineax as lx
 import numpy as np
-import optax
+from furax import Config
 from furax._instruments.sky import (
     get_noise_sigma_from_instrument,
 )
@@ -75,13 +75,11 @@ from furax.obs import (
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import ProgressBar, condition, optimize
 from jax_healpy.clustering import (
     find_kmeans_clusters,
     get_cutout_from_mask,
     normalize_by_first_occurrence,
 )
-from rich.progress import BarColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
@@ -92,7 +90,8 @@ from furax_cs.data.generate_maps import (
     sanitize_mask_name,
 )
 from furax_cs.data.instruments import get_instrument
-from furax_cs.optim import lbfgs_backtrack, lbfgs_zoom
+from furax_cs.logging_utils import info, success
+from furax_cs.optim import minimize
 
 jax.config.update("jax_enable_x64", True)
 
@@ -168,10 +167,10 @@ def parse_args():
         "--patch-count",
         type=int,
         nargs=3,  # Expecting exactly three values
-        default=[1000, 10, 10],  # Example target patch counts for beta_dust, temp_dust, beta_pl
+        default=[10000, 500, 500],  # Example target patch counts for beta_dust, temp_dust, beta_pl
         help=(
             "List of three target patch counts for beta_dust, temp_dust, and beta_pl. "
-            "Example: --patch-count 1000 10 10"
+            "Example: --patch-count 10000 500 500"
         ),
     )
     parser.add_argument(
@@ -199,9 +198,10 @@ def parse_args():
         "-s",
         "--solver",
         type=str,
-        default="zoom",
-        choices=["zoom", "backtrack", "adam"],
-        help="L-BFGS solver type: 'zoom' for strong Wolfe conditions, 'backtrack' for Armijo backtracking",
+        default="optax_lbfgs_zoom",
+        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        "optimistix_bfgs_wolfe, optimistix_lbfgs_wolfe, optimistix_ncg_hs_wolfe, "
+        "scipy_tnc, zoom (alias), backtrack (alias), adam",
     )
     parser.add_argument(
         "-cond",
@@ -280,28 +280,10 @@ def main():
 
     sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
-        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
-    )
-
-    fn, to_opt, from_opt = condition(
-        negative_log_likelihood_fn,
-        lower=lower_bound if args.cond else None,
-        upper=upper_bound if args.cond else None,
-        factor=3 * jhp.nside2npix(nside) if args.cond else 1.0,
-    )
-    if args.solver == "zoom":
-        solver = lbfgs_zoom(verbose=False)
-    elif args.solver == "backtrack":
-        solver = lbfgs_backtrack(verbose=False)
-    elif args.solver == "adam":
-        solver = optax.adam(learning_rate=1e-3)
-
-    solver = optax.chain(
-        solver,
-        # WARNING: Some solvers may encouter NaNs during optimization; this prevents that.
-        # However, it may hide underlying issues in the optimization process.
-        # In the tests produced by the paper Full conditioned wolfe (zoom) L-BFGS performed well without this line.
-        # optax.zero_nans(),
+        negative_log_likelihood,
+        dust_nu0=dust_nu0,
+        synchrotron_nu0=synchrotron_nu0,
+        analytical_gradient=True,
     )
 
     _, freqmaps = load_from_cache(nside, instrument_name=args.instrument, sky=args.tag)
@@ -325,14 +307,13 @@ def main():
         "beta_pl_patches": max_count["beta_pl"],
     }
 
-    @partial(jax.jit, static_argnums=(5))
+    @jax.jit
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
         B_s_patches,
         planck_mask,
         indices,
-        progress_bar=None,
     ):
         n_regions = {
             "temp_dust_patches": T_d_patches,
@@ -361,10 +342,6 @@ def main():
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
-        guess_params = to_opt(guess_params)
-        lower_bound_tree = to_opt(lower_bound_tree)
-        upper_bound_tree = to_opt(upper_bound_tree)
-
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
@@ -379,26 +356,21 @@ def main():
 
             N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
-            opt = solver
-            final_params, final_state = optimize(
-                guess_params,
-                fn,
-                opt,
+            final_params, final_state = minimize(
+                fn=negative_log_likelihood_fn,
+                init_params=guess_params,
+                solver_name=args.solver,
                 max_iter=args.max_iter,
-                tol=1e-15,
-                progress=progress_bar,
-                progress_id=noise_id,
+                atol=1e-15,
+                rtol=1e-10,
                 lower_bound=lower_bound_tree,
                 upper_bound=upper_bound_tree,
+                precondition=args.cond,
                 nu=nu,
                 N=N,
                 d=noised_d,
                 patch_indices=guess_clusters,
-                log_updates=True,
             )
-
-            final_params = from_opt(final_params)
-
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
             cmb = s["cmb"]
             cmb_var = jax.tree.reduce(operator.add, jax.tree.map(jnp.var, cmb))
@@ -410,7 +382,6 @@ def main():
             )
 
             return {
-                "update_history": final_state.update_history,
                 "value": cmb_var,
                 "CMB_O": cmb_np,
                 "NLL": nll,
@@ -425,15 +396,7 @@ def main():
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
         return results
 
-    progress_columns = [
-        "[progress.description]{task.description}",
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ]
-
-    with ProgressBar(*progress_columns) as p:
+    with Config(solver=lx.CG(atol=1e-10, rtol=1e-6, max_steps=1000)), jax.disable_jit(False):
 
         @jax.jit
         def objective_function(T_d_patches, B_d_patches, B_s_patches):
@@ -443,7 +406,6 @@ def main():
                 B_s_patches,
                 mask,
                 indices,
-                progress_bar=p,
             )
 
         if not args.best_only:
@@ -454,10 +416,10 @@ def main():
             min_bd, max_bd = results["beta_dust"].min(), results["beta_dust"].max()
             min_td, max_td = results["temp_dust"].min(), results["temp_dust"].max()
             min_bs, max_bs = results["beta_pl"].min(), results["beta_pl"].max()
-            print(f"min beta_dust: {min_bd} max beta_dust: {max_bd}")
-            print(f"min temp_dust: {min_td} max temp_dust: {max_td}")
-            print(f"min beta_pl: {min_bs} max beta_pl: {max_bs}")
-            print(f"Objective function evaluation took {end_time - start_time:.2f} seconds")
+            info(f"min beta_dust: {min_bd} max beta_dust: {max_bd}")
+            info(f"min temp_dust: {min_td} max temp_dust: {max_td}")
+            info(f"min beta_pl: {min_bs} max beta_pl: {max_bs}")
+            info(f"Objective function evaluation took {end_time - start_time:.2f} seconds")
             # Add a new axis to the results so it matches the shape of grid search results
             os.makedirs(out_folder, exist_ok=True)
             results = jax.tree.map(lambda x: x[np.newaxis, ...], results)
@@ -475,7 +437,7 @@ def main():
 
     np.savez(f"{out_folder}/best_params.npz", **best_params)
     np.save(f"{out_folder}/mask.npy", mask)
-    print("Run complete. Results saved to", out_folder)
+    success(f"Run complete. Results saved to {out_folder}")
 
 
 if __name__ == "__main__":
