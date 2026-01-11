@@ -3,8 +3,10 @@
 import argparse
 import os
 import pickle
+import re
 from pathlib import Path
 
+import camb
 import healpy as hp
 import jax.random as jr
 import numpy as np
@@ -15,8 +17,167 @@ from furax.obs.operators import (
     MixingMatrixOperator,
     SynchrotronOperator,
 )
+from pysm3 import units as pysm_units
+from pysm3.models.cmb import CMBLensed
 
 from furax_cs.data.instruments import get_instrument
+from furax_cs.logging_utils import info, success
+
+
+def parse_sky_tag(sky):
+    """Parse sky string to separate CMB and foreground tags.
+
+    Parameters
+    ----------
+    sky : str
+        Sky model string (e.g., "c1d0s0", "cr3d0s0").
+
+    Returns
+    -------
+    tuple
+        (cmb_tag, fg_tag). cmb_tag is None if no CMB present.
+    """
+    # Check for custom r pattern (crX)
+    match = re.search(r"cr(\d+)", sky)
+    if match:
+        cmb_tag = match.group(0)
+        fg_tag = sky.replace(cmb_tag, "")
+        return cmb_tag, fg_tag
+
+    # Legacy 2-char parsing
+    tags = [sky[i : i + 2] for i in range(0, len(sky), 2)]
+    cmb_tags = [t for t in tags if t.startswith("c")]
+    if cmb_tags:
+        cmb_tag = cmb_tags[0]
+        fg_tags = [t for t in tags if not t.startswith("c")]
+        fg_tag = "".join(fg_tags)
+        return cmb_tag, fg_tag
+
+    return None, sky
+
+
+class CMBLensedWithTensors(CMBLensed):
+    """CMBLensed subclass that generates CMB with custom tensor-to-scalar ratio r.
+
+    Uses PySM's taylens algorithm for proper lensing, which correctly generates
+    B-modes from E-modes via gravitational lensing deflection.
+
+    Parameters
+    ----------
+    nside : int
+        HEALPix resolution parameter.
+    r : float
+        Tensor-to-scalar ratio (default: 0.0).
+    cmb_seed : int, optional
+        Random seed for map generation.
+    max_nside : int, optional
+        Maximum nside for the model.
+    apply_delens : bool
+        Whether to apply delensing (default: False).
+    delensing_ells : path, optional
+        Delensing ells file path.
+    map_dist : pysm.MapDistribution, optional
+        Distribution for parallel computing.
+    H0, ombh2, omch2, As, ns : float
+        Cosmological parameters.
+    lmax : int
+        Maximum multipole for power spectra (default: 2500).
+    """
+
+    def __init__(
+        self,
+        nside,
+        r=0.0,
+        cmb_seed=None,
+        max_nside=None,
+        apply_delens=False,
+        delensing_ells=None,
+        map_dist=None,
+        H0=67.5,
+        ombh2=0.022,
+        omch2=0.122,
+        As=2e-9,
+        ns=0.965,
+        lmax=2500,
+    ):
+        # Generate CAMB spectra with tensors
+        pars = camb.CAMBparams()
+        pars.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2)
+        pars.InitPower.set_params(As=As, ns=ns, r=r)
+        if r > 0:
+            pars.WantTensors = True
+        pars.set_for_lmax(lmax, lens_potential_accuracy=1)
+
+        results = camb.get_results(pars)
+        powers = results.get_cmb_power_spectra(pars, CMB_unit="muK", raw_cl=False, lmax=lmax)
+
+        # Build spectra in PySM format: [ell, TT, EE, BB, TE, PP, TP, EP]
+        # Uses UNLENSED spectra - taylens will apply lensing
+        ells_all = np.arange(lmax + 1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            # Avoid division by zero for ell=0,1 (though we slice them off anyway)
+            conversion = 2 * np.pi / (ells_all * (ells_all + 1))
+            conversion[0:2] = 0.0
+
+        dl_tt = powers["unlensed_total"][2 : lmax + 1, 0]
+        dl_ee = powers["unlensed_total"][2 : lmax + 1, 1]
+        dl_bb = powers["unlensed_total"][2 : lmax + 1, 2]  # This contains tensor BB
+        dl_te = powers["unlensed_total"][2 : lmax + 1, 3]
+
+        # Convert to Cl
+        ell_range_inputs = ells_all[2 : lmax + 1]
+        # conv_factor = conversion[2 : lmax + 1]
+
+        spectra = np.zeros((8, len(ell_range_inputs)))
+        spectra[0] = ell_range_inputs
+        spectra[1] = dl_tt  # TT (run_taylens expects Dell)
+        spectra[2] = dl_ee  # EE (run_taylens expects Dell)
+        spectra[3] = dl_bb  # BB (run_taylens expects Dell)
+        spectra[4] = dl_te  # TE (run_taylens expects Dell)
+        # Note: lens_potential is usually dimensionless or different units,
+        # check CAMB docs, but usually they are PP, not D_ell.
+        # For safety, assuming standard CAMB output for potentials is usually correct for PySM
+        # but strictly PySM expects Cl for potentials too.
+        spectra[5] = powers["lens_potential"][2 : lmax + 1, 0]  # PP
+        spectra[6] = powers["lens_potential"][2 : lmax + 1, 1]  # TP
+        spectra[7] = powers["lens_potential"][2 : lmax + 1, 2]  # EP
+
+        # Store spectra and run taylens
+        self.nside = nside
+        self.max_nside = max_nside
+        self.map_dist = map_dist
+        self.cmb_spectra = spectra
+        self.cmb_seed = cmb_seed
+        self.apply_delens = apply_delens
+        self.delensing_ells = delensing_ells
+
+        # Generate lensed maps via taylens (inherited method)
+        self.map = pysm_units.Quantity(self.run_taylens(), unit=pysm_units.uK_CMB, copy=False)
+
+
+def generate_custom_cmb(r_value, nside, seed=None):
+    """Generate a CMB realization with a specific tensor-to-scalar ratio r.
+
+    Uses PySM's taylens algorithm for proper lensing, which correctly generates
+    B-modes from E-modes via gravitational lensing deflection.
+
+    Parameters
+    ----------
+    r_value : float
+        Tensor-to-scalar ratio.
+    nside : int
+        HEALPix resolution.
+    seed : int, optional
+        Random seed for generation.
+
+    Returns
+    -------
+    ndarray
+        CMB map (3, npix) in uK_CMB.
+    """
+    info(f"generating with r_value {r_value}")
+    cmb = CMBLensedWithTensors(nside=nside, r=r_value, cmb_seed=seed)
+    return cmb.map.value  # Returns (3, npix) array in uK_CMB
 
 
 def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0", key=None):
@@ -55,13 +216,41 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
     if os.path.exists(cache_file):
         with open(cache_file, "rb") as f:
             freq_maps = pickle.load(f)
-        print(f"Loaded freq_maps for nside {nside} from cache with noise_ratio {noise_ratio}.")
+        info(f"Loaded freq_maps for nside {nside} from cache with noise_ratio {noise_ratio}.")
     else:
-        # Generate freq_maps if not already cached
+        # Check for custom r CMB
+        match = re.search(r"cr(\d+)", sky)
+        custom_cmb_map = None
+        fg_tag = sky
+
+        if match:
+            info(f"Detected custom r tag: {match.group(0)}")
+            r_exp = int(match.group(1))
+            r_val = r_exp * 1e-3
+            info(f"Generating custom CMB with AA r={r_val}")
+            fg_tag = sky.replace(match.group(0), "")
+            # Derive seed from key if possible, else fixed
+            # key is JAX key (uint32 array). Use first element.
+            seed = int(key[1]) if key is not None else 0
+            custom_cmb_map = generate_custom_cmb(r_val, nside, seed=seed)
+
+        # Generate freq_maps
+        # If custom CMB, we generate FG+Noise with fg_tag, then add custom CMB
+        # Note: get_observation adds noise.
+        # If we just want FG+Noise, we use fg_tag.
+
+        # If fg_tag is empty (just CMB wanted), get_observation might fail or return nothing?
+        # furax instruments usually have foregrounds if tags provided.
+        # If tag is empty, get_observation logic needs checking.
+        # Assuming fg_tag like "d0s0" or similar.
+
+        # If we have custom CMB, we treat the rest as the "furax" sky
+        tag_to_use = fg_tag if custom_cmb_map is not None else sky
+
         stokes_obs = get_observation(
             instrument,
             nside=nside,
-            tag=sky,
+            tag=tag_to_use,
             noise_ratio=noise_ratio,
             key=key,
             stokes_type="IQU",
@@ -73,10 +262,17 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
             [np.array(stokes_obs.i), np.array(stokes_obs.q), np.array(stokes_obs.u)], axis=1
         )
 
+        if custom_cmb_map is not None:
+            # Add custom CMB (broadcasting over frequencies)
+            # freq_maps: (n_freq, 3, npix)
+            # custom_cmb_map: (3, npix)
+            freq_maps += custom_cmb_map[None, ...]
+            info(f"Added custom CMB with r={r_val} to maps.")
+
         # Save freq_maps to the cache
         with open(cache_file, "wb") as f:
             pickle.dump(freq_maps, f)
-        print(f"Generated and saved freq_maps for nside {nside}.")
+        success(f"Generated and saved freq_maps for nside {nside}.")
     return np.array(instrument.frequency), freq_maps
 
 
@@ -114,7 +310,7 @@ def load_from_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d
     if os.path.exists(cache_file):
         with open(cache_file, "rb") as f:
             freq_maps = pickle.load(f)
-        print(f"Loaded freq_maps for nside {nside} from cache.")
+        info(f"Loaded freq_maps for nside {nside} from cache.")
     else:
         raise FileNotFoundError(
             f"Cache file for freq_maps with nside {nside} and noise_ratio {noise_ratio} not found.\n"
@@ -125,10 +321,9 @@ def load_from_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d
 
 
 def strip_cmb_tag(sky_string):
-    """Removes the 'cX' tag from the sky string."""
-    tags = [sky_string[i : i + 2] for i in range(0, len(sky_string), 2)]
-    fg_tags = [tag for tag in tags if not tag.startswith("c")]
-    return "".join(fg_tags)
+    """Removes the 'cX' or 'crX' tag from the sky string."""
+    _, fg_tag = parse_sky_tag(sky_string)
+    return fg_tag
 
 
 def save_fg_map(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0", key=None):
@@ -152,7 +347,7 @@ def save_fg_map(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0"
     tuple
         (frequencies, freq_maps) containing only foreground contributions.
     """
-    print(
+    info(
         f"Generating fg map for nside {nside}, noise_ratio {noise_ratio}, instrument {instrument_name}"
     )
     stripped_sky = strip_cmb_tag(sky)
@@ -201,27 +396,32 @@ def save_cmb_map(nside, sky="c1d0s0"):
     ndarray
         CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
     """
-    print(f"Generating CMB map for nside {nside}, sky {sky}")
+    info(f"Generating CMB map for nside {nside}, sky {sky}")
     # Define cache file path
     cache_dir = "freq_maps_cache"
     os.makedirs(cache_dir, exist_ok=True)
-    preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
-    cmb_template = None
-    for strr in preset_strings:
-        if strr.startswith("c"):
-            cmb_template = strr
-            break
 
-    if cmb_template is None:
+    cmb_tag, _ = parse_sky_tag(sky)
+
+    if cmb_tag is None:
         npix = 12 * nside**2
         return np.zeros((3, npix))
     else:
-        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_template}.pkl")
-        sky_obj = get_sky(nside, sky)
-        freq_maps = sky_obj.components[0].map.to_value()
+        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_tag}.pkl")
+
+        match = re.match(r"cr(\d+)", cmb_tag)
+        if match:
+            r_exp = int(match.group(1))
+            r_val = r_exp * 0.01
+            # Use default seed=0 to match save_to_cache default
+            freq_maps = generate_custom_cmb(r_val, nside, seed=0)
+        else:
+            sky_obj = get_sky(nside, sky)
+            freq_maps = sky_obj.components[0].map.to_value()
+
         with open(cache_file, "wb") as f:
             pickle.dump(freq_maps, f)
-        print(f"Generated and saved freq_maps for nside {nside} and for tag {cmb_template}.")
+        success(f"Generated and saved freq_maps for nside {nside} and for tag {cmb_tag}.")
 
         return freq_maps
 
@@ -248,37 +448,23 @@ def load_cmb_map(nside, sky="c1d0s0"):
     """
     # Define cache file path
     cache_dir = "freq_maps_cache"
-    preset_strings = [sky[i : i + 2] for i in range(0, len(sky), 2)]
-    cmb_template = None
-    for strr in preset_strings:
-        if strr.startswith("c"):
-            cmb_template = strr
-            break
-    if cmb_template is None:
+
+    cmb_tag, _ = parse_sky_tag(sky)
+
+    if cmb_tag is None:
         npix = 12 * nside**2
         return np.zeros((3, npix))
     else:
-        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_template}.pkl")
+        cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{cmb_tag}.pkl")
         if os.path.exists(cache_file):
             with open(cache_file, "rb") as f:
                 freq_maps = pickle.load(f)
-            print(f"Loaded freq_maps for nside {nside} from cache.")
+            info(f"Loaded freq_maps for nside {nside} from cache.")
         else:
             raise FileNotFoundError(
                 f"Cache file for freq_maps with nside {nside} not found.\n"
                 f"Please generate it first by calling `generate_data --nside {nside}`."
             )
-
-    # Check if file exists and load if it does; otherwise raise an error with guidance
-    if os.path.exists(cache_file):
-        with open(cache_file, "rb") as f:
-            freq_maps = pickle.load(f)
-        print(f"Loaded freq_maps for nside {nside} from cache.")
-    else:
-        raise FileNotFoundError(
-            f"Cache file for freq_maps with nside {nside} not found.\n"
-            f"Please generate it first by calling `generate_data --nside {nside}`."
-        )
 
     return freq_maps
 
@@ -546,7 +732,7 @@ def _get_or_generate_mask_file(nside: int) -> Path:
         downgraded[key] = hp.ud_grade(masks_2048[key] * 1.0, nside).astype(np.uint8)
 
     np.savez(mask_file, **downgraded)
-    print(f"Generated and cached mask for nside {nside}")
+    success(f"Generated and cached mask for nside {nside}")
 
     return mask_file
 
