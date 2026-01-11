@@ -32,18 +32,6 @@ jid=$(sbatch $SBATCH_ARGS --job-name=GALACTIC_GRID_noise-N-a100 \
        -ss SEARCH_SPACE.yml -s active_set -mi 1000 -o RESULTS/GRID_SEARCH)
 job_ids+=($jid)
 
-# =============================================================================
-# CACHE_RUNS
-# =============================================================================
-
-deps=$(IFS=:; echo "${job_ids[*]}")
-
-jid=$(sbatch --dependency=afterany:$deps \
-        $SBATCH_ARGS \
-       --job-name=CACHE_GRIDDING \
-       $SLURM_SCRIPT r_analysis cache -r compsep -ird RESULTS/GRID_SEARCH -mi 1000 -n 64 -i LiteBIRD -s scipy_tnc)
-
-
 
 # =============================================================================
 # SNAPSHOT RUNS
@@ -52,4 +40,4 @@ jid=$(sbatch --dependency=afterany:$deps \
 sbatch --dependency=afterok:$jid \
         $SBATCH_ARGS \
        --job-name=PTEP_SNAP
-         $SLURM_SCRIPT r_analysis snap -n 64 -i LiteBIRD -ird RESULTS/MULTIRES -r ptep -o SNAPSHOT
+         $SLURM_SCRIPT r_analysis snap -n 64 -i LiteBIRD -ird RESULTS/MULTIRES -r ptep -o SNAPSHOT -s active_set -mi 1000

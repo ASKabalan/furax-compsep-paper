@@ -1,12 +1,11 @@
-#!/bin/bash
-
 SBATCH_ARGS="--account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a100"
-SBATCH_ARGS_MULTI="--account=nih@a100 --nodes=1 --gres=gpu:4 --tasks-per-node=4 -C a100"
+SBATCH_ARGS="--account=nih@h100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C h100 --exclusive"
 # =============================================================================
 # Run Benchmarks
 # =============================================================================
-sbatch $SBATCH_ARGS --job-name=BENCH_BCP-N-a100 $SLURM_SCRIPT bench-bcp -n 4 8 16 32 64 128 256 512 1024 -s -l --jax-solver optax_lbfgs_zoom --fgbuster-solver TNC --noise 0.0
-sbatch $SBATCH_ARGS --job-name=BENCH_CLUS-N-a100 $SLURM_SCRIPT bench-clusters -n 32 64 128 256 512 -cl 10 20 50 100 200 500 1000 --jax-solver optax_lbfgs_zoom --fgbuster-solver TNC --noise 0.0
+sbatch $SBATCH_ARGS --job-name=BENCH_CLUS-N-a100 $SLURM_SCRIPT bench-clusters -n 32 64 128 256 -cl 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000 --fgbuster-solver TNC  --noise 1.0
+sbatch $SBATCH_ARGS --job-name=BENCH_CLUS-N-a100 $SLURM_SCRIPT bench-clusters -n 32 64 128 256 -cl 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000 --jax-solver active_set --noise 1.0
+sbatch $SBATCH_ARGS --job-name=BENCH_CLUS-N-a100 $SLURM_SCRIPT bench-clusters -n 32 64 128 256 -cl 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000 --jax-solver scipy_tnc --noise 1.0
 
 # =============================================================================
 # Validations models (with and without noise)
