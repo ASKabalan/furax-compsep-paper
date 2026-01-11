@@ -240,3 +240,5 @@ publication*
 manifest.json
 *err
 *out
+slurm/*
+!slurm/runners
