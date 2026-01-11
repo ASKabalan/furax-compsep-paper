@@ -58,9 +58,3 @@ sbatch --dependency=afterany:$deps \
        --job-name=FG_validate_$noise_$SKY \
        $SLURM_SCRIPT r_analysis validate -r fgbuster_${noise_percent}_$SKY -t "FGBuster $noise_text $SKY" \
        -ird RESULTS --noise-ratio $noise --no-tex --scales 1e-4 1e-5
-
-
-sbatch --dependency=afterany:$deps \
-        $SBATCH_ARGS \
-       --job-name=FG_cache_$noise_$SKY \
-       $SLURM_SCRIPT r_analysis cache -r fgbuster -ird RESULTS -mi 2000 --no-tex

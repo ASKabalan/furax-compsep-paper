@@ -148,7 +148,7 @@ def compute_gradient_validation(
     return {"scales": scales, "steps": steps, "results": results}
 
 
-def plot_gradient_validation(validation_results, file_name, title):
+def plot_gradient_validation(validation_results, file_name, title, subfolder=None):
     """
     Generate a 2x2 plot of NLL and Gradient Norms across scales.
     """
@@ -245,8 +245,9 @@ def plot_gradient_validation(validation_results, file_name, title):
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     # Save
-    os.makedirs(PLOT_OUTPUTS, exist_ok=True)
-    save_or_show(file_name, "png")
+    base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
+    os.makedirs(base_dir, exist_ok=True)
+    save_or_show(file_name, "png", subfolder=subfolder)
     success(f"Validation plot saved to {file_name}.png")
 
 
@@ -320,4 +321,4 @@ def run_validate(matched_results, names, nside, instrument, steps, noise_ratio, 
                 base_name = os.path.basename(folder.rstrip("/"))
                 file_name = f"{base_name}_seed_{run_idx}"
 
-                plot_gradient_validation(val_res, title=name, file_name=file_name)
+                plot_gradient_validation(val_res, title=name, file_name=file_name, subfolder=kw)

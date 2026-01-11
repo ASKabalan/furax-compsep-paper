@@ -61,8 +61,3 @@ sbatch --dependency=afterany:$deps \
        $SLURM_SCRIPT r_analysis validate -r kmeans_noise${noise_percent}_${SKY} -t "FURAX $noise_text $SKY" \
        -ird RESULTS --noise-ratio $noise --no-tex --scales 1e-4 1e-5
 
-
-sbatch --dependency=afterany:$deps \
-        $SBATCH_ARGS \
-       --job-name=FX_cache_$noise_$SKY_$SOLVER \
-       $SLURM_SCRIPT r_analysis cache -r kmeans -ird RESULTS -mi 2000 --no-tex -s scipy_tnc

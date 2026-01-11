@@ -117,7 +117,7 @@ def parse_args():
         help="Font size for plots",
     )
     parser_plot.add_argument(
-        "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", required=True
+        "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", default=None
     )
 
     # Visualization Toggles

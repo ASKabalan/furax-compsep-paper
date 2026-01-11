@@ -3,31 +3,22 @@ SBATCH_ARGS="--account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a10
 SBATCH_ARGS="--account=nih@h100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C h100 --qos=qos_gpu_h100-dev"
 
 
-C1D1S1_NOISELESS_SCIPY="kmeans_c1d1s1_noise0_scipy fgbuster_c1d1s1_0"
-C1D1S1_NOISY_SCIPY="kmeans_c1d1s1_noise100_scipy fgbuster_c1d1s1_100"
-C1D0S0_NOISELESS_SCIPY="kmeans_c1d0s0_noise0_scipy fgbuster_c1d0s0_0"
-C1D0S0_NOISY_SCIPY="kmeans_c1d0s0_noise100_scipy fgbuster_c1d0s0_100"
 
-C1D1S1_NOISELESS_ADAM="kmeans_c1d1s1_noise0_adam_condFalse kmeans_c1d1s1_noise0_adam_condTrue"
-C1D1S1_NOISY_ADAM="kmeans_c1d1s1_noise100_adam_condFalse kmeans_c1d1s1_noise100_adam_condTrue"
-C1D0S0_NOISELESS_ADAM="kmeans_c1d0s0_noise0_adam_condFalse kmeans_c1d0s0_noise0_adam_condTrue"
-C1D0S0_NOISY_ADAM="kmeans_c1d0s0_noise100_adam_condFalse kmeans_c1d0s0_noise100_adam_condTrue"
-
-D1S1_NOISELESS_ADAM_TITLE=("FURAX c1d1s1 ADAM Noiseless" "FURAX c1d1s1 ADAM Noiseless Conditioned")
-D1S1_NOISY_ADAM_TITLE=("FURAX c1d1s1 ADAM Noisy" "FURAX c1d1s1 ADAM Noisy Conditioned")
-D0S0_NOISELESS_ADAM_TITLE=("FURAX c1d0s0 ADAM Noiseless" "FURAX c1d0s0 ADAM Noiseless Conditioned")
-D0S0_NOISY_ADAM_TITLE=("FURAX c1d0s0 ADAM Noisy" "FURAX c1d0s0 ADAM Noisy Conditioned")
-
-D1S1_NOISELESS_SCIPY_TITLE=("FURAX c1d1s1 Scipy TNC Noiseless" "FGBuster c1d1s1 Noiseless")
-D1S1_NOISY_SCIPY_TITLE=("FURAX c1d1s1 Scipy TNC Noisy" "FGBuster c1d1s1 Noisy")
-D0S0_NOISELESS_SCIPY_TITLE=("FURAX c1d0s0 Scipy TNC Noiseless" "FGBuster c1d0s0 Noiseless")
-D0S0_NOISY_SCIPY_TITLE=("FURAX c1d0s0 Scipy TNC Noisy" "FGBuster c1d0s0 Noisy")
+PTEP='ptep'
+kmeans_varying_patch='kmeans_c1d1s1_BD(\d+)_TD500_BS500'
+FGBUSTER='fgbuster_c1d1s1_BD10000_TD500_BS500'
+KMEANS_FIXED='kmeans_c1d1s1_FIXED_active_set kmeans_c1d1s1_FIXED_adam_condFalse kmeans_c1d1s1_FIXED_scipy_tnc kmeans_c1d1s1_FIXED_adam_condTrue'
 
 jid=$(sbatch $SBATCH_ARGS \
        --job-name=SNAP \
-       $SLURM_SCRIPT r_analysis snap -r $C1D1S1_NOISY_ADAM -ird RESULTS --no-tex -o SNAPSHOT)
+       $SLURM_SCRIPT r_analysis snap -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --no-tex -o SNAPSHOT -mi 2000 -s active_set -n 64 -i LiteBIRD)
 
 sbatch  --dependency=afterany:$jid \
         $SBATCH_ARGS \
        --job-name=PLOT \
-       $SLURM_SCRIPT r_analysis plot -r $C1D1S1_NOISY_ADAM -t "${D1S1_NOISY_ADAM_TITLE[@]}" -ird RESULTS -a --snapshot SNAPSHOT --no-tex
+       $SLURM_SCRIPT r_analysis plot -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED  -ird RESULTS -a --snapshot SNAPSHOT --no-tex
+
+sbatch $SBATCH_ARGS \
+       --job-name=VALIDATE \
+       $SLURM_SCRIPT r_analysis validate -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --noise-ratio 1.0 --no-tex --scales 1e-4 1e-5
+
