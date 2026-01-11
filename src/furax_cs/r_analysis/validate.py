@@ -3,19 +3,20 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-import numpy as np
+import lineax as lx
 import matplotlib.pyplot as plt
+import numpy as np
+from furax import Config
 from furax._instruments.sky import get_noise_sigma_from_instrument
-from furax_cs.data.instruments import get_instrument
 from furax.obs import negative_log_likelihood
+from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import get_cutout_from_mask
-from furax.obs.landscapes import FrequencyLandscape
 
-from .logging_utils import info, warning, error , success
+from ..logging_utils import error, info, success
+from .plotting import PLOT_OUTPUTS, save_or_show
 from .utils import index_run_data
-from .plotting import save_or_show , PLOT_OUTPUTS
 
 
 def compute_gradient_validation(
@@ -35,7 +36,7 @@ def compute_gradient_validation(
 ):
     """
     Compute NLL and gradient norms for perturbed parameters across multiple scales.
-    
+
     Parameters
     ----------
     final_params : dict
@@ -59,14 +60,15 @@ def compute_gradient_validation(
     run_idx : int
         Run index (used for RNG seeding).
     """
+    info(f"is X64 enabled: {jax.config.jax_enable_x64}")
     # 1. Construct Noise Operator & Data
     key = jax.random.PRNGKey(run_idx)
     f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
-    
+
     # Generate noise based on instrument specs
     white_noise = f_landscapes.normal(key) * noise_ratio
     white_noise = get_cutout_from_mask(white_noise, mask_indices, axis=1)
-    
+
     sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
     noise = white_noise * sigma
     noised_d = masked_d + noise
@@ -82,29 +84,40 @@ def compute_gradient_validation(
     nu = instrument.frequency
 
     negative_log_likelihood_fn = partial(
-        negative_log_likelihood, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0
+        negative_log_likelihood,
+        dust_nu0=dust_nu0,
+        synchrotron_nu0=synchrotron_nu0,
+        analytical_gradient=True,
     )
 
     @jax.jit
     def grad_nll(params):
         return jax.grad(negative_log_likelihood_fn)(
-            params, nu=nu, N=N, d=noised_d, patch_indices=patch_indices,
+            params,
+            nu=nu,
+            N=N,
+            d=noised_d,
+            patch_indices=patch_indices,
         )
 
     @jax.jit
     def nll(params):
         return negative_log_likelihood_fn(
-            params, nu=nu, N=N, d=noised_d, patch_indices=patch_indices,
+            params,
+            nu=nu,
+            N=N,
+            d=noised_d,
+            patch_indices=patch_indices,
         )
 
     # 3. Compute Validation Metrics
-    steps = jnp.arange(-steps_range, steps_range + 1) # inclusive range
+    steps = jnp.arange(-steps_range, steps_range + 1)  # inclusive range
     results = {}
 
-    print("Computing NLLs and Gradients for multiple scales...")
+    info("Computing NLLs and Gradients for multiple scales...")
 
     for scale in scales:
-        print(f"  Processing scale: {scale:.1e}")
+        info(f"  Processing scale: {scale:.1e}")
 
         # Calculate perturbations for this scale
         # Shape: (n_steps, 1)
@@ -116,8 +129,9 @@ def compute_gradient_validation(
         )
 
         # Vectorized computation
-        nlls = jax.vmap(nll)(final_params_perturbed)
-        grads = jax.vmap(grad_nll)(final_params_perturbed)
+        with Config(solver=lx.CG(rtol=1e-6, atol=1e-10, max_steps=10000)):
+            nlls = jax.vmap(nll)(final_params_perturbed)
+            grads = jax.vmap(grad_nll)(final_params_perturbed)
 
         # Compute Norms of gradients
         grads_beta_dust_norm = jnp.linalg.norm(grads["beta_dust"], axis=1)
@@ -134,7 +148,7 @@ def compute_gradient_validation(
     return {"scales": scales, "steps": steps, "results": results}
 
 
-def plot_gradient_validation(validation_results, title_suffix=""):
+def plot_gradient_validation(validation_results, file_name, title):
     """
     Generate a 2x2 plot of NLL and Gradient Norms across scales.
     """
@@ -144,39 +158,61 @@ def plot_gradient_validation(validation_results, title_suffix=""):
 
     # Setup Plotting Grid
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle(f"Optimization Verification {title_suffix}", fontsize=16)
+    fig.suptitle(f"Optimization Verification {title}", fontsize=16)
 
     # Colors for different scales
-    # Use standard python list if jax array issues arise, but jnp usually fine
     colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
 
     for i, scale in enumerate(scales):
         data = results[scale]
-        
-        label = f"Scale {scale:.1e}"
         color = colors[i]
-        
+
         # Unpack data
         nlls = data["NLL"]
         g_bd = data["grads_beta_dust"]
         g_bp = data["grads_beta_pl"]
         g_td = data["grads_temp_dust"]
 
-        # Plot 1: Negative Log Likelihood
-        ax = axes[0, 0]
-        ax.plot(steps, nlls, "o-", linewidth=2, color=color, label=label, alpha=0.8)
+        # --- Calculate Stats for Legend ---
+        # 1. Identify value at Step 0 (The Solver's Solution)
+        idx_zero = jnp.argmin(jnp.abs(steps))
+        nll_zero = nlls[idx_zero]
 
-        # Plot 2: Gradient Norm - Beta Dust
+        # 2. Identify global Minimum in this scan
+        nll_min = jnp.min(nlls)
+
+        # 3. Calculate Differences
+        abs_diff = nll_zero - nll_min
+        rel_diff = abs(abs_diff / nll_min) if nll_min != 0 else 0.0
+
+        # Create specific label for NLL plot containing the stats
+        # Using newlines to keep the legend box compact width-wise
+        nll_label = (
+            f"Scale {scale:.1e}\n"
+            f" Sol:  {nll_zero:.7e}\n"
+            f" Min:  {nll_min:.7e}\n"
+            f" Diff: {abs_diff:.2e}\n"
+            f" Rel:  {rel_diff:.2e}"
+        )
+        base_label = f"Scale {scale:.1e}"
+        # ----------------------------------
+
+        # Plot 1: Negative Log Likelihood (Uses detailed legend)
+        ax = axes[0, 0]
+        # We plot nlls directly, but the legend explains the gap
+        ax.plot(steps, nlls, "o-", linewidth=2, color=color, label=nll_label, alpha=0.8)
+
+        # Plot 2: Gradient Norm - Beta Dust (Uses simple legend)
         ax = axes[0, 1]
-        ax.plot(steps, g_bd, "s-", linewidth=2, color=color, label=label, alpha=0.8)
+        ax.plot(steps, g_bd, "s-", linewidth=2, color=color, label=base_label, alpha=0.8)
 
         # Plot 3: Gradient Norm - Beta PL
         ax = axes[1, 0]
-        ax.plot(steps, g_bp, "^-", linewidth=2, color=color, label=label, alpha=0.8)
+        ax.plot(steps, g_bp, "^-", linewidth=2, color=color, label=base_label, alpha=0.8)
 
         # Plot 4: Gradient Norm - Temp Dust
         ax = axes[1, 1]
-        ax.plot(steps, g_td, "d-", linewidth=2, color=color, label=label, alpha=0.8)
+        ax.plot(steps, g_td, "d-", linewidth=2, color=color, label=base_label, alpha=0.8)
 
     # Common Formatting
     plot_configs = [
@@ -186,28 +222,37 @@ def plot_gradient_validation(validation_results, title_suffix=""):
         (axes[1, 1], "Gradient Norm: Temp Dust", "L2 Norm"),
     ]
 
-    for ax, title, ylabel in plot_configs:
-        ax.set_title(title)
+    for ax, ax_title, ylabel in plot_configs:
+        ax.set_title(ax_title)
         ax.set_ylabel(ylabel)
         ax.set_xlabel("Perturbation Steps (x Scale)")
         ax.grid(True, alpha=0.3)
-        ax.axvline(0, color="red", linestyle="--", alpha=0.5, label="Solution" if ax == axes[0,0] else "")
-        if ax == axes[0, 0]: # Only legend on first plot to save space
-            ax.legend()
+
+        # Vertical line at 0
+        ax.axvline(
+            0,
+            color="red",
+            linestyle="--",
+            alpha=0.5,
+            # We don't need a label here anymore since it's in the main legend
+        )
+
+        # Add legend
+        # For NLL plot, move legend outside if it's too big, or keep inside best location
+        if ax == axes[0, 0]:
+            ax.legend(fontsize="small", loc="best")
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    
-    # Save or Show
-    # If running in CLI, usually better to save. We default to show for now unless configured.
+
+    # Save
     os.makedirs(PLOT_OUTPUTS, exist_ok=True)
-    save_or_show(title_suffix , 'png')
-    success(f"Validation plot saved to {title_suffix}.png")
-    # plt.show() # Uncomment if interactive
+    save_or_show(file_name, "png")
+    success(f"Validation plot saved to {file_name}.png")
 
 
-def run_validate(matched_results, names , nside, instrument, steps, noise_ratio, scales):
+def run_validate(matched_results, names, nside, instrument, steps, noise_ratio, scales):
     """Entry point for 'validate' subcommand."""
-    
+
     for name, (kw, matched_folders) in zip(names, matched_results.items()):
         folders, run_indices = matched_folders
 
@@ -226,7 +271,7 @@ def run_validate(matched_results, names , nside, instrument, steps, noise_ratio,
                 full_results = dict(np.load(results_path))
                 best_params = dict(np.load(best_params_path))
                 mask_arr = np.load(mask_path)
-                indices, = np.where(mask_arr)
+                (indices,) = np.where(mask_arr)
             except (FileNotFoundError, OSError) as e:
                 error(f"Failed to load data for {folder}: {e}")
                 continue
@@ -235,10 +280,10 @@ def run_validate(matched_results, names , nside, instrument, steps, noise_ratio,
 
             for run_idx in run_indices:
                 info(f"Validating run index {run_idx} in folder '{folder}'")
-                
+
                 # 1. Prepare Data
                 run_data_sliced = index_run_data(full_results, run_idx)
-                
+
                 # Extract the specific parameters that minimized variance/NLL for this run
                 # (Assuming 'value' is stored, otherwise use NLL or just index -1)
                 nll = run_data_sliced["NLL"]
@@ -273,6 +318,6 @@ def run_validate(matched_results, names , nside, instrument, steps, noise_ratio,
 
                 # 3. Plot Results
                 base_name = os.path.basename(folder.rstrip("/"))
-                plot_title = f"{base_name}_seed_{run_idx}"
-                
-                plot_gradient_validation(val_res, title_suffix=plot_title)
+                file_name = f"{base_name}_seed_{run_idx}"
+
+                plot_gradient_validation(val_res, title=name, file_name=file_name)

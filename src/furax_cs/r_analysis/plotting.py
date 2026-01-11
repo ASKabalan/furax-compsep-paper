@@ -9,13 +9,42 @@ import numpy as np
 from matplotlib.colors import Normalize
 from tqdm.auto import tqdm
 
+from ..logging_utils import error, hint, info, success, warning
 from .compute import compute_all
-from .logging_utils import error, hint, info, success, warning
 from .snapshot import load_and_filter_snapshot, serialize_snapshot_payload
 
 plt.style.use("science")
 
 PLOT_OUTPUTS = "plots/"
+
+
+def get_symmetric_percentile_limits(data_list, percentile=99):
+    """Compute symmetric vmin/vmax from percentile across multiple maps.
+
+    Parameters
+    ----------
+    data_list : list of arrays
+        List of map arrays (UNSEEN values will be filtered out)
+    percentile : float
+        Percentile to use (e.g., 99 means 1st and 99th percentiles)
+
+    Returns
+    -------
+    vmin, vmax : float
+        Symmetric limits centered at 0
+    """
+    all_values = []
+    for data in data_list:
+        valid = data[~np.isnan(data) & (data != hp.UNSEEN)]
+        all_values.append(valid)
+    combined = np.concatenate(all_values)
+
+    low = np.percentile(combined, 100 - percentile)
+    high = np.percentile(combined, percentile)
+
+    # Make symmetric around 0
+    abs_max = max(abs(low), abs(high))
+    return -abs_max, abs_max
 
 
 def get_run_color(index):
@@ -220,6 +249,8 @@ def plot_all_cmb(names, cmb_pytree_list, output_format):
     """Show reconstructed-minus-true Q/U differences for multiple runs."""
     nb_cmb = len(cmb_pytree_list)
 
+    # Collect all Q and U maps for shared color limits
+    all_maps = []
     diff_all = []
 
     for cmb_pytree in cmb_pytree_list:
@@ -234,7 +265,10 @@ def plot_all_cmb(names, cmb_pytree_list, output_format):
         diff_q = np.where(unseen_mask_q, np.nan, diff_q)
         diff_u = np.where(unseen_mask_u, np.nan, diff_u)
 
+        all_maps.extend([diff_q, diff_u])
         diff_all.append((diff_q, diff_u))
+
+    vmin, vmax = get_symmetric_percentile_limits(all_maps)
 
     plt.figure(figsize=(10, 3.5 * nb_cmb))
 
@@ -244,8 +278,8 @@ def plot_all_cmb(names, cmb_pytree_list, output_format):
             title=rf"Difference (Q) - {name} ($\mu$K)",
             sub=(nb_cmb, 2, 2 * i + 1),
             cbar=True,
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             notext=True,
@@ -255,8 +289,8 @@ def plot_all_cmb(names, cmb_pytree_list, output_format):
             title=rf"Difference (U) - {name} ($\mu$K)",
             sub=(nb_cmb, 2, 2 * i + 2),
             cbar=True,
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             notext=True,
@@ -408,18 +442,26 @@ def plot_all_systematic_residuals(names, syst_map_list, output_format):
         warning("No systematic residual maps available to plot")
         return
 
-    plt.figure(figsize=(12, 4 * nb_runs))
-
-    for i, (name, syst_map) in enumerate(zip(names, syst_map_list)):
+    # Collect all Q and U maps for shared color limits
+    all_maps = []
+    processed_maps = []
+    for syst_map in syst_map_list:
         syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
         syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
+        all_maps.extend([syst_q, syst_u])
+        processed_maps.append((syst_q, syst_u))
 
+    vmin, vmax = get_symmetric_percentile_limits(all_maps)
+
+    plt.figure(figsize=(12, 4 * nb_runs))
+
+    for i, (name, (syst_q, syst_u)) in enumerate(zip(names, processed_maps)):
         hp.mollview(
             syst_q,
             title=rf"Systematic Residual (Q) - {name} ($\mu$K)",
             sub=(nb_runs, 2, 2 * i + 1),
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
@@ -430,8 +472,8 @@ def plot_all_systematic_residuals(names, syst_map_list, output_format):
             syst_u,
             title=rf"Systematic Residual (U) - {name} ($\mu$K)",
             sub=(nb_runs, 2, 2 * i + 2),
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
@@ -449,20 +491,27 @@ def plot_all_statistical_residuals(names, stat_map_list, output_format):
         warning("No statistical residual maps available to plot")
         return
 
-    plt.figure(figsize=(12, 4 * nb_runs))
-
-    for i, (name, stat_maps) in enumerate(zip(names, stat_map_list)):
+    # Collect all Q and U maps for shared color limits
+    all_maps = []
+    processed_maps = []
+    for stat_maps in stat_map_list:
         stat_map_first = stat_maps[0]
-
         stat_q = np.where(stat_map_first[1] == hp.UNSEEN, np.nan, stat_map_first[1])
         stat_u = np.where(stat_map_first[2] == hp.UNSEEN, np.nan, stat_map_first[2])
+        all_maps.extend([stat_q, stat_u])
+        processed_maps.append((stat_q, stat_u))
 
+    vmin, vmax = get_symmetric_percentile_limits(all_maps)
+
+    plt.figure(figsize=(12, 4 * nb_runs))
+
+    for i, (name, (stat_q, stat_u)) in enumerate(zip(names, processed_maps)):
         hp.mollview(
             stat_q,
             title=rf"Statistical Residual (Q) - {name} ($\mu$K)",
             sub=(nb_runs, 2, 2 * i + 1),
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
@@ -473,8 +522,8 @@ def plot_all_statistical_residuals(names, stat_map_list, output_format):
             stat_u,
             title=rf"Statistical Residual (U) - {name} ($\mu$K)",
             sub=(nb_runs, 2, 2 * i + 2),
-            min=-0.5,
-            max=0.5,
+            min=vmin,
+            max=vmax,
             cmap="RdBu_r",
             bgcolor=(0,) * 4,
             cbar=True,
@@ -528,7 +577,7 @@ def plot_all_r_estimation(names, r_pytree_list, output_format):
 
     plt.axvline(x=0.0, color="black", linestyle="--", alpha=0.7, label="True r=0")
 
-    plt.title("Likelihood Curves for $r$ (All Runs)")
+    plt.title("Estimated $r$ residuals")
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True, which="both", ls=":")
@@ -628,7 +677,7 @@ def _create_r_vs_clusters_plot(
             zorder=3,
         )
         min_label = (
-            r"Lowest $r+\sigma(r)$ at "
+            r"Lowest residual $r+\sigma(r)$ at "
             f"{int(min_clusters)} clusters: {min_value:.2e}"
         )
     else:
@@ -636,14 +685,14 @@ def _create_r_vs_clusters_plot(
         min_label = None
 
     legend_handles = [scatter_all]
-    legend_labels = [r"$r+\sigma(r)$"]
+    legend_labels = [r"Residual $r+\sigma(r)$"]
     if scatter_min is not None and min_label is not None:
         legend_handles.append(scatter_min)
         legend_labels.append(min_label)
 
     plt.xlabel(f"Number of Clusters ({patch_name})")
-    plt.ylabel(r"$r + \sigma(r)$")
-    plt.title(r"$r + \sigma(r)$ vs. Number of Clusters" + f" ({patch_name})")
+    plt.ylabel(r"Residual $r + \sigma(r)$")
+    plt.title(r"Residual $r + \sigma(r)$ vs. Number of Clusters" + f" ({patch_name})")
     # plt.ylim(-0.001, 0.01)
     plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
@@ -654,7 +703,7 @@ def _create_r_vs_clusters_plot(
     plt.tight_layout()
 
     filename_suffix = patch_key.replace("_patches", "")
-    save_or_show(f"r_vs_clusters_{filename_suffix}", output_format)
+    save_or_show(f"residual_r_vs_clusters_{filename_suffix}", output_format)
     plt.close()
 
 
@@ -841,15 +890,15 @@ def _create_variance_vs_r_plot(
         cbar.set_label(f"Number of Clusters ({patch_name})")
 
     plt.xlabel(r"Minimum Variance (Q + U)")
-    plt.ylabel(r"Best-fit $r$")
+    plt.ylabel(r"Residual $r$")
     plt.ylim(-0.0005, 0.005)
-    plt.title(f"Variance vs $r$ ({patch_name})")
+    plt.title(f"Variance vs Residual $r$ ({patch_name})")
     plt.axhline(y=0.0, color="black", linestyle="--", alpha=0.7, linewidth=1)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
 
     filename_suffix = "total" if is_total else patch_key.replace("_patches", "")
-    save_or_show(f"variance_vs_r_{filename_suffix}", output_format)
+    save_or_show(f"variance_vs_residual_r_{filename_suffix}", output_format)
     plt.close()
 
 
@@ -888,14 +937,16 @@ def plot_systematic_residual_maps(name, syst_map, output_format):
     syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
     syst_u = np.where(syst_map[2] == hp.UNSEEN, np.nan, syst_map[2])
 
+    vmin, vmax = get_symmetric_percentile_limits([syst_q, syst_u])
+
     plt.figure(figsize=(12, 6))
 
     hp.mollview(
         syst_q,
         title=rf"Systematic Residual (Q) - {name} ($\mu$K)",
         sub=(1, 2, 1),
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
@@ -906,8 +957,8 @@ def plot_systematic_residual_maps(name, syst_map, output_format):
         syst_u,
         title=rf"Systematic Residual (U) - {name} ($\mu$K)",
         sub=(1, 2, 2),
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
@@ -924,14 +975,16 @@ def plot_statistical_residual_maps(name, stat_maps, output_format):
     stat_q = np.where(stat_map_first[1] == hp.UNSEEN, np.nan, stat_map_first[1])
     stat_u = np.where(stat_map_first[2] == hp.UNSEEN, np.nan, stat_map_first[2])
 
+    vmin, vmax = get_symmetric_percentile_limits([stat_q, stat_u])
+
     plt.figure(figsize=(12, 6))
 
     hp.mollview(
         stat_q,
         title=rf"Statistical Residual (Q) - {name} ($\mu$K)",
         sub=(1, 2, 1),
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
@@ -942,8 +995,8 @@ def plot_statistical_residual_maps(name, stat_maps, output_format):
         stat_u,
         title=rf"Statistical Residual (U) - {name} ($\mu$K)",
         sub=(1, 2, 2),
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
         cbar=True,
@@ -964,11 +1017,13 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
     cmb_recon_min = get_min_variance(cmb_recon)
     unseen_mask = cmb_recon_min.q == hp.UNSEEN
     diff_q = cmb_recon_min.q - cmb_stokes.q
-    diff_q = np.where(unseen_mask, hp.UNSEEN, diff_q)
+    diff_q = np.where(unseen_mask, np.nan, diff_q)
 
     unseen_mask = cmb_recon_min.u == hp.UNSEEN
     diff_u = cmb_recon_min.u - cmb_stokes.u
-    diff_u = np.where(unseen_mask, hp.UNSEEN, diff_u)
+    diff_u = np.where(unseen_mask, np.nan, diff_u)
+
+    vmin, vmax = get_symmetric_percentile_limits([diff_q, diff_u])
 
     _ = plt.figure(figsize=(12, 12))
     hp.mollview(
@@ -980,8 +1035,8 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
         title=r"Difference (Q) [$\mu$K]",
         sub=(3, 3, 3),
         cbar=True,
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
     )
@@ -994,8 +1049,8 @@ def plot_cmb_reconstructions(name, cmb_stokes, cmb_recon, output_format):
         title=r"Difference (U) [$\mu$K]",
         sub=(3, 3, 6),
         cbar=True,
-        min=-0.5,
-        max=0.5,
+        min=vmin,
+        max=vmax,
         cmap="RdBu_r",
         bgcolor=(0,) * 4,
     )
@@ -1010,7 +1065,6 @@ def plot_cl_residuals(
     cl_total_res,
     cl_stat_res,
     cl_bb_r1,
-    cl_bb_r0,
     cl_bb_lens,
     cl_true,
     ell_range,
@@ -1096,7 +1150,7 @@ def plot_r_estimator(
     plt.axvline(r_best, color="purple", linestyle="--", alpha=0.8)
 
     plt.axvline(0.0, color="purple", linestyle="--", alpha=0.8, label="True r=0")
-    plt.title(f"{name} Likelihood vs $r$")
+    plt.title(f"{name} Estimated $r$ residual")
     plt.xlabel(r"$r$")
     plt.ylabel("Relative Likelihood")
     plt.grid(True)
@@ -1109,111 +1163,11 @@ def plot_r_estimator(
     info(f"Estimated r (Reconstructed): {r_best:.4e} (+{sigma_r_pos:.1e}, -{sigma_r_neg:.1e})")
 
 
-def plot_gradient_validation(name, validation_results):
-    """Plot NLL and gradient norms validation across multiple scales.
-
-    Parameters
-    ----------
-    name : str
-        Run identifier.
-    validation_results : dict
-        Dictionary containing validation data:
-        - 'scales': list of scales used
-        - 'steps': array of step indices
-        - 'results': dict mapping scale -> {
-            'nll': array of NLL values,
-            'grads_beta_dust': array of gradient norms,
-            'grads_beta_pl': array of gradient norms,
-            'grads_temp_dust': array of gradient norms
-          }
-    """
-    scales = validation_results["scales"]
-    steps = validation_results["steps"]
-    results = validation_results["results"]
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    # Use a color map for different scales
-    colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
-
-    for i, scale in enumerate(scales):
-        res = results[scale]
-        label = f"Scale {scale:.1e}"
-        color = colors[i]
-
-        # Plot 1: Negative Log Likelihood
-        ax = axes[0, 0]
-        ax.plot(steps, res["nll"], "o-", linewidth=2, color=color, label=label, alpha=0.8)
-
-        # Plot 2: Gradient Norm - Beta Dust
-        ax = axes[0, 1]
-        ax.plot(
-            steps,
-            res["grads_beta_dust"],
-            "s-",
-            linewidth=2,
-            color=color,
-            label=label,
-            alpha=0.8,
-        )
-
-        # Plot 3: Gradient Norm - Beta PL
-        ax = axes[1, 0]
-        ax.plot(
-            steps,
-            res["grads_beta_pl"],
-            "^-",
-            linewidth=2,
-            color=color,
-            label=label,
-            alpha=0.8,
-        )
-
-        # Plot 4: Gradient Norm - Temp Dust
-        ax = axes[1, 1]
-        ax.plot(
-            steps,
-            res["grads_temp_dust"],
-            "d-",
-            linewidth=2,
-            color=color,
-            label=label,
-            alpha=0.8,
-        )
-
-    # Formatting
-    titles = [
-        "Negative Log-Likelihood",
-        r"Gradient Norm: $\beta_d$",
-        r"Gradient Norm: $\beta_s$",
-        r"Gradient Norm: $T_d$",
-    ]
-
-    for ax, title in zip(axes.flat, titles):
-        ax.set_title(title)
-        ax.set_xlabel("Perturbation Steps (x Scale)")
-        ax.grid(True, alpha=0.3)
-        ax.axvline(0, color="red", linestyle="--", alpha=0.5)
-        if ax == axes[0, 0]:  # Only legend on first plot to avoid clutter
-            ax.legend()
-
-    axes[0, 0].set_ylabel("NLL")
-    axes[0, 1].set_ylabel("L2 Norm")
-    axes[1, 0].set_ylabel("L2 Norm")
-    axes[1, 1].set_ylabel("L2 Norm")
-
-    plt.suptitle(f"Optimization Verification - {name}", fontsize=16)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-    save_or_show(f"validation_gradients_{name}")
-
-
 def get_plot_flags(args):
     indiv_flags = {
         "plot_illustration": args.plot_illustrations,
         "plot_params": args.plot_params,
         "plot_patches": args.plot_patches,
-        "plot_validation_curves": args.plot_validation_curves,
         "plot_cl_spectra": args.plot_cl_spectra,
         "plot_cmb_recon": args.plot_cmb_recon,
         "plot_systematic_maps": args.plot_systematic_maps,
@@ -1282,7 +1236,6 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
         cl_syst_res = cl_pytree["cl_syst_res"]
         cl_total_res = cl_pytree["cl_total_res"]
         cl_stat_res = cl_pytree["cl_stat_res"]
-        cl_bb_r0 = cl_pytree.get("cl_bb_r0")
 
     if r_pytree is not None:
         r_best = r_pytree["r_best"]
@@ -1297,16 +1250,16 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
 
     if plotting_data is not None:
         params_map = plotting_data.get("params_map")
-        updates_history = plotting_data.get("updates_history")
-        value_history = plotting_data.get("value_history")
+        # updates_history = plotting_data.get("updates_history")
+        # value_history = plotting_data.get("value_history")
 
     if indiv_flags["plot_params"]:
         plot_params(name, params_map, output_format)
     if indiv_flags["plot_patches"]:
         plot_patches(name, patches_map, output_format)
 
-    if indiv_flags["plot_validation_curves"]:
-        plot_validation_curves(name, updates_history, value_history, output_format)
+    # if indiv_flags["plot_validation_curves"]:
+    #    plot_validation_curves(name, updates_history, value_history, output_format)
 
     if indiv_flags["plot_cmb_recon"]:
         plot_cmb_reconstructions(name, cmb_stokes, combined_cmb_recon, output_format)
@@ -1325,7 +1278,6 @@ def plot_indiv_results(name, computed_results, indiv_flags, output_format):
             cl_total_res,
             cl_stat_res,
             cl_bb_r1,
-            cl_bb_r0,
             cl_bb_lens,
             cl_true,
             ell_range,
@@ -1426,6 +1378,7 @@ def run_plot(
     flags,
     indiv_flags,
     aggregate_flags,
+    solver_name,
     max_iter,
     output_format,
     font_size,
@@ -1445,17 +1398,16 @@ def run_plot(
             "Consider running 'r_analysis snap ...' to cache these results "
             "for faster plotting next time."
         )
-        computed = compute_all(to_compute, nside, instrument, flags, max_iter)
+        computed = compute_all(to_compute, nside, instrument, flags, max_iter, solver_name)
         # Serialize computed results for snapshot storage
         serialized_computed = {kw: serialize_snapshot_payload(res) for kw, res in computed.items()}
         existing.update(serialized_computed)
 
-    if False:
-        for name, (kw, computed_results) in tqdm(
-            zip(titles, existing.items()), desc="Generating per group plots", leave=False
-        ):
-            plot_indiv_results(name, computed_results, indiv_flags, output_format)
-            plt.close("all")
+    for name, (kw, computed_results) in tqdm(
+        zip(titles, existing.items()), desc="Generating per group plots", leave=False
+    ):
+        plot_indiv_results(name, computed_results, indiv_flags, output_format)
+        plt.close("all")
 
     plot_aggregate_results(
         titles,

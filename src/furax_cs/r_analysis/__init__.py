@@ -14,7 +14,7 @@ from .plotting import (
     plot_variance_vs_r,
     run_plot,
 )
-from .r_estimate import estimate_r, get_camb_templates, log_likelihood
+from .r_estimate import estimate_r
 from .residuals import (
     compute_cl_bb_sum,
     compute_cl_obs_bb,
@@ -43,17 +43,12 @@ __all__ = [
     "plot_results",
     "parse_args",
     "estimate_r",
-    "get_camb_templates",
-    "log_likelihood",
     "compute_systematic_res",
     "compute_statistical_res",
     "compute_total_res",
     "compute_cl_bb_sum",
     "compute_cl_obs_bb",
     "compute_cl_true_bb",
-    "compute_w",
-    "cache_expensive_computations",
-    "run_cache",
     "load_snapshot",
     "load_and_filter_snapshot",
     "run_snapshot",
