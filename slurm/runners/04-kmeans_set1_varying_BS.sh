@@ -1,5 +1,5 @@
 #!/bin/bash
-# Set 1: BD10000_TD500_BSXXX (Varying BS)
+# Set 1: BD10000_TD500_BSXXX (Varying BS) - MISSING RUNS ONLY
 
 job_ids=()
 BATCH_PARAMS="--account=nih@h100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C h100"
@@ -9,22 +9,29 @@ B_DUST_PATCH=10000
 T_DUST_PATCH=500
 OUTPUT="RESULTS/KMEANS/BD10000_TD500_BSXXX"
 
-# Loop over BS values
-for VARYING_PATCH in 10 50 100 150 200 250 300 450 550 600 650 700 750 800 850 900 950 1000 2000 3000 4000 5000 6000
-do
-    echo "Running KMeans with B_SYNC Patch = $VARYING_PATCH"
-    B_SYNC_PATCH=$VARYING_PATCH
+echo "Running missing Set 1 jobs..."
 
-    # GAL020
-    jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS${VARYING_PATCH} $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o $OUTPUT)
-    job_ids+=("$jid")
-    # GAL040
-    jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS${VARYING_PATCH} $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL040 -i LiteBIRD -s active_set  -o $OUTPUT)
-    job_ids+=("$jid")
-    # GAL060
-    jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS${VARYING_PATCH} $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT)
-    job_ids+=("$jid")
-done
+# BS=100
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS100 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 100 -tag c1d1s1 -m GAL040 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS100 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 100 -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
+# BS=150
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS150 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 150 -tag c1d1s1 -m GAL040 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
+# BS=200
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS200 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 200 -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS200 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 200 -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
+# BS=250
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS250 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 250 -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS250 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 250 -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
+# BS=300
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS300 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 300 -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
+# BS=1000
+jid=$(sbatch $BATCH_PARAMS --job-name=KM_S1_BS1000 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH 1000 -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT); job_ids+=("$jid")
+
 
 # Snapshot Analysis
 deps=$(IFS=:; echo "${job_ids[*]}")

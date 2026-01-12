@@ -37,7 +37,7 @@ os.environ["EQX_ON_ERROR"] = "nan"
 
 import argparse
 from functools import partial
-
+from tqdm import tqdm
 import jax
 
 # =============================================================================
@@ -305,7 +305,6 @@ def main():
         "beta_pl_patches": max_count["beta_pl"],
     }
 
-    @jax.jit
     def compute_minimum_variance(
         T_d_patches,
         B_d_patches,
@@ -340,6 +339,7 @@ def main():
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
+        @jax.jit
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
@@ -388,7 +388,7 @@ def main():
                 "beta_pl": final_params["beta_pl"],
             }
 
-        results_list = [single_run(i) for i in range(nb_noise_sim)]
+        results_list = tqdm([single_run(i) for i in range(nb_noise_sim)] , desc="Running noise simulations")
         results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
         results["beta_dust_patches"] = guess_clusters["beta_dust_patches"]
         results["temp_dust_patches"] = guess_clusters["temp_dust_patches"]
@@ -397,7 +397,6 @@ def main():
 
     with Config(solver=lx.CG(atol=1e-10, rtol=1e-6, max_steps=1000)), jax.disable_jit(False):
 
-        @jax.jit
         def objective_function(T_d_patches, B_d_patches, B_s_patches):
             return compute_minimum_variance(
                 T_d_patches,
