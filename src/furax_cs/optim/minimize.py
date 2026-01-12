@@ -19,6 +19,7 @@ from jaxopt import ScipyBoundedMinimize
 
 from .solvers import SOLVER_NAMES, get_solver
 from .utils import condition
+from functools import partial
 
 # =============================================================================
 # SCIPY MINIMIZE WITH VMAP SUPPORT
@@ -158,7 +159,7 @@ def scipy_minimize(
 # UNIFIED OPTIMIZATION INTERFACE
 # =============================================================================
 
-
+@partial(jax.jit, static_argnames=("fn","solver_name","max_iter", "precondition"))
 def minimize(
     fn: Callable,
     init_params: Any,

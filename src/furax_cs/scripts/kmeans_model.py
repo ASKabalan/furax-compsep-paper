@@ -388,7 +388,8 @@ def main():
                 "beta_pl": final_params["beta_pl"],
             }
 
-        results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        results_list = [single_run(i) for i in range(nb_noise_sim)]
+        results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
         results["beta_dust_patches"] = guess_clusters["beta_dust_patches"]
         results["temp_dust_patches"] = guess_clusters["temp_dust_patches"]
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
