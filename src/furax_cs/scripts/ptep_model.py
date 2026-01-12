@@ -18,6 +18,7 @@ from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import get_cutout_from_mask
+from tqdm import tqdm
 
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
@@ -38,7 +39,19 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="""
         Benchmark FGBuster and Furax Component Separation Methods (single run with ud_grade)
-        """
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+EXAMPLES:
+  1. Multi-resolution separation (Beta_d @ NS64, Temp_d @ NS32, Beta_s @ NS16):
+     ptep-model -n 64 -ud 64 32 16 -m GAL020
+
+  2. Uniform resolution (equivalent to standard parametric separation):
+     ptep-model -n 64 -ud 64 64 64
+
+  3. Low-resolution synchrotron model with Planck instrument:
+     ptep-model -n 128 -i Planck -ud 128 64 16
+""",
     )
 
     parser.add_argument(
@@ -138,6 +151,14 @@ def parse_args():
         type=str,
         default="results",
         help="Output directory for results",
+    )
+    parser.add_argument(
+        "-v",
+        "--use-vmap",
+        action="store_true",
+        help="Use jax.vmap instead of for-loop for noise simulations. "
+        "Only activate this option when using JAX JIT cache (persistent compilation cache) "
+        "to avoid recompilation overhead on each run.",
     )
     return parser.parse_args()
 
@@ -296,7 +317,16 @@ def main():
     # Save results and mask
     if not args.best_only:
         start_time = perf_counter()
-        results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        if args.use_vmap:
+            # Vmap approach - JIT the entire vmapped computation
+            results = jax.jit(jax.vmap(single_run))(jnp.arange(nb_noise_sim))
+        else:
+            # For-loop approach - JIT single_run only
+            single_run_jit = jax.jit(single_run)
+            results_list = tqdm(
+                [single_run_jit(i) for i in range(nb_noise_sim)], desc="Running noise simulations"
+            )
+            results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
         jax.tree.map(lambda x: x.block_until_ready(), results)
         end_time = perf_counter()
         info(f"Component separation took {end_time - start_time:.2f} seconds")

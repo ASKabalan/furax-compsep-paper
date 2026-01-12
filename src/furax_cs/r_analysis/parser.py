@@ -67,7 +67,31 @@ def parse_args():
 
     # 2. Main Parser
     parser = argparse.ArgumentParser(
-        description="Benchmark FGBuster and Furax Component Separation Methods"
+        description="Benchmark FGBuster and Furax Component Separation Methods",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+EXAMPLES:
+  1. Compute statistics (snapshot) for runs matching 'kmeans' and 'c1d1s1':
+     r_analysis snap -n 64 -r "kmeans" "c1d1s1" -ird results/ -o snapshots/my_snap.npz
+
+  2. Plot all spectra from a previously saved snapshot:
+     r_analysis plot -n 64 -r ".*" -ird results/ --snapshot snapshots/my_snap.npz -as
+
+  3. Plot specific metrics (R vs Clusters) directly from results:
+     r_analysis plot -n 64 -r "kmeans_set1" -ird results/ -arc
+
+  4. Run validation analysis on specific runs:
+     r_analysis validate -n 64 -r "validation" -ird results/ --steps 10 --noise-ratio 0.1
+
+ARGUMENT NOTES:
+  -r / --runs:
+     Accepts a list of regex patterns. Only folders in input-results-dir matching ALL 
+     patterns will be processed.
+     Example: -r "kmeans" "mask020" matches "results/kmeans_mask020_..." 
+     but NOT "results/kmeans_mask040_...".
+     you can also do for example "kmeans_BD(\d+)_TD500" to capture groups.
+     This will take all folders matching the pattern and extract the group (e.g. BD number)
+""",
     )
 
     # Create subcommands

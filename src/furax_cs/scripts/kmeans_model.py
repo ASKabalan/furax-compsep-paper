@@ -37,8 +37,9 @@ os.environ["EQX_ON_ERROR"] = "nan"
 
 import argparse
 from functools import partial
-from tqdm import tqdm
+
 import jax
+from tqdm import tqdm
 
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
@@ -112,7 +113,19 @@ def parse_args():
         - best_only: Flag to only compute optimal configuration
     """
     parser = argparse.ArgumentParser(
-        description="K-Means Clustering for Adaptive CMB Component Separation"
+        description="K-Means Clustering for Adaptive CMB Component Separation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+EXAMPLES:
+  1. Basic adaptive clustering (100 beta_d, 50 temp_d, 50 beta_s clusters):
+     kmeans-model -n 64 -pc 100 50 50 -m GAL020
+
+  2. High-precision run with noise simulations:
+     kmeans-model -n 128 -pc 500 100 100 -ns 10 -nr 0.1 -m GAL040
+
+  3. Use specific instrument and sky model:
+     kmeans-model -n 64 -i Planck -tag c1d0s1 -pc 50 10 10
+""",
     )
 
     parser.add_argument(
@@ -214,6 +227,14 @@ def parse_args():
         default="results",
         help="Output directory for results",
     )
+    parser.add_argument(
+        "-v",
+        "--use-vmap",
+        action="store_true",
+        help="Use jax.vmap instead of for-loop for noise simulations. "
+        "Only activate this option when using JAX JIT cache (persistent compilation cache) "
+        "to avoid recompilation overhead on each run.",
+    )
     return parser.parse_args()
 
 
@@ -311,6 +332,7 @@ def main():
         B_s_patches,
         planck_mask,
         indices,
+        use_vmap=False,
     ):
         n_regions = {
             "temp_dust_patches": T_d_patches,
@@ -339,7 +361,6 @@ def main():
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
-        @jax.jit
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
@@ -388,8 +409,16 @@ def main():
                 "beta_pl": final_params["beta_pl"],
             }
 
-        results_list = tqdm([single_run(i) for i in range(nb_noise_sim)] , desc="Running noise simulations")
-        results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
+        if use_vmap:
+            # Vmap approach - vectorize over noise simulations
+            results = jax.vmap(single_run)(jnp.arange(nb_noise_sim))
+        else:
+            # For-loop approach - JIT single_run only
+            single_run_jit = jax.jit(single_run)
+            results_list = tqdm(
+                [single_run_jit(i) for i in range(nb_noise_sim)], desc="Running noise simulations"
+            )
+            results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
         results["beta_dust_patches"] = guess_clusters["beta_dust_patches"]
         results["temp_dust_patches"] = guess_clusters["temp_dust_patches"]
         results["beta_pl_patches"] = guess_clusters["beta_pl_patches"]
@@ -404,7 +433,12 @@ def main():
                 B_s_patches,
                 mask,
                 indices,
+                use_vmap=args.use_vmap,
             )
+
+        # When using vmap, JIT the entire objective function for better caching
+        if args.use_vmap:
+            objective_function = jax.jit(objective_function)
 
         if not args.best_only:
             start_time = perf_counter()
