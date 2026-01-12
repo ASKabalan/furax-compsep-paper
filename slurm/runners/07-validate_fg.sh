@@ -16,9 +16,9 @@ SBATCH_ARGS="--account=nih@a100 --nodes=1 --gres=gpu:1 --tasks-per-node=1 -C a10
 
 
 jid=$(sbatch $SBATCH_ARGS --job-name=FG_20_$noise_$SKY \
-     $SLURM_SCRIPT fgbuster-model -n 64 -ns 1 -nr $noise \
+     $SLURM_SCRIPT RESULTS/MINIMIZE fgbuster-model -n 64 -ns 1 -nr $noise \
      -pc 10000 500 500 -tag $SKY -m GAL020 -i LiteBIRD \
-     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS)
+     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS/MINIMIZE)
 job_ids+=("$jid")
 
 
@@ -26,18 +26,18 @@ job_ids+=("$jid")
 
 
 jid=$(sbatch $SBATCH_ARGS --job-name=FG_40_$noise_$SKY \
-     $SLURM_SCRIPT fgbuster-model -n 64 -ns 1 -nr $noise \
+     $SLURM_SCRIPT RESULTS/MINIMIZE fgbuster-model -n 64 -ns 1 -nr $noise \
      -pc 10000 500 500 -tag $SKY -m GAL040 -i LiteBIRD \
-     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS)
+     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS/MINIMIZE)
 job_ids+=("$jid")
 
 
 # ---------- GAL060 ----------
 
 jid=$(sbatch $SBATCH_ARGS --job-name=FG_60_$noise_$SKY \
-     $SLURM_SCRIPT fgbuster-model -n 64 -ns 1 -nr $noise \
+     $SLURM_SCRIPT RESULTS/MINIMIZE fgbuster-model -n 64 -ns 1 -nr $noise \
      -pc 10000 500 500 -tag $SKY -m GAL060 -i LiteBIRD \
-     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS)
+     -sp 1.54 $td_sp -3.0 -mi 2000 -o RESULTS/MINIMIZE)
 job_ids+=("$jid")
 
 
@@ -56,5 +56,5 @@ fi
 sbatch --dependency=afterany:$deps \
         $SBATCH_ARGS \
        --job-name=FG_validate_$noise_$SKY \
-       $SLURM_SCRIPT r_analysis validate -r fgbuster_${noise_percent}_$SKY -t "FGBuster $noise_text $SKY" \
-       -ird RESULTS --noise-ratio $noise --no-tex --scales 1e-4 1e-5
+       $SLURM_SCRIPT RESULTS/MINIMIZE r_analysis validate -r fgbuster_${noise_percent}_$SKY -t "FGBuster $noise_text $SKY" \
+       -ird RESULTS/MINIMIZE --noise-ratio $noise --no-tex --scales 1e-4 1e-5

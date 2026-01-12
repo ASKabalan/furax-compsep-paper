@@ -11,14 +11,13 @@ KMEANS_FIXED='kmeans_c1d1s1_FIXED_active_set kmeans_c1d1s1_FIXED_adam_condFalse 
 
 jid=$(sbatch $SBATCH_ARGS \
        --job-name=SNAP \
-       $SLURM_SCRIPT r_analysis snap -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --no-tex -o SNAPSHOT -mi 2000 -s active_set -n 64 -i LiteBIRD)
+       $SLURM_SCRIPT RESULT/PLOT r_analysis snap -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --no-tex -o SNAPSHOT -mi 2000 -s active_set -n 64 -i LiteBIRD)
 
 sbatch  --dependency=afterany:$jid \
         $SBATCH_ARGS \
        --job-name=PLOT \
-       $SLURM_SCRIPT r_analysis plot -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED  -ird RESULTS -a --snapshot SNAPSHOT --no-tex
+       $SLURM_SCRIPT RESULT/PLOT r_analysis plot -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED  -ird RESULTS -a --snapshot SNAPSHOT --no-tex
 
 sbatch $SBATCH_ARGS \
        --job-name=VALIDATE \
-       $SLURM_SCRIPT r_analysis validate -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --noise-ratio 1.0 --no-tex --scales 1e-4 1e-5
-
+       $SLURM_SCRIPT RESULT/PLOT r_analysis validate -r $PTEP $kmeans_varying_patch $FGBUSTER $KMEANS_FIXED -ird RESULTS --noise-ratio 1.0 --no-tex --scales 1e-4 1e-5
