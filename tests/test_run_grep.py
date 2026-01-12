@@ -117,7 +117,7 @@ class TestRunGrepRegex:
             yield tmpdir
 
     def test_regex_groups_by_captured_value(self, fake_results_dir):
-        """Pattern BD(\\d+) should create separate groups for each BD value."""
+        r"""Pattern BD(\d+) should create separate groups for each BD value."""
         result = run_grep(fake_results_dir, [r"kmeans_BD(\d+)"])
 
         # Should have 3 groups: BD200, BD2500, BD3000
@@ -127,7 +127,7 @@ class TestRunGrepRegex:
         assert len(result) == 3
 
         # BD200 should have 2 folders (GAL020 and GAL040)
-        bd200_folders, _ = result["kmeans_BD200"]
+        bd200_folders, _, _ = result["kmeans_BD200"]
         assert len(bd200_folders) == 2
 
     def test_plain_token_matching_still_works(self, fake_results_dir):
@@ -135,7 +135,7 @@ class TestRunGrepRegex:
         result = run_grep(fake_results_dir, ["kmeans_BD200"])
 
         assert "kmeans_BD200" in result
-        folders, _ = result["kmeans_BD200"]
+        folders, _, _ = result["kmeans_BD200"]
         assert len(folders) == 2  # GAL020 and GAL040
 
     def test_multiple_capture_groups(self, fake_results_dir):
@@ -152,7 +152,7 @@ class TestRunGrepRegex:
         result = run_grep(fake_results_dir, [r"fgbuster_BD(\d+)"])
 
         assert "fgbuster_BD10000" in result
-        folders, _ = result["fgbuster_BD10000"]
+        folders, _, _ = result["fgbuster_BD10000"]
         assert len(folders) == 1
 
     def test_or_syntax_still_works(self, fake_results_dir):
@@ -161,7 +161,7 @@ class TestRunGrepRegex:
 
         # Should match all kmeans folders with GAL020 or GAL040
         assert "kmeans_(GAL020|GAL040)" in result
-        folders, _ = result["kmeans_(GAL020|GAL040)"]
+        folders, _, _ = result["kmeans_(GAL020|GAL040)"]
         # All 5 kmeans folders have either GAL020 or GAL040
         assert len(folders) == 5
 
@@ -171,7 +171,7 @@ class TestRunGrepRegex:
 
         # fgbuster should be token match
         assert "fgbuster" in result
-        fgb_folders, _ = result["fgbuster"]
+        fgb_folders, _, _ = result["fgbuster"]
         assert len(fgb_folders) == 1
 
         # kmeans_BD should expand to multiple groups
@@ -185,5 +185,5 @@ class TestRunGrepRegex:
 
         # Index spec should be (0, 2) for all expanded groups
         for key in result:
-            _, index_spec = result[key]
+            _, index_spec, _ = result[key]
             assert index_spec == (0, 2)
