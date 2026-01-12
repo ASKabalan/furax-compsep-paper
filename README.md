@@ -19,7 +19,7 @@ This package depends on JAX. To enable GPU acceleration (highly recommended), yo
 
 **For NVIDIA GPUs:**
 ```bash
-pip install -U "jax[cuda]" 
+pip install -U "jax[cuda]"
 ```
 
 **For CPU only:**
