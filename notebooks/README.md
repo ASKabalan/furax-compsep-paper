@@ -41,7 +41,7 @@ Explores the K-means clustering approach for spatially-varying spectral paramete
 - Adaptive patch determination
 - Impact of cluster count on CMB reconstruction quality
 - Comparison with uniform patch models
-- Parameter recovery analysis (β_d, T_d, β_s)
+- Parameter recovery analysis (beta_d, temp_d, beta_s)
 
 **Key Outputs**:
 - Patch assignment visualizations
@@ -86,8 +86,8 @@ A comprehensive tutorial notebook that demonstrates the full analysis pipeline f
 
 **Contents**:
 - Data generation and caching workflow
-- Running component separation scripts
-- Using the `r_analysis` tool
+- Running component separation scripts (`kmeans-model`, `ptep-model`)
+- Using the `r_analysis` tool (note: subcommands like `snap` or `plot` must come first)
 - Interpreting results
 - Generating publication-quality figures
 - Best practices and troubleshooting
@@ -99,5 +99,3 @@ A comprehensive tutorial notebook that demonstrates the full analysis pipeline f
 4. Result organization
 5. Analysis pipeline execution
 6. Visualization and interpretation
-
----
