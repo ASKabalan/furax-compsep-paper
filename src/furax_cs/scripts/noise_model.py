@@ -186,7 +186,7 @@ def parse_args():
         "-ns",
         "--noise-sim",
         type=int,
-        default=50,
+        default=1,
         help="Number of noise simulations",
     )
     parser.add_argument(
@@ -320,16 +320,16 @@ def main():
         "temp_dust": 20.0,
         "beta_pl": -3.0,
     }
-    # lower_bound = {
-    #    "beta_dust": 0.5,
-    #    "temp_dust": 6.0,
-    #    "beta_pl": -7.0,
-    # }
-    # upper_bound = {
-    #    "beta_dust": 5.0,
-    #    "temp_dust": 40.0,
-    #    "beta_pl": -0.5,
-    # }
+    lower_bound = {
+        "beta_dust": 0.5,
+        "temp_dust": 6.0,
+        "beta_pl": -7.0,
+    }
+    upper_bound = {
+        "beta_dust": 5.0,
+        "temp_dust": 40.0,
+        "beta_pl": -0.5,
+    }
 
     instrument = get_instrument(args.instrument)
     nu = instrument.frequency
@@ -466,8 +466,8 @@ def main():
             )
             return jnp.mean(nll)
 
-        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         final_params, final_state = minimize(
             fn=objective_fn,
@@ -476,8 +476,8 @@ def main():
             max_iter=args.max_iter,
             rtol=1e-10,
             atol=1e-10,
-            # lower_bound=lower_bound_tree,
-            # upper_bound=upper_bound_tree,
+            lower_bound=lower_bound_tree,
+            upper_bound=upper_bound_tree,
             nu=nu,
             d=masked_d,
             guess_clusters=guess_clusters,
@@ -534,8 +534,8 @@ def main():
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
@@ -555,8 +555,8 @@ def main():
                 max_iter=args.max_iter,
                 rtol=1e-10,
                 atol=1e-10,
-                # lower_bound=lower_bound_tree,
-                # upper_bound=upper_bound_tree,
+                lower_bound=lower_bound_tree,
+                upper_bound=upper_bound_tree,
                 nu=nu,
                 N=N,
                 d=noised_d,

@@ -147,7 +147,7 @@ def plot_healpix_projection(mask, nside, results, best_params, out_folder):
 
     (indices,) = jnp.where(mask == 1)
     best_run = jax.tree.map(lambda x: x[0], results)
-    patches = patches = best_run["beta_dust_patches"]
+    patches = best_run["beta_dust_patches"]
     best_spectral_params = best_params["beta_dust"][patches]
     result_spectral_params = best_run["beta_dust"][patches]
 
@@ -269,16 +269,16 @@ def main():
         "temp_dust": 20.0,
         "beta_pl": -3.0,
     }
-    # lower_bound = {
-    #    "beta_dust": 0.5,
-    #    "temp_dust": 6.0,
-    #    "beta_pl": -7.0,
-    # }
-    # upper_bound = {
-    #    "beta_dust": 5.0,
-    #    "temp_dust": 40.0,
-    #    "beta_pl": -0.5,
-    # }
+    lower_bound = {
+        "beta_dust": 0.5,
+        "temp_dust": 6.0,
+        "beta_pl": -7.0,
+    }
+    upper_bound = {
+        "beta_dust": 5.0,
+        "temp_dust": 40.0,
+        "beta_pl": -0.5,
+    }
 
     nu = FGBusterInstrument.default_instrument().frequency
     land_scape = HealpixLandscape(nside=nside, stokes="QU")
@@ -376,8 +376,8 @@ def main():
         guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
-        # lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
-        # upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
+        lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
+        upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
         final_params, final_state = minimize(
             fn=negative_log_likelihood_fn,
@@ -386,8 +386,8 @@ def main():
             max_iter=args.max_iter,
             rtol=1e-10,
             atol=1e-10,
-            # lower_bound=lower_bound_tree,
-            # upper_bound=upper_bound_tree,
+            lower_bound=lower_bound_tree,
+            upper_bound=upper_bound_tree,
             nu=nu,
             N=N,
             d=masked_d,

@@ -255,7 +255,11 @@ def run_validate(matched_results, names, nside, instrument, steps, noise_ratio, 
     """Entry point for 'validate' subcommand."""
 
     for name, (kw, matched_folders) in zip(names, matched_results.items()):
-        folders, run_indices = matched_folders
+        folders, run_indices, root_dir = matched_folders
+
+        plot_subfolder = kw
+        if root_dir:
+            plot_subfolder = os.path.join(root_dir, kw)
 
         # Normalize run_indices
         if isinstance(run_indices, int):
@@ -321,4 +325,6 @@ def run_validate(matched_results, names, nside, instrument, steps, noise_ratio, 
                 base_name = os.path.basename(folder.rstrip("/"))
                 file_name = f"{base_name}_seed_{run_idx}"
 
-                plot_gradient_validation(val_res, title=name, file_name=file_name, subfolder=kw)
+                plot_gradient_validation(
+                    val_res, title=name, file_name=file_name, subfolder=plot_subfolder
+                )

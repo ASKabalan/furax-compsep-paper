@@ -225,7 +225,7 @@ def parse_args():
         help="Scales for validation perturbation (default: [1e-3, 1e-4]).",
     )
     parser_validate.add_argument(
-        "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", required=True
+        "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", default=None
     )
 
     # ==========================================

@@ -154,7 +154,7 @@ def load_and_filter_snapshot(snapshot_path, matched_results):
     existing_results = {}
     to_compute = {}
 
-    for kw, (folders, indices) in matched_results.items():
+    for kw, (folders, indices, root) in matched_results.items():
         if kw in snapshot_store:
             # Already computed
             payload = snapshot_store[kw]
@@ -167,7 +167,7 @@ def load_and_filter_snapshot(snapshot_path, matched_results):
             }
         else:
             # Need to compute
-            to_compute[kw] = (folders, indices)
+            to_compute[kw] = (folders, indices, root)
 
     return existing_results, to_compute
 

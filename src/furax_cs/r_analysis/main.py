@@ -63,7 +63,6 @@ def run_analysis():
         error("No results matched the provided run specifications. Exiting.")
         return
 
-
     # Dispatch to subcommand handler
     if args.subcommand == "snap":
         flags = get_compute_flags(args, snapshot_mode=True)  # compute everything
@@ -78,7 +77,6 @@ def run_analysis():
         )
 
     if args.subcommand == "plot":
-
         # Handle titles: if regex expanded to different number of groups, use expanded names
         titles = args.titles
         if not titles or len(titles) != len(matched_results):
@@ -88,7 +86,7 @@ def run_analysis():
                     f"Using expanded pattern names as titles."
                 )
             titles = list(matched_results.keys())
-            
+
         flags = get_compute_flags(args, snapshot_mode=False)
         indiv_flags, aggregate_flags = get_plot_flags(args)
         return run_plot(
@@ -107,6 +105,15 @@ def run_analysis():
         )
 
     if args.subcommand == "validate":
+        # Handle titles: if regex expanded to different number of groups, use expanded names
+        titles = args.titles
+        if not titles or len(titles) != len(matched_results):
+            if titles and len(titles) != len(matched_results):
+                warning(
+                    f"Got {len(matched_results)} result groups but {len(titles)} titles. "
+                    f"Using expanded pattern names as titles."
+                )
+            titles = list(matched_results.keys())
         return run_validate(
             matched_results,
             titles,

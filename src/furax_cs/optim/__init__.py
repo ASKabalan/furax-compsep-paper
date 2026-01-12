@@ -8,22 +8,13 @@ This package provides:
 - Function conditioning (parameter transformation and gradient-based scaling)
 
 Example usage:
-    >>> from furax_cs.optim import optimize, condition
+    >>> from furax_cs.optim import minimize
     >>>
     >>> # Simple optimization
-    >>> params, state = optimize(
+    >>> params, state = minimize(
     ...     fn=objective,
     ...     init_params={'beta': 1.5},
     ...     solver_name='optax_lbfgs_zoom',
-    ... )
-    >>>
-    >>> # With function conditioning
-    >>> fn, to_opt, from_opt = condition(
-    ...     objective,
-    ...     lower={'beta': 0.5},
-    ...     upper={'beta': 3.0},
-    ...     scale_function=True,
-    ...     init_params={'beta': 1.5},
     ... )
 """
 
@@ -45,7 +36,6 @@ __all__ = [
     "get_solver",
     "lbfgs_backtrack",
     "lbfgs_zoom",
-    "optimize",
     "scipy_minimize",
     "minimize",
 ]

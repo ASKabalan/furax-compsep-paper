@@ -519,7 +519,7 @@ def compute_all(
 
     results = OrderedDict()
 
-    for kw, (folders, indices) in tqdm(
+    for kw, (folders, indices, root) in tqdm(
         matched_results.items(), desc="Processing run groups", unit="group"
     ):
         title = titles.get(kw, kw)
