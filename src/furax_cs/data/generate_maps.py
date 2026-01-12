@@ -412,7 +412,7 @@ def save_cmb_map(nside, sky="c1d0s0"):
         match = re.match(r"cr(\d+)", cmb_tag)
         if match:
             r_exp = int(match.group(1))
-            r_val = r_exp * 0.01
+            r_val = r_exp * 0.001
             # Use default seed=0 to match save_to_cache default
             freq_maps = generate_custom_cmb(r_val, nside, seed=0)
         else:

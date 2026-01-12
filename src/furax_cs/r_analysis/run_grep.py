@@ -104,16 +104,25 @@ def matches_filter(name_parts, filter_groups):
     return all(any(option in name_parts for option in group) for group in filter_groups)
 
 
+def get_root_dir_from_paths(paths: list[str]) -> str:
+    """Extract common root directory from a list of paths (uses the first path)."""
+    if not paths:
+        return ""
+    # Assuming the first path is representative of where this group lives
+    first_path = paths[0].rstrip(os.sep)
+    return os.path.dirname(first_path)
+
+
 def run_grep(
     result_folders: str | list[str],
     run_specs: list[str],
-) -> dict[str, tuple[list[str], int | tuple]]:
-    """
+) -> dict[str, tuple[list[str], int | tuple, str]]:
+    r"""
     Search for result folders matching the given run specifications.
 
     Supports two matching modes:
     - Token mode: "kmeans_BD200" matches folders containing both tokens
-    - Regex mode: "kmeans_BD(\\d+)" groups folders by captured values,
+    - Regex mode: "kmeans_BD(\d+)" groups folders by captured values,
       creating separate entries like "kmeans_BD200", "kmeans_BD2500", etc.
 
     Parameters
@@ -122,14 +131,14 @@ def run_grep(
         Directory or list of directories to scan for result folders.
     run_specs : list[str]
         List of keywords or keyword combinations to match.
-        e.g., ["kmeans", "kmeans_abc", "kmeans_BD(\\d+)"].
+        e.g., ["kmeans", "kmeans_abc", "kmeans_BD(\d+)"].
 
     Returns
     -------
-    dict[str, tuple[list[str], int | tuple]]
+    dict[str, tuple[list[str], int | tuple, str]]
         Dictionary with run_spec (or expanded regex pattern) as key and
-        tuple of (matching folders, index_spec) as value.
-        e.g. {'kmeans_BD200': (['.../kmeans_BD200_...'], 0), ...}
+        tuple of (matching folders, index_spec, root_dir) as value.
+        e.g. {'kmeans_BD200': (['.../kmeans_BD200_...'], 0, '...'), ...}
     """
     if isinstance(result_folders, str):
         result_folders = [result_folders]
@@ -166,7 +175,8 @@ def run_grep(
 
             # Add each group as separate entry
             for expanded_name, paths in grouped.items():
-                matches[expanded_name] = (paths, index_spec)
+                root = get_root_dir_from_paths(paths)
+                matches[expanded_name] = (paths, index_spec, root)
         else:
             # Token mode: existing logic
             filter_groups = parse_filter_kw(filter_str)
@@ -174,6 +184,7 @@ def run_grep(
             for path, tokens in all_results.items():
                 if matches_filter(tokens, filter_groups):
                     matched_paths.append(path)
-            matches[spec] = (matched_paths, index_spec)
+            root = get_root_dir_from_paths(matched_paths)
+            matches[spec] = (matched_paths, index_spec, root)
 
     return matches

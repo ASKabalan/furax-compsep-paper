@@ -123,7 +123,7 @@ def parse_args():
         "-nr",
         "--noise-ratio",
         type=float,
-        default=0.2,
+        default=0.1,
         help="Noise level as fraction of signal RMS (0.2 = 20%% noise)",
     )
     parser.add_argument(

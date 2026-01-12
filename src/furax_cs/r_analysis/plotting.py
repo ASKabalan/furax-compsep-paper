@@ -66,7 +66,6 @@ def get_run_color(index):
     color
         Color specification (string or RGB tuple from colormap)
     """
-    base_colors = ["red", "blue", "green"]
     base_colors = ["red", "green", "purple"]
     if index < len(base_colors):
         return base_colors[index]
@@ -128,6 +127,7 @@ def save_or_show(filename, output_format, subfolder=None):
 
         filepath = os.path.join(base_dir, f"{filename}.{ext}")
         plt.savefig(filepath, dpi=dpi, bbox_inches="tight")
+        plt.close()
         success(f"Saved: {filepath}")
 
 
@@ -1426,7 +1426,16 @@ def run_plot(
     for name, (kw, computed_results) in tqdm(
         zip(titles, existing.items()), desc="Generating per group plots", leave=False
     ):
-        plot_indiv_results(name, computed_results, indiv_flags, output_format, subfolder=kw)
+        plot_subfolder = kw
+        if kw in matched_results:
+            # matched_results[kw] is (folders, index_spec, root_dir)
+            root_dir = matched_results[kw][2]
+            if root_dir:
+                plot_subfolder = os.path.join(root_dir, kw)
+
+        plot_indiv_results(
+            name, computed_results, indiv_flags, output_format, subfolder=plot_subfolder
+        )
         plt.close("all")
 
     plot_aggregate_results(

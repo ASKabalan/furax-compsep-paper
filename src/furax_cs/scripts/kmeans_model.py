@@ -40,8 +40,6 @@ from functools import partial
 
 import jax
 
-jax.config.update("jax_debug_nans", True)
-
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
 # =============================================================================
@@ -128,14 +126,14 @@ def parse_args():
         "-ns",
         "--noise-sim",
         type=int,
-        default=50,
+        default=1,
         help="Number of Monte Carlo noise realizations for statistical analysis",
     )
     parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
-        default=0.2,
+        default=0.0,
         help="Noise level as fraction of signal RMS (0.2 = 20%% noise)",
     )
     parser.add_argument(

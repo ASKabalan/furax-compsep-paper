@@ -108,14 +108,14 @@ def parse_args():
         "-ns",
         "--noise-sim",
         type=int,
-        default=50,
+        default=1,
         help="Number of noise simulations",
     )
     parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
-        default=0.2,
+        default=0.0,
         help="Noise ratio",
     )
     parser.add_argument(

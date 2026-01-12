@@ -11,9 +11,7 @@ import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
-import lineax as lx
 import numpy as np
-from furax import Config
 from furax._instruments.sky import get_noise_sigma_from_instrument
 from furax.obs import negative_log_likelihood, sky_signal
 from furax.obs.landscapes import FrequencyLandscape
@@ -32,7 +30,6 @@ from furax_cs.data.generate_maps import (
 from furax_cs.data.instruments import get_instrument
 from furax_cs.logging_utils import info, success
 from furax_cs.optim import minimize
-
 
 jax.config.update("jax_enable_x64", True)
 
@@ -55,14 +52,14 @@ def parse_args():
         "-ns",
         "--noise-sim",
         type=int,
-        default=100,
+        default=1,
         help="Number of noise simulations (single run uses 1)",
     )
     parser.add_argument(
         "-nr",
         "--noise-ratio",
         type=float,
-        default=0.2,
+        default=0.0,
         help="Noise ratio",
     )
     parser.add_argument(
@@ -262,8 +259,6 @@ def main():
 
         N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
-
-      
         final_params, final_state = minimize(
             fn=negative_log_likelihood_fn,
             init_params=guess_params,
@@ -279,7 +274,6 @@ def main():
             d=noised_d,
             patch_indices=patch_indices,
         )
-
 
         s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=patch_indices)
         cmb = s["cmb"]

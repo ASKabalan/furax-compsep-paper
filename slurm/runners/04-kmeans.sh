@@ -10,6 +10,16 @@ VARYING_PARAMS="B_DUST"
 B_DUST_PATCH=10000
 T_DUST_PATCH=500
 B_SYNC_PATCH=500
+if [ "$VARYING_PARAMS" == "B_DUST" ]; then
+    OUTPUT="RESULTS/KMEANS/BDXXX_TD${T_DUST_PATCH}_BS${B_SYNC_PATCH}"
+elif [ "$VARYING_PARAMS" == "T_DUST" ]; then
+    OUTPUT="RESULTS/KMEANS/BD${B_DUST_PATCH}_TDXXX_BS${B_SYNC_PATCH}"
+elif [ "$VARYING_PARAMS" == "B_SYNC" ]; then
+    OUTPUT="RESULTS/KMEANS/BD${B_DUST_PATCH}_TD${T_DUST_PATCH}_BSXXX"
+else
+    echo "Unknown varying parameter: $VARYING_PARAMS"
+    exit 1
+fi
 
 ### =============================================================================
 # KMEANS Patch MODELS with varying T_DUST_PATCH
@@ -31,13 +41,13 @@ do
         exit 1
     fi
 
-    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o RESULTS/KMEANS)
+    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL020 -i LiteBIRD -s active_set  -o $OUTPUT)
     job_ids+=("$jid")
     # Zone 2 mask of GAL040 - GAL020
-    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL040 -i LiteBIRD -s active_set  -o RESULTS/KMEANS)
+    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL040 -i LiteBIRD -s active_set  -o $OUTPUT)
     job_ids+=("$jid")
     # Zone 3 mask of GAL060 - GAL040
-    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o RESULTS/KMEANS)
+    jid=$(sbatch $BATCH_PARAMS --job-name=KMEANS_$VARYING_PATCH$-h100 $SLURM_SCRIPT $OUTPUT kmeans-model -n 64 -ns 10 -nr 1.0 -pc $B_DUST_PATCH $T_DUST_PATCH $B_SYNC_PATCH -tag c1d1s1 -m GAL060 -i LiteBIRD -s active_set  -o $OUTPUT)
     job_ids+=("$jid")
 done
 
@@ -52,17 +62,17 @@ if [ "$VARYING_PARAMS" == "B_DUST" ]; then
     sbatch --dependency=afterany:$deps \
         $BATCH_PARAMS \
         --job-name=KM_varying_patch_h100 \
-        $SLURM_SCRIPT r_analysis snap -r "kmeans_BD(\d+)_TD$T_DUST_PATCH_BS$B_SYNC_PATCH" -ird RESULTS/KMEANS -mi 2000 -s active_set -n 64 -i LiteBIRD
+        $SLURM_SCRIPT $OUTPUT r_analysis snap -r "kmeans_BD(\d+)_TD$T_DUST_PATCH_BS$B_SYNC_PATCH" -ird $OUTPUT -mi 2000 -s active_set -n 64 -i LiteBIRD
 elif [ "$VARYING_PARAMS" == "T_DUST" ]; then
     sbatch --dependency=afterany:$deps \
         $BATCH_PARAMS \
         --job-name=KM_varying_patch_h100 \
-        $SLURM_SCRIPT r_analysis snap -r "kmeans_BD$B_DUST_PATCH_TD(\d+)_BS$B_SYNC_PATCH" -ird RESULTS/KMEANS -mi 2000 -s active_set -n 64 -i LiteBIRD
+        $SLURM_SCRIPT $OUTPUT r_analysis snap -r "kmeans_BD$B_DUST_PATCH_TD(\d+)_BS$B_SYNC_PATCH" -ird $OUTPUT -mi 2000 -s active_set -n 64 -i LiteBIRD
 elif [ "$VARYING_PARAMS" == "B_SYNC" ]; then
     sbatch --dependency=afterany:$deps \
         $BATCH_PARAMS \
         --job-name=KM_varying_patch_h100 \
-        $SLURM_SCRIPT r_analysis snap -r "kmeans_BD$B_DUST_PATCH_TD$T_DUST_PATCH_BS(\d+)" -ird RESULTS/KMEANS -mi 2000 -s active_set -n 64 -i LiteBIRD
+        $SLURM_SCRIPT $OUTPUT r_analysis snap -r "kmeans_BD$B_DUST_PATCH_TD$T_DUST_PATCH_BS(\d+)" -ird $OUTPUT -mi 2000 -s active_set -n 64 -i LiteBIRD
 else
     echo "Unknown varying parameter: $VARYING_PARAMS"
     exit 1

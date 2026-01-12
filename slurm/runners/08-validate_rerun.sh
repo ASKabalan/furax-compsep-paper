@@ -11,10 +11,10 @@ NAMES_NOISELESS='"FGBuster Noiseless c1d1s1" "FURAX_Noiseless_c1d1s1" "FGBuster 
 
 sbatch $SBATCH_ARGS \
        --job-name=VALIDATE_NOISY \
-       $SLURM_SCRIPT r_analysis validate -r $RUNS_NOISY -t $NAMES_NOISY  \
+       $SLURM_SCRIPT RESULTS/VALIDATE r_analysis validate -r $RUNS_NOISY -t $NAMES_NOISY  \
        -ird RESULTS  --noise-ratio 1.0 --no-tex --scales $SCALES
 
 sbatch $SBATCH_ARGS \
        --job-name=VALIDATE_NOISELESS \
-       $SLURM_SCRIPT r_analysis validate -r $RUNS_NOISELESS -t $NAMES_NOISELESS  \
+       $SLURM_SCRIPT RESULTS/VALIDATE r_analysis validate -r $RUNS_NOISELESS -t $NAMES_NOISELESS  \
        -ird RESULTS  --noise-ratio 0.0 --no-tex --scales $SCALES
