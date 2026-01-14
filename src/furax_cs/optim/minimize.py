@@ -1,15 +1,8 @@
-"""
-Unified optimization interface.
-
-This module contains:
-- optimize: Unified optimization interface for optax, optimistix, and scipy solvers
-- scipy_minimize: Scipy minimize wrapper with vmap support
-- ScipyMinimizeState: State class for scipy_minimize results
-"""
+from __future__ import annotations
 
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import Any, Union
 
 import equinox as eqx
 import jax
@@ -17,8 +10,15 @@ import jax.numpy as jnp
 import numpy as np
 import optimistix as optx
 from jaxopt import ScipyBoundedMinimize
+from jaxtyping import (
+    Array,
+    Float,
+    PyTree,  # pyright: ignore
+    Scalar,
+)
 
-from .solvers import SOLVER_NAMES, get_solver
+from ..logging_utils import warning
+from .solvers import SELFCONDITIONED_SOLVERS, SOLVER_NAMES, get_solver
 from .utils import condition
 
 # =============================================================================
@@ -34,30 +34,30 @@ class ScipyMinimizeState(eqx.Module):
 
     Attributes
     ----------
-    params : jax.Array
+    params : PyTree
         Optimized parameters.
-    fun_val : jax.Array
+    fun_val : Scalar
         Final objective function value (scalar).
-    success : jax.Array
+    success : Scalar
         Whether optimization converged successfully (bool scalar).
-    iter_num : jax.Array
+    iter_num : Scalar
         Number of iterations performed (int32 scalar).
     """
 
-    params: jax.Array
-    fun_val: jax.Array
-    success: jax.Array
-    iter_num: jax.Array
+    params: PyTree[Float[Array, " P"]]
+    fun_val: Scalar
+    success: Scalar
+    iter_num: Scalar
 
 
 def scipy_minimize(
-    fn: Callable,
-    init_params: jax.Array,
-    lower_bound: jax.Array | None = None,
-    upper_bound: jax.Array | None = None,
+    fn: Callable[..., Scalar],
+    init_params: PyTree[Float[Array, " P"]],
+    lower_bound: PyTree[Float[Array, " P"]] | None = None,
+    upper_bound: PyTree[Float[Array, " P"]] | None = None,
     method: str = "tnc",
     maxiter: int = 1000,
-    **fn_kwargs,
+    **fn_kwargs: Any,
 ) -> ScipyMinimizeState:
     """Scipy minimize wrapper that supports vmap via jax.pure_callback.
 
@@ -69,11 +69,11 @@ def scipy_minimize(
     ----------
     fn : Callable
         Objective function to minimize. Should accept (params, **fn_kwargs).
-    init_params : jax.Array
+    init_params : PyTree
         Initial parameter values.
-    lower_bound : jax.Array, optional
+    lower_bound : PyTree, optional
         Lower bounds for parameters. Same shape as init_params.
-    upper_bound : jax.Array, optional
+    upper_bound : PyTree, optional
         Upper bounds for parameters. Same shape as init_params.
     method : str
         Scipy optimization method (default "tnc").
@@ -86,17 +86,6 @@ def scipy_minimize(
     -------
     ScipyMinimizeState
         Optimization result containing params, fun_val, success, and iter_num.
-
-    Examples
-    --------
-    Single optimization:
-    >>> result = scipy_minimize(fn, init_params, lower_bound, upper_bound)
-
-    Batched optimization with lax.map:
-    >>> results = jax.lax.map(
-    ...     lambda args: scipy_minimize(fn, *args),
-    ...     (batched_init, batched_lower, batched_upper)
-    ... )
     """
 
     def host_solver_callback(x_init, lower, upper, fn_kwargs):
@@ -162,17 +151,17 @@ def scipy_minimize(
 
 @partial(jax.jit, static_argnames=("fn", "solver_name", "max_iter", "precondition"))
 def minimize(
-    fn: Callable,
-    init_params: Any,
+    fn: Callable[..., Scalar],
+    init_params: PyTree[Float[Array, " P"]],
     solver_name: SOLVER_NAMES = "optax_lbfgs_zoom",
     max_iter: int = 1000,
     rtol: float = 1e-8,
     atol: float = 1e-8,
-    lower_bound: Any | None = None,
-    upper_bound: Any | None = None,
-    precondition=False,
-    **fn_kwargs,
-) -> tuple[Any, Any]:
+    lower_bound: PyTree[Float[Array, " P"]] | None = None,
+    upper_bound: PyTree[Float[Array, " P"]] | None = None,
+    precondition: bool = False,
+    **fn_kwargs: Any,
+) -> tuple[PyTree[Float[Array, " P"]], Union[optx.Solution, ScipyMinimizeState]]:
     """
     Unified optimization interface.
 
@@ -186,24 +175,15 @@ def minimize(
     init_params : PyTree
         Initial parameter values.
     solver_name : str
-        Solver identifier. See SOLVER_NAMES for available options:
-        - optax_lbfgs_zoom, optax_lbfgs_backtrack, adam
-        - optimistix_bfgs_armijo, optimistix_bfgs_wolfe
-        - optimistix_lbfgs_armijo, optimistix_lbfgs_wolfe
-        - optimistix_ncg_{pr,hs,fr,dy}[_wolfe]
-        - scipy_tnc
-        - zoom, backtrack (legacy aliases)
+        Solver identifier. See SOLVER_NAMES for available options.
     max_iter : int
         Maximum iterations.
     rtol, atol : float
         Relative/absolute tolerance for optimization convergence.
     lower_bound, upper_bound : PyTree, optional
-        Box constraints for optax solvers (lbfgs_zoom, lbfgs_backtrack, adam).
-        Parameters are projected to [lower_bound, upper_bound] after each update.
-    progress : ProgressMeter, optional
-        Progress meter for tracking (optax/optimistix).
-    log_updates : bool
-        Whether to log updates (optax only).
+        Box constraints.
+    precondition : bool
+        Whether to apply parameter transformation and output scaling.
     **fn_kwargs
         Additional arguments passed to fn.
 
@@ -214,6 +194,10 @@ def minimize(
     final_state : Any
         Final optimizer state.
     """
+
+    if solver_name in SELFCONDITIONED_SOLVERS and precondition:
+        warning(f"Solver '{solver_name}' is self-conditioned; ignoring preconditioning request.")
+        precondition = False
 
     if precondition:
         fn, to_opt, from_opt = condition(

@@ -1,21 +1,13 @@
-"""
-Solver definitions and factory functions.
+from __future__ import annotations
 
-This module contains:
-- L-BFGS solvers with zoom and backtracking linesearch
-- Box projection transformation for optax
-- get_solver factory function
-- SOLVER_NAMES type literal
-"""
-
-from typing import Any, Literal
+from typing import Literal, TypeAlias, Union
 
 import jax
 import jax.numpy as jnp
 import optax
 import optimistix as optx
-from jaxtyping import PyTree
-from optax._src import base, combine, transform
+from jaxtyping import Array, Float, PyTree
+from optax._src import combine, transform
 from optax._src import linesearch as _linesearch
 
 from .active_set import active_set
@@ -24,9 +16,11 @@ from .active_set import active_set
 # OFF-THE-SHELF L-BFGS SOLVERS
 # =============================================================================
 
+Solver: TypeAlias = Union[optx.BestSoFarMinimiser, str]
+
 
 def lbfgs_zoom(
-    learning_rate: base.ScalarOrSchedule | None = None,
+    learning_rate: optax.ScalarOrSchedule | None = None,
     memory_size: int = 10,
     scale_init_precond: bool = False,
     max_linesearch_steps: int = 200,
@@ -34,9 +28,9 @@ def lbfgs_zoom(
     slope_rtol: float = 1e-4,
     curv_rtol: float = 0.9,
     verbose: bool = False,
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
-) -> base.GradientTransformationExtraArgs:
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
+) -> optax.GradientTransformation:
     """L-BFGS with zoom linesearch (strong Wolfe conditions).
 
     This is the standard L-BFGS with zoom linesearch that enforces both:
@@ -57,7 +51,7 @@ def lbfgs_zoom(
         upper: Optional upper bounds for box projection (pytree).
 
     Returns:
-        An optax GradientTransformationExtraArgs.
+        An optax GradientTransformation.
     """
     if learning_rate is None:
         base_scaling = transform.scale(-1.0)
@@ -89,7 +83,7 @@ def lbfgs_zoom(
 
 
 def lbfgs_backtrack(
-    learning_rate: base.ScalarOrSchedule | None = None,
+    learning_rate: optax.ScalarOrSchedule | None = None,
     memory_size: int = 10,
     scale_init_precond: bool = False,
     max_backtracking_steps: int = 200,
@@ -98,9 +92,9 @@ def lbfgs_backtrack(
     increase_factor: float = 1.5,
     max_learning_rate: float = 1.0,
     verbose: bool = False,
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
-) -> base.GradientTransformationExtraArgs:
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
+) -> optax.GradientTransformation:
     """L-BFGS with backtracking linesearch (Armijo condition only).
 
     Simpler than zoom linesearch, only enforces sufficient decrease:
@@ -121,7 +115,7 @@ def lbfgs_backtrack(
         upper: Optional upper bounds for box projection (pytree).
 
     Returns:
-        An optax GradientTransformationExtraArgs.
+        An optax GradientTransformation.
     """
     if learning_rate is None:
         base_scaling = transform.scale(-1.0)
@@ -160,9 +154,9 @@ def backtracking_adam(
     increase_factor: float = 1.5,
     max_learning_rate: float = 1.0,
     verbose: bool = False,
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
-) -> base.GradientTransformationExtraArgs:
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
+) -> optax.GradientTransformation:
     """Adam with backtracking linesearch (Armijo condition only)."""
     linesearch = _linesearch.scale_by_backtracking_linesearch(
         max_backtracking_steps=max_backtracking_steps,
@@ -191,8 +185,8 @@ def backtracking_adam(
 
 
 def apply_projection(
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
 ) -> optax.GradientTransformation:
     """Wrap box projection into a GradientTransformation.
 
@@ -213,18 +207,27 @@ def apply_projection(
         GradientTransformation that projects updates to keep params in bounds.
     """
 
-    def init_fn(params):
+    def init_fn(params: PyTree[Float[Array, " P"]]) -> optax.EmptyState:
         del params
         return optax.EmptyState()
 
-    def update_fn(updates, state, params):
+    def update_fn(
+        updates: PyTree[Float[Array, " P"]],
+        state: optax.EmptyState,
+        params: PyTree[Float[Array, " P"]] | None,
+    ) -> tuple[PyTree[Float[Array, " P"]], optax.EmptyState]:
         if params is None:
-            raise ValueError(optax.NO_PARAMS_MSG)
+            raise ValueError("NO_PARAMS_MSG")
 
         if lower is None or upper is None:
             return updates, state
 
-        def process_leaf(p, u, lo, hi):
+        def process_leaf(
+            p: Float[Array, " P"],
+            u: Float[Array, " P"],
+            lo: Float[Array, " P"],
+            hi: Float[Array, " P"],
+        ) -> Float[Array, " P"]:
             if p is None or u is None:
                 return u
             tentative = p + u
@@ -263,6 +266,8 @@ SOLVER_NAMES = Literal[
     "backtrack",
 ]
 
+SELFCONDITIONED_SOLVERS = {"active_set", "scipy_tnc"}
+
 
 def get_solver(
     solver_name: SOLVER_NAMES,
@@ -270,9 +275,9 @@ def get_solver(
     atol: float = 1e-8,
     learning_rate: float = 1e-3,
     max_linesearch_steps: int = 200,
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
-) -> tuple[Any, Literal["optax", "optimistix", "scipy"]]:
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
+) -> tuple[Solver, Literal["optimistix", "scipy"]]:
     """
     Create a solver instance from a name string.
 
@@ -295,10 +300,10 @@ def get_solver(
 
     Returns
     -------
-    solver : Any
+    solver : Solver can be either a BestSoFar wrapped minimiser or a string for scipy.
         The solver instance.
     solver_type : str
-        One of "optax", "optimistix", "scipy".
+        One of "optimistix", "scipy".
     """
     # Resolve aliases
     if solver_name == "zoom":

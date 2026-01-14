@@ -1,4 +1,7 @@
-from typing import NamedTuple
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 import jax
 import jax.lax as lax
@@ -6,26 +9,33 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import optax
 import optax.tree_utils as otu
-from jaxtyping import Array, Float, Int, PyTree
-
-# --- Utilities ---
-
-
-def tree_full_like(tree, fill_value):
-    return jtu.tree_map(lambda x: jnp.full_like(x, fill_value), tree)
-
-
-def tree_where(condition, x, y):
-    return jtu.tree_map(lambda c, a, b: jnp.where(c, a, b), condition, x, y)
-
+from jaxtyping import (
+    Array,
+    Float,
+    Int,
+    PyTree,  # pyright: ignore
+    Scalar,
+)
 
 # --- Helper Logic ---
 
 
-def compute_initial_pivot(y, lower, upper, scale, offset):
+def compute_initial_pivot(
+    y: PyTree[Float[Array, " P"]],
+    lower: PyTree[Float[Array, " P"]],
+    upper: PyTree[Float[Array, " P"]],
+    scale: PyTree[Float[Array, " P"]],
+    offset: PyTree[Float[Array, " P"]],
+) -> PyTree[Int[Array, " P"]]:
     """Compute initial pivot based on position relative to bounds."""
 
-    def _leaf_pivot(y_leaf, lo, up, sc, off):
+    def _leaf_pivot(
+        y_leaf: Float[Array, " P"],
+        lo: Float[Array, " P"],
+        up: Float[Array, " P"],
+        sc: Float[Array, " P"],
+        off: Float[Array, " P"],
+    ) -> Int[Array, " P"]:
         EPS = 1e-8  # Slightly relaxed tolerance for float32/64 stability
         # Calculate physical bounds tolerance
         # Handle inf: if lo is -inf, tol doesn't matter as we check bounds later
@@ -53,10 +63,27 @@ def compute_initial_pivot(y, lower, upper, scale, offset):
     return jtu.tree_map(_leaf_pivot, y, lower, upper, scale, offset)
 
 
-def compute_step_max(step_limit, y_int, direction, pivot, lower, upper, scale, offset):
+def compute_step_max(
+    step_limit: Scalar,
+    y_int: PyTree[Float[Array, " P"]],
+    direction: PyTree[Float[Array, " P"]],
+    pivot: PyTree[Int[Array, " P"]],
+    lower: PyTree[Float[Array, " P"]],
+    upper: PyTree[Float[Array, " P"]],
+    scale: PyTree[Float[Array, " P"]],
+    offset: PyTree[Float[Array, " P"]],
+) -> Scalar:
     """Compute max step size alpha such that y + alpha * d stays in bounds."""
 
-    def _leaf_step(y_leaf, d_leaf, p_leaf, lo, up, sc, off):
+    def _leaf_step(
+        y_leaf: Float[Array, " P"],
+        d_leaf: Float[Array, " P"],
+        p_leaf: Int[Array, " P"],
+        lo: Float[Array, " P"],
+        up: Float[Array, " P"],
+        sc: Float[Array, " P"],
+        off: Float[Array, " P"],
+    ) -> Float[Array, " P"]:
         # Only check bounds if we are moving towards them
 
         # Internal bounds
@@ -86,10 +113,27 @@ def compute_step_max(step_limit, y_int, direction, pivot, lower, upper, scale, o
     return jnp.minimum(step_limit, dist_to_bound)
 
 
-def update_pivot_at_boundary(y_int, direction, pivot, lower, upper, scale, offset, step_size):
+def update_pivot_at_boundary(
+    y_int: PyTree[Float[Array, " P"]],
+    direction: PyTree[Float[Array, " P"]],
+    pivot: PyTree[Int[Array, " P"]],
+    lower: PyTree[Float[Array, " P"]],
+    upper: PyTree[Float[Array, " P"]],
+    scale: PyTree[Float[Array, " P"]],
+    offset: PyTree[Float[Array, " P"]],
+    step_size: Scalar,
+) -> PyTree[Int[Array, " P"]]:
     """Update pivot if we landed exactly on a boundary."""
 
-    def _leaf_add(y_leaf, d_leaf, p_leaf, lo, up, sc, off):
+    def _leaf_add(
+        y_leaf: Float[Array, " P"],
+        d_leaf: Float[Array, " P"],
+        p_leaf: Int[Array, " P"],
+        lo: Float[Array, " P"],
+        up: Float[Array, " P"],
+        sc: Float[Array, " P"],
+        off: Float[Array, " P"],
+    ) -> Int[Array, " P"]:
         # Predict where we landed
         y_next = y_leaf + step_size * d_leaf
         y_next_phys = y_next * sc + off
@@ -123,13 +167,15 @@ def update_pivot_at_boundary(y_int, direction, pivot, lower, upper, scale, offse
     )
 
 
-def release_constraints(pivot, gradients_int):
+def release_constraints(
+    pivot: PyTree[Int[Array, " P"]], gradients_int: PyTree[Float[Array, " P"]]
+) -> PyTree[Int[Array, " P"]]:
     """
     Release constraints if the negative gradient points into the feasible region.
     TNC checks: if pivot=-1 (at lower) and -grad > 0 (descent direction is up), release.
     """
 
-    def _release(p, g):
+    def _release(p: Int[Array, " P"], g: Float[Array, " P"]) -> Int[Array, " P"]:
         # descent direction is -g
         # if at lower bound (-1), we want -g > 0 (move up) => g < 0
         should_free_lower = (p == -1) & (g < 0)
@@ -147,14 +193,14 @@ def release_constraints(pivot, gradients_int):
 
 
 class ActiveSetState(NamedTuple):
-    count: Int[Array, ""]
-    pivot: PyTree
-    xscale: PyTree
-    offset: PyTree
-    lower: PyTree
-    upper: PyTree
-    fscale: Float[Array, ""]
-    stepmx: Float[Array, ""]
+    count: Scalar
+    pivot: PyTree[Int[Array, " P"]]
+    xscale: PyTree[Float[Array, " P"]]
+    offset: PyTree[Float[Array, " P"]]
+    lower: PyTree[Float[Array, " P"]]
+    upper: PyTree[Float[Array, " P"]]
+    fscale: Scalar
+    stepmx: Scalar
     direction_state: optax.OptState
     linesearch_state: optax.OptState
 
@@ -162,24 +208,28 @@ class ActiveSetState(NamedTuple):
 def active_set(
     direction_solver: optax.GradientTransformation,
     linesearch_solver: optax.GradientTransformation,
-    lower: PyTree | None = None,
-    upper: PyTree | None = None,
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
     rescale_threshold: float = 1.3,
     stepmx_init: float = 10.0,
     verbose: bool = False,
 ) -> optax.GradientTransformation:
-    def init_fn(params):
-        lo = lower if lower is not None else tree_full_like(params, -jnp.inf)
-        up = upper if upper is not None else tree_full_like(params, jnp.inf)
+    def init_fn(params: PyTree[Float[Array, " P"]]) -> ActiveSetState:
+        lo = lower if lower is not None else otu.tree_full_like(params, -jnp.inf)
+        up = upper if upper is not None else otu.tree_full_like(params, jnp.inf)
 
         # Init Scale & Offset logic from TNC
-        def _init_scale(p, l, u):
+        def _init_scale(
+            p: Float[Array, " P"], l: Float[Array, " P"], u: Float[Array, " P"]
+        ) -> Float[Array, " P"]:
             is_bounded = (l > -1e20) & (u < 1e20)
             s_b = u - l
             s_u = 1.0 + jnp.abs(p)
             return jnp.where(is_bounded, s_b, s_u)
 
-        def _init_offset(p, l, u):
+        def _init_offset(
+            p: Float[Array, " P"], l: Float[Array, " P"], u: Float[Array, " P"]
+        ) -> Float[Array, " P"]:
             is_bounded = (l > -1e20) & (u < 1e20)
             o_b = (l + u) * 0.5
             o_u = p
@@ -205,9 +255,21 @@ def active_set(
             linesearch_state=linesearch_solver.init(params),
         )
 
-    def update_fn(grads, state, params=None, value=None, grad=None, value_fn=None, **kwargs):
+    def update_fn(
+        grads: PyTree[Float[Array, " P"]],
+        state: ActiveSetState,
+        params: PyTree[Float[Array, " P"]] | None = None,
+        value: Scalar | None = None,
+        grad: PyTree[Float[Array, " P"]] | None = None,
+        value_fn: Callable[[PyTree[Float[Array, " P"]]], Scalar] | None = None,
+        **kwargs: Any,
+    ) -> tuple[PyTree[Float[Array, " P"]], ActiveSetState]:
         if params is None or value_fn is None:
             raise ValueError("active_set requires 'params' and 'value_fn' arguments.")
+        if value is None:
+            # We need value for line search, but optax doesn't always provide it.
+            # However, in furax it should be provided.
+            value = value_fn(params)
 
         # --- 1. Internal Representation ---
         # Current internal point y
@@ -224,7 +286,7 @@ def active_set(
         # --- 3. Project Gradients (Input Masking) ---
         # If pivot != 0, set gradient to 0 so the solver "thinks" we are optimal there
         pivot_is_zero = jtu.tree_map(lambda p: p == 0, state.pivot)
-        grads_int_proj = tree_where(pivot_is_zero, grads_int, tree_full_like(grads_int, 0))
+        grads_int_proj = otu.tree_where(pivot_is_zero, grads_int, otu.tree_full_like(grads_int, 0))
 
         # --- 4. Dynamic Rescaling (TNC Logic) ---
         gnorm = otu.tree_norm(grads_int_proj)
@@ -237,11 +299,6 @@ def active_set(
         )
         new_fscale = jnp.where(should_rescale, state.fscale / safe_gnorm, state.fscale)
 
-        # If we rescaled, we technically should reset the optimizer state (Adam moments)
-        # because the magnitude of gradients changed drastically.
-        # For this snippet, we assume Adam adapts, but TNC does a hard reset here.
-        # Let's keep direction state but acknowledge the scale change.
-
         # --- 5. Compute Direction (pk) ---
         # Use inner solver (Adam/LBFGS). Note: We pass internal gradients.
         pk, new_dir_state = direction_solver.update(grads_int_proj, state.direction_state, params)
@@ -249,7 +306,7 @@ def active_set(
         # --- FIX 1: Project Direction (Output Masking) ---
         # CRITICAL: Adam has momentum. Even if input grad is 0, output `pk` might not be.
         # We must force pk to 0 on active constraints to stop pushing into the wall.
-        pk = tree_where(pivot_is_zero, pk, tree_full_like(pk, 0))
+        pk = otu.tree_where(pivot_is_zero, pk, otu.tree_full_like(pk, 0))
 
         if verbose:
             jax.debug.print("grads_int: {}", grads_int)
@@ -270,7 +327,7 @@ def active_set(
 
         # --- 7. Line Search ---
         # We need to wrap value_fn so Line Search sees Internal Space
-        def internal_value_fn(y_candidate):
+        def internal_value_fn(y_candidate: PyTree[Float[Array, " P"]]) -> Scalar:
             # Unscale y -> x
             x_candidate = otu.tree_add(otu.tree_mul(y_candidate, state.xscale), state.offset)
             # Clip x_candidate to ensure physical bounds aren't violated by float noise

@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import optax
-
 from furax_cs.optim.active_set import active_set
 
 
