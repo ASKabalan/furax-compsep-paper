@@ -36,12 +36,14 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 from time import perf_counter
+from typing import Any
 
 import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
 import numpy as np
+from jaxtyping import Array
 
 try:
     from fgbuster import (
@@ -64,12 +66,7 @@ except ImportError:
 from furax._instruments.sky import get_noise_sigma_from_instrument
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.stokes import Stokes
-from jax_healpy.clustering import (
-    find_kmeans_clusters,
-    get_cutout_from_mask,
-    normalize_by_first_occurrence,
-)
-
+from furax_cs import kmeans_clusters
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
     get_mask,
@@ -80,11 +77,12 @@ from furax_cs.data.generate_maps import (
 )
 from furax_cs.data.instruments import get_instrument
 from furax_cs.logging_utils import info, success
+from jax_healpy.clustering import get_cutout_from_mask, get_fullmap_from_cutout
 
 jax.config.update("jax_enable_x64", True)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for FGBuster component separation.
 
@@ -193,13 +191,13 @@ def parse_args():
 
 
 def run_fgbuster_comp_sep(
-    freq_maps,
-    patch_ids_fg,
-    components,
-    instrument,
-    max_iter=1000,
-    tol=1e-15,
-):
+    freq_maps: Array,
+    patch_ids_fg: list[Any],
+    components: list[Any],
+    instrument: Any,
+    max_iter: int = 1000,
+    tol: float = 1e-15,
+) -> Any:
     """
     Run FGBuster adaptive component separation.
 
@@ -352,29 +350,24 @@ def main():
         f"Computing K-means clusters: T_dust={T_dust_patches}, B_dust={B_dust_patches}, B_sync={B_synchrotron_patches}"
     )
 
-    max_patches = {
+    n_regions = {
         "temp_dust_patches": T_dust_patches,
         "beta_dust_patches": B_dust_patches,
         "beta_pl_patches": B_synchrotron_patches,
     }
-    patch_indices = jax.tree.map(
-        lambda c, mp: find_kmeans_clusters(
-            mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
-        ),
-        max_patches,
-        max_patches,
-    )
+    # Get cutout clusters using kmeans_clusters
+    cutout_clusters = kmeans_clusters(jax.random.key(0), mask, indices, n_regions)
+
+    # Convert cutout clusters to full-sky maps for FGBuster
+    # FGBuster needs full-sky maps where masked pixels have max cluster index
     guess_clusters = jax.tree.map(
-        lambda x: np.where(x == hp.UNSEEN, x.max(), x).astype(int), patch_indices
+        lambda x: get_fullmap_from_cutout(x, indices, nside),
+        cutout_clusters,
     )
-    # Normalize the cluster to make indexing more logical
+    # Ensure masked pixels have the max cluster index
     guess_clusters = jax.tree.map(
-        lambda g, c, mp: normalize_by_first_occurrence(g, c, mp).astype(jnp.int64),
-        guess_clusters,
-        max_patches,
-        max_patches,
+        lambda x: jnp.where(mask == 1, x, x.max()).astype(jnp.int64), guess_clusters
     )
-    guess_clusters = jax.tree.map(lambda x: jnp.where(mask == 1, x, x.max()), guess_clusters)
     patch_ids_fg = [
         np.asarray(guess_clusters["beta_dust_patches"]),
         np.asarray(guess_clusters["temp_dust_patches"]),
@@ -432,11 +425,7 @@ def main():
     info(f"Min /Max temp_dust: {result.x[1].min():.3f}/{result.x[1].max():.3f}")
     info(f"Min /Max beta_pl: {result.x[2].min():.3f}/{result.x[2].max():.3f}")
 
-    # Extract cutout patch indices (convert from full map to cutout)
-    beta_dust_patches_cutout = get_cutout_from_mask(guess_clusters["beta_dust_patches"], indices)
-    temp_dust_patches_cutout = get_cutout_from_mask(guess_clusters["temp_dust_patches"], indices)
-    beta_pl_patches_cutout = get_cutout_from_mask(guess_clusters["beta_pl_patches"], indices)
-
+    # Use cutout_clusters directly (already in cutout form)
     results = {
         "update_history": np.zeros(
             (1, 1, args.max_iter, 2)
@@ -447,9 +436,9 @@ def main():
         "beta_dust": result.x[0][np.newaxis, np.newaxis, ...],
         "temp_dust": result.x[1][np.newaxis, np.newaxis, ...],
         "beta_pl": result.x[2][np.newaxis, np.newaxis, ...],
-        "beta_dust_patches": np.asarray(beta_dust_patches_cutout)[np.newaxis, ...],
-        "temp_dust_patches": np.asarray(temp_dust_patches_cutout)[np.newaxis, ...],
-        "beta_pl_patches": np.asarray(beta_pl_patches_cutout)[np.newaxis, ...],
+        "beta_dust_patches": np.asarray(cutout_clusters["beta_dust_patches"])[np.newaxis, ...],
+        "temp_dust_patches": np.asarray(cutout_clusters["temp_dust_patches"])[np.newaxis, ...],
+        "beta_pl_patches": np.asarray(cutout_clusters["beta_pl_patches"])[np.newaxis, ...],
     }
 
     os.makedirs(out_folder, exist_ok=True)

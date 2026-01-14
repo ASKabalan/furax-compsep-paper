@@ -5,12 +5,14 @@ os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 import operator
 from functools import partial
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from jaxtyping import Array
 
 try:
     from fgbuster import (
@@ -31,28 +33,27 @@ except ImportError:
 from furax import HomothetyOperator
 from furax.obs import negative_log_likelihood, spectral_cmb_variance
 from furax.obs.stokes import Stokes
-from jax_healpy.clustering import find_kmeans_clusters
-from jax_hpc_profiler import Timer
-from jax_hpc_profiler.plotting import plot_weak_scaling
-
 from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 from furax_cs.logging_utils import info
 from furax_cs.optim import minimize
+from jax_healpy.clustering import find_kmeans_clusters
+from jax_hpc_profiler import Timer
+from jax_hpc_profiler.plotting import plot_weak_scaling
 
 jax.config.update("jax_enable_x64", True)
 
 
 def run_fg_buster(
-    nside,
-    cluster_count,
-    freq_maps,
-    dust_nu0,
-    synchrotron_nu0,
-    numpy_timer,
-    max_iter,
-    tol,
-    fgbuster_solver,
-):
+    nside: int,
+    cluster_count: int,
+    freq_maps: Array,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+    numpy_timer: Any,
+    max_iter: int,
+    tol: float,
+    fgbuster_solver: str,
+) -> tuple[Any, Any, Any]:
     info(
         f"Running FGBuster {fgbuster_solver} Comp sep nside={nside} cluster_count={cluster_count}..."
     )
@@ -104,18 +105,18 @@ def run_fg_buster(
 
 
 def run_jax_minimize(
-    nside,
-    cluster_count,
-    freq_maps,
-    nu,
-    dust_nu0,
-    synchrotron_nu0,
-    jax_timer,
-    max_iter,
-    tol,
-    solver_name,
-    precondition,
-):
+    nside: int,
+    cluster_count: int,
+    freq_maps: Array,
+    nu: Array,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+    jax_timer: Any,
+    max_iter: int,
+    tol: float,
+    solver_name: str,
+    precondition: bool,
+) -> tuple[Any, Any, Any]:
     """Run JAX-based negative log-likelihood with configurable solver."""
 
     info(f"Running Furax {solver_name} Comp sep nside={nside} cluster_count={cluster_count}...")
@@ -189,7 +190,7 @@ def run_jax_minimize(
     return final_params, cmb_variance, last_L
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Benchmarking FGBuster and Furax")
     parser.add_argument(

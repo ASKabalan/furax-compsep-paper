@@ -28,6 +28,7 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 from functools import partial
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -60,17 +61,18 @@ except ImportError:
 from furax import HomothetyOperator
 from furax.obs import negative_log_likelihood
 from furax.obs.landscapes import Stokes
-from jax_hpc_profiler import Timer
-from jax_hpc_profiler.plotting import plot_weak_scaling
-
 from furax_cs.data.generate_maps import load_from_cache, save_to_cache
 from furax_cs.logging_utils import info
 from furax_cs.optim import minimize
+from jax_hpc_profiler import Timer
+from jax_hpc_profiler.plotting import plot_weak_scaling
 
 jax.config.update("jax_enable_x64", True)
 
 
-def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
+def run_fgbuster_logL(
+    nside: int, freq_maps: Any, components: list[Any], nu: Any, numpy_timer: Any
+) -> None:
     """
     Benchmark FGBuster log-likelihood evaluation performance.
 
@@ -115,8 +117,14 @@ def run_fgbuster_logL(nside, freq_maps, components, nu, numpy_timer):
 
 
 def run_jax_negative_log_prob(
-    nside, freq_maps, best_params, nu, dust_nu0, synchrotron_nu0, jax_timer
-):
+    nside: int,
+    freq_maps: Any,
+    best_params: Any,
+    nu: Any,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+    jax_timer: Timer,
+) -> None:
     """
     Benchmark FURAX JAX-based negative log-likelihood evaluation.
 
@@ -176,17 +184,17 @@ def run_jax_negative_log_prob(
 
 
 def run_jax_minimize(
-    nside,
-    freq_maps,
-    best_params,
-    nu,
-    dust_nu0,
-    synchrotron_nu0,
-    jax_timer,
-    max_iter,
-    solver_name,
-    precondition,
-):
+    nside: int,
+    freq_maps: Any,
+    best_params: Any,
+    nu: Any,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+    jax_timer: Any,
+    max_iter: int,
+    solver_name: str,
+    precondition: bool,
+) -> None:
     """Run JAX-based negative log-likelihood with configurable solver."""
 
     info(f"Running Furax {solver_name} Comp sep nside={nside} ...")
