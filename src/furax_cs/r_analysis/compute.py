@@ -1,12 +1,16 @@
-"""Compute module for r_analysis - handles all result computation and aggregation."""
+from __future__ import annotations
 
+import argparse
 from collections import OrderedDict
+from typing import Any, Union
 
 import healpy as hp
 import jax.numpy as jnp
 import numpy as np
+from furax._instruments.sky import FGBusterInstrument
 from furax.obs.stokes import Stokes
 from jax_healpy.clustering import combine_masks
+from jaxtyping import Array
 from tqdm import tqdm
 
 from ..logging_utils import format_residual_flags, hint, info, warning
@@ -26,19 +30,14 @@ from .utils import (
 )
 
 
-def get_compute_flags(args, snapshot_mode=False):
+def get_compute_flags(args: argparse.Namespace, snapshot_mode: bool = False) -> dict[str, bool]:
     """Determine what computations are needed based on args.
 
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed command-line arguments with visualization toggles.
-    snapshot_mode : bool, optional
-        If True, all flags are set to True for complete computation (default: False).
+    Args:
+        args: Parsed command-line arguments with visualization toggles.
+        snapshot_mode: If True, all flags are set to True for complete computation. Defaults to False.
 
-    Returns
-    -------
-    dict
+    Returns:
         Dictionary with computation flags:
         - needs_residual_maps: bool
         - needs_residual_spectra: bool
@@ -109,20 +108,18 @@ def get_compute_flags(args, snapshot_mode=False):
     }
 
 
-def normalize_indices(indices):
+def normalize_indices(
+    indices: Union[int, tuple[int, int], list[int]],
+) -> list[int]:
     """Convert indices spec to list of ints.
 
-    Parameters
-    ----------
-    indices : int or tuple or list
-        Index specification:
-        - int: single index
-        - tuple (start, end): inclusive range
-        - list: explicit list of indices
+    Args:
+        indices: Index specification:
+            - int: single index.
+            - tuple (start, end): inclusive range.
+            - list: explicit list of indices.
 
-    Returns
-    -------
-    list of int
+    Returns:
         List of indices to process.
     """
     if isinstance(indices, int):
@@ -133,37 +130,28 @@ def normalize_indices(indices):
 
 
 def compute_single_folder(
-    folder,
-    run_index,
-    nside,
-    instrument,
-    flags,
-    full_results=None,
-    max_iter=100,
-    solver_name="optax_lbfgs_zoom",
-):
+    folder: str,
+    run_index: int,
+    nside: int,
+    instrument: FGBusterInstrument,
+    flags: dict[str, bool],
+    full_results: dict[str, Array] | None = None,
+    max_iter: int = 100,
+    solver_name: str = "optax_lbfgs_zoom",
+) -> dict[str, Any] | None:
     """Process a single result folder for a specific run index.
 
-    Parameters
-    ----------
-    folder : str
-        Path to the result folder.
-    run_index : int
-        Index of the noise realization to process.
-    nside : int
-        HEALPix resolution parameter.
-    instrument : FGBusterInstrument
-        Instrument configuration object.
-    flags : dict
-        Computation flags from get_compute_flags().
-    full_results : dict, optional
-        Pre-loaded results.npz contents to avoid reloading (default: None).
-    max_iter : int, optional
-        Maximum iterations for W computation if not cached (default: 100).
+    Args:
+        folder: Path to the result folder.
+        run_index: Index of the noise realization to process.
+        nside: HEALPix resolution parameter.
+        instrument: Instrument configuration object.
+        flags: Computation flags from `get_compute_flags`.
+        full_results: Pre-loaded results.npz contents to avoid reloading. Defaults to None.
+        max_iter: Maximum iterations for W computation if not cached. Defaults to 100.
+        solver_name: Solver name for W computation. Defaults to "optax_lbfgs_zoom".
 
-    Returns
-    -------
-    dict or None
+    Returns:
         Dictionary with computed data for this folder/index, or None if failed.
         Keys include: cmb_recon, cmb_true, mask, indices, NLL, wd, params, patches,
         updates_history, value_history.
@@ -208,7 +196,8 @@ def compute_single_folder(
         else:
             hint(f"Systematics not cached for index {run_index}. Computing now and caching...")
             fg_map = Stokes.from_stokes(
-                Q=best_params["I_D_NOCMB"][:, 0], U=best_params["I_D_NOCMB"][:, 1]
+                Q=best_params["I_D_NOCMB"][:, 0],
+                U=best_params["I_D_NOCMB"][:, 1],
             )
             patches = {
                 "beta_dust_patches": run_data["beta_dust_patches"],
@@ -266,39 +255,30 @@ def compute_single_folder(
 
 
 def compute_group(
-    title,
-    folders,
-    run_indices,
-    nside,
-    instrument,
-    flags,
-    solver_name,
-    max_iter=100,
-):
+    title: str,
+    folders: list[str],
+    run_indices: Union[int, tuple[int, int], list[int]],
+    nside: int,
+    instrument: FGBusterInstrument,
+    flags: dict[str, bool],
+    solver_name: str,
+    max_iter: int = 100,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]] | None:
     """Process a group of folders for given run indices.
 
-    Parameters
-    ----------
-    title : str
-        Identifier for this run group (for logging).
-    folders : list of str
-        List of result folder paths.
-    run_indices : int or tuple or list
-        Index specification for run indices.
-    nside : int
-        HEALPix resolution parameter.
-    instrument : FGBusterInstrument
-        Instrument configuration object.
-    flags : dict
-        Computation flags from get_compute_flags().
-    max_iter : int, optional
-        Maximum iterations for W computation if not cached (default: 100).
+    Args:
+        title: Identifier for this run group (for logging).
+        folders: List of result folder paths.
+        run_indices: Index specification for run indices (int, tuple, or list).
+        nside: HEALPix resolution parameter.
+        instrument: Instrument configuration object.
+        flags: Computation flags from `get_compute_flags`.
+        solver_name: Solver name for W computation.
+        max_iter: Maximum iterations for W computation if not cached. Defaults to 100.
 
-    Returns
-    -------
-    tuple or None
-        (cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data) if successful,
-        None if no valid data found.
+    Returns:
+        A tuple (cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data) if successful,
+        or None if no valid data found.
     """
     if not folders:
         warning(f"No folders provided for '{title}'")
@@ -371,7 +351,7 @@ def compute_group(
 
     # Aggregate results
     full_mask = np.logical_or.reduce(masks)
-    f_sky = full_mask.sum() / len(full_mask)
+    f_sky = float(full_mask.sum() / len(full_mask))
 
     combined_cmb_recon = combine_masks(cmb_recons, indices_list, nside, axis=1)
     cmb_stokes = combine_masks(cmb_maps, indices_list, nside)
@@ -398,9 +378,11 @@ def compute_group(
     ell_range = np.arange(2, nside * 2 + 2)
 
     # Get true sky for residuals from the saved CMB in best_params (cmb_stokes)
-    # This uses the actual input CMB map (which may have r != 0)
     cmb_stokes_expanded = expand_stokes(cmb_stokes)
-    s_true = np.stack([cmb_stokes_expanded.i, cmb_stokes_expanded.q, cmb_stokes_expanded.u], axis=0)
+    s_true = np.stack(
+        [cmb_stokes_expanded.i, cmb_stokes_expanded.q, cmb_stokes_expanded.u],
+        axis=0,
+    )
 
     # Compute residuals
     cl_syst_res, syst_map, cl_stat_res, stat_maps = None, None, None, None
@@ -432,14 +414,28 @@ def compute_group(
     else:
         cl_bb_sum = None
 
-    # R estimation (also computes cl_bb_obs, cl_bb_r1, cl_bb_lens internally)
-    r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = None, None, None, None, None
+    # R estimation
+    r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals = (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
     cl_bb_obs, cl_bb_r1, cl_bb_lens = None, None, None
     if flags["compute_total"] and flags["needs_r_estimation"] and cl_total_res is not None:
         stat_res_for_r = cl_stat_res if cl_stat_res is not None else np.zeros_like(ell_range)
-        r_best, sigma_r_neg, sigma_r_pos, r_grid, L_vals, _, cl_bb_r1, cl_bb_lens, cl_bb_obs = (
-            estimate_r(cl_total_res, nside, stat_res_for_r, f_sky)
-        )
+        (
+            r_best,
+            sigma_r_neg,
+            sigma_r_pos,
+            r_grid,
+            L_vals,
+            _,
+            cl_bb_r1,
+            cl_bb_lens,
+            cl_bb_obs,
+        ) = estimate_r(cl_total_res, nside, stat_res_for_r, f_sky)
         info(f"r estimation: {r_best:.4f} +{sigma_r_pos:.4f} -{sigma_r_neg:.4f}")
 
     # Build output pytrees
@@ -477,47 +473,47 @@ def compute_group(
         "value_history": value_history_list if value_history_list else None,
     }
 
-    return cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data
+    return (
+        cmb_pytree,
+        cl_pytree,
+        r_pytree,
+        residual_pytree,
+        plotting_data,
+    )
 
 
 def compute_all(
-    matched_results,
-    nside,
-    instrument,
-    flags,
-    max_iter,
-    solver_name,
-    titles=None,
-):
+    matched_results: dict[str, tuple[list[str], list[int], str]],
+    nside: int,
+    instrument: FGBusterInstrument,
+    flags: dict[str, bool],
+    max_iter: int,
+    solver_name: str,
+    titles: dict[str, str] | None = None,
+) -> OrderedDict[
+    str, tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+]:
     """Compute results for all matched run groups.
 
-    Parameters
-    ----------
-    matched_results : dict
-        Format: {kw: (folders_list, run_indices)}
-        Same format as returned by run_grep() and used by cache_systematics().
-    nside : int
-        HEALPix resolution parameter.
-    instrument : FGBusterInstrument
-        Instrument configuration object.
-    flags : dict
-        Computation flags from get_compute_flags().
-    titles : dict, optional
-        Format: {kw: title_string}
-        If not provided, uses kw as title.
-    max_iter : int, optional
-        Maximum iterations for W computation if not cached (default: 100).
+    Args:
+        matched_results: Dictionary of format `{kw: (folders_list, run_indices, root)}`.
+        nside: HEALPix resolution parameter.
+        instrument: Instrument configuration object.
+        flags: Computation flags from `get_compute_flags`.
+        max_iter: Maximum iterations for W computation if not cached.
+        solver_name: Solver name for W computation.
+        titles: Dictionary mapping keywords to title strings. Defaults to None.
 
-    Returns
-    -------
-    OrderedDict
-        Dictionary keyed by title with values:
+    Returns:
+        OrderedDict keyed by title with values:
         (cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data)
     """
     if titles is None:
         titles = {}
 
-    results = OrderedDict()
+    results: OrderedDict[
+        str, tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+    ] = OrderedDict()
 
     for kw, (folders, indices, root) in tqdm(
         matched_results.items(), desc="Processing run groups", unit="group"

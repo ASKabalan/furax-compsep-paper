@@ -1,20 +1,32 @@
+from __future__ import annotations
+
+from typing import cast
+
 import healpy as hp
 import numpy as np
+from furax.obs.stokes import Stokes
+from jaxtyping import (
+    Array,
+    Float,
+    Int,
+)
 from tqdm import tqdm
 
 from .utils import expand_stokes
 
 
-def compute_systematic_res(Wd_cmb, fsky, ell_range):
+def compute_systematic_res(
+    Wd_cmb: Stokes, fsky: float, ell_range: Int[Array, " L"]
+) -> tuple[Float[Array, " L"], Float[Array, " 3 npix"]]:
     """Compute systematic residual BB power and map.
 
     Parameters
     ----------
-    Wd_cmb : StokesI | StokesQU | StokesIQU
+    Wd_cmb : Stokes
         Foreground-only CMB reconstruction, i.e. W * d_fg.
     fsky : float
         Observed sky fraction used to debias the spectra.
-    ell_range : ndarray
+    ell_range : Array
         Multipole array over which the spectrum is evaluated.
 
     Returns
@@ -23,36 +35,36 @@ def compute_systematic_res(Wd_cmb, fsky, ell_range):
         (C_ell^syst, syst_map) where the spectrum is rescaled by f_sky and the
         map is a (3, Npix) array containing I, Q, U residuals.
     """
-    Wd_cmb = expand_stokes(Wd_cmb)
-    syst_map = np.stack([Wd_cmb.i, Wd_cmb.q, Wd_cmb.u], axis=0)
+    Wd_cmb_expanded = expand_stokes(Wd_cmb)
+    syst_map = np.stack([Wd_cmb_expanded.i, Wd_cmb_expanded.q, Wd_cmb_expanded.u], axis=0)
 
-    cl_all = hp.anafast(syst_map)
+    cl_all = cast(Float[Array, " 6 L"], hp.anafast(syst_map))
     cl_bb = cl_all[2][ell_range]
-    cl_bb = cl_bb / fsky
+    cl_bb_rescaled = cl_bb / fsky
 
-    return cl_bb, syst_map
+    return cl_bb_rescaled, syst_map
 
 
 def compute_statistical_res(
-    s_hat,
-    s_true,
-    fsky,
-    ell_range,
-    s_syst_map: np.ndarray,
-):
+    s_hat: Stokes,
+    s_true: Float[Array, " 3 npix"],
+    fsky: float,
+    ell_range: Int[Array, " L"],
+    s_syst_map: Float[Array, " 3 npix"],
+) -> tuple[Float[Array, " L"], Float[Array, " n_realizations 3 npix"]]:
     """Compute statistical residuals after subtracting systematic leakage.
 
     Parameters
     ----------
-    s_hat : StokesI | StokesQU | StokesIQU
+    s_hat : Stokes
         Reconstructed CMB map for all noise realizations.
-    s_true : ndarray
+    s_true : Array
         True input CMB map (I, Q, U stacked along axis=0).
     fsky : float
         Observed sky fraction.
-    ell_range : ndarray
+    ell_range : Array
         Multipole range for spectral estimation.
-    s_syst_map : ndarray
+    s_syst_map : Array
         Systematic residual map returned by :func:`compute_systematic_res`.
 
     Returns
@@ -61,8 +73,8 @@ def compute_statistical_res(
         (C_ell^stat, stat_maps) with averaged BB spectrum and residual maps per
         realization.
     """
-    s_hat = expand_stokes(s_hat)
-    s_hat_arr = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+    s_hat_expanded = expand_stokes(s_hat)
+    s_hat_arr = np.stack([s_hat_expanded.i, s_hat_expanded.q, s_hat_expanded.u], axis=1)
 
     res = np.where(s_hat_arr == hp.UNSEEN, hp.UNSEEN, s_hat_arr - s_true[np.newaxis, ...])
 
@@ -71,7 +83,7 @@ def compute_statistical_res(
 
     cl_list = []
     for i in tqdm(range(res_stat.shape[0]), desc="Computing Statistical BB Spectra"):
-        cl = hp.anafast(res_stat[i])
+        cl = cast(Float[Array, " 6 L"], hp.anafast(res_stat[i]))
         cl_list.append(cl[2][ell_range])
 
     cl_mean = np.mean(cl_list, axis=0) / fsky
@@ -79,18 +91,20 @@ def compute_statistical_res(
     return cl_mean, res_stat
 
 
-def compute_total_res(s_hat, s_true, fsky, ell_range):
+def compute_total_res(
+    s_hat: Stokes, s_true: Float[Array, " 3 npix"], fsky: float, ell_range: Int[Array, " L"]
+) -> tuple[Float[Array, " L"], Float[Array, " n_realizations 3 npix"]]:
     """Compute total residual BB spectrum without separating components.
 
     Parameters
     ----------
-    s_hat : StokesI | StokesQU | StokesIQU
+    s_hat : Stokes
         Reconstructed CMB map for all noise realizations.
-    s_true : ndarray
+    s_true : Array
         True input CMB map (I, Q, U).
     fsky : float
         Observed sky fraction.
-    ell_range : ndarray
+    ell_range : Array
         Multipole range for spectral estimation.
 
     Returns
@@ -99,13 +113,13 @@ def compute_total_res(s_hat, s_true, fsky, ell_range):
         (C_ell^res, residual_maps) where residual_maps has shape
         (n_realizations, 3, Npix).
     """
-    s_hat = expand_stokes(s_hat)
-    s_hat = np.stack([s_hat.i, s_hat.q, s_hat.u], axis=1)
+    s_hat_expanded = expand_stokes(s_hat)
+    s_hat_arr = np.stack([s_hat_expanded.i, s_hat_expanded.q, s_hat_expanded.u], axis=1)
 
-    res = np.where(s_hat == hp.UNSEEN, hp.UNSEEN, s_hat - s_true[np.newaxis, ...])
+    res = np.where(s_hat_arr == hp.UNSEEN, hp.UNSEEN, s_hat_arr - s_true[np.newaxis, ...])
     cl_list = []
     for i in tqdm(range(res.shape[0]), desc="Computing Residual BB Spectra"):
-        cl = hp.anafast(res[i])
+        cl = cast(Float[Array, " 6 L"], hp.anafast(res[i]))
         cl_list.append(cl[2][ell_range])
 
     cl_mean = np.mean(cl_list, axis=0) / fsky
@@ -113,27 +127,33 @@ def compute_total_res(s_hat, s_true, fsky, ell_range):
     return cl_mean, res
 
 
-def compute_cl_bb_sum(cmb_out, fsky, ell_range):
+def compute_cl_bb_sum(
+    cmb_out: Stokes, fsky: float, ell_range: Int[Array, " L"]
+) -> Float[Array, " n_realizations"]:
     """Compute ∑ C_ell^{BB} across realizations for the recovered CMB."""
-    cmb_out = expand_stokes(cmb_out)
-    cmb_out = np.stack([cmb_out.i, cmb_out.q, cmb_out.u], axis=1)
+    cmb_out_expanded = expand_stokes(cmb_out)
+    cmb_out_arr = np.stack([cmb_out_expanded.i, cmb_out_expanded.q, cmb_out_expanded.u], axis=1)
 
     cl_list = []
-    for i in tqdm(range(cmb_out.shape[0]), desc="Computing CL_BB_SUM"):
-        cl = hp.anafast(cmb_out[i])
+    for i in tqdm(range(cmb_out_arr.shape[0]), desc="Computing CL_BB_SUM"):
+        cl = cast(Float[Array, " 6 L"], hp.anafast(cmb_out_arr[i]))
         cl_list.append(cl[2][ell_range])
 
     CL_BB_SUM = np.sum(cl_list, axis=1) / fsky
     return CL_BB_SUM
 
 
-def compute_cl_obs_bb(cl_total_res, cl_bb_lens):
+def compute_cl_obs_bb(
+    cl_total_res: Float[Array, " L"], cl_bb_lens: Float[Array, " L"]
+) -> Float[Array, " L"]:
     """Combine residual and lensing spectra to form observed BB power."""
     return cl_total_res + cl_bb_lens
 
 
-def compute_cl_true_bb(s, ell_range):
+def compute_cl_true_bb(
+    s: Float[Array, " 3 npix"], ell_range: Int[Array, " L"]
+) -> Float[Array, " L"]:
     """Compute the true sky BB spectrum over the requested ell range."""
-    cl = hp.anafast(s)
+    cl = cast(Float[Array, " 6 L"], hp.anafast(s))
 
     return cl[2][ell_range]

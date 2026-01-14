@@ -1,16 +1,24 @@
 import os
 from functools import partial
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from furax import HomothetyOperator
 from furax.obs import negative_log_likelihood, sky_signal
-
+from furax.obs.stokes import Stokes
 from furax_cs.optim import minimize
+from jaxtyping import Array, Float, Int
 
 
-def compute_w(nu, d, patches, max_iter=100, solver_name="optax_lbfgs_zoom"):
+def compute_w(
+    nu: Float[Array, " n_freq"],
+    d: Stokes,
+    patches: dict[str, Int[Array, " n_valid"]],
+    max_iter: int = 100,
+    solver_name: str = "optax_lbfgs_zoom",
+) -> Stokes:
     """Compute the foreground-only CMB reconstruction (W·d_fg).
 
     This is a pure computation function with no File I/O.
@@ -86,13 +94,19 @@ def compute_w(nu, d, patches, max_iter=100, solver_name="optax_lbfgs_zoom"):
     def W_op(p):
         N = HomothetyOperator(1.0, _in_structure=d.structure)
         return sky_signal(
-            p, nu, N, d, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0, patch_indices=patches
+            p,
+            nu,
+            N,
+            d,
+            dust_nu0=dust_nu0,
+            synchrotron_nu0=synchrotron_nu0,
+            patch_indices=patches,
         )["cmb"]
 
     return W_op(final_params)
 
 
-def atomic_save_results(result_file, results_dict):
+def atomic_save_results(result_file: str, results_dict: dict[str, Any]) -> None:
     """Atomically write updated results to disk with backup protection."""
     if os.path.exists(result_file):
         backup_file = result_file.replace(".npz", ".bk.npz")
