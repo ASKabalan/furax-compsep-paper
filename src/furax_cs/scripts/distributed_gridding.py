@@ -35,8 +35,10 @@ import os
 os.environ["EQX_ON_ERROR"] = "nan"
 import argparse
 from functools import partial
+from typing import Any
 
 import jax
+from jaxtyping import Array
 
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
@@ -68,13 +70,6 @@ from furax.obs import (
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_grid_search import DistributedGridSearch
-from jax_healpy.clustering import (
-    find_kmeans_clusters,
-    get_cutout_from_mask,
-    normalize_by_first_occurrence,
-)
-
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
     get_mask,
@@ -88,11 +83,17 @@ from furax_cs.data.search_space import dump_default_search_space, load_search_sp
 from furax_cs.logging_utils import info, success
 from furax_cs.optim import condition
 from furax_cs.optim import optimize as furax_optimize
+from jax_grid_search import DistributedGridSearch
+from jax_healpy.clustering import (
+    find_kmeans_clusters,
+    get_cutout_from_mask,
+    normalize_by_first_occurrence,
+)
 
 jax.config.update("jax_enable_x64", True)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark FGBuster and Furax Component Separation Methods"
     )
@@ -208,7 +209,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def clean_up(folder):
+def clean_up(folder: str) -> None:
     batch_size = 50
 
     sorted_results = DistributedGridSearch.batched_stack_results(
@@ -318,11 +319,11 @@ def main():
 
     @partial(jax.jit, static_argnums=())
     def compute_minimum_variance(
-        T_d_patches,
-        B_d_patches,
-        B_s_patches,
-        indices,
-    ):
+        T_d_patches: Array,
+        B_d_patches: Array,
+        B_s_patches: Array,
+        indices: Array,
+    ) -> dict[str, Any]:
         T_d_patches = T_d_patches.squeeze()
         B_d_patches = B_d_patches.squeeze()
         B_s_patches = B_s_patches.squeeze()

@@ -6,24 +6,31 @@ This module contains the condition function for:
 - Gradient-based output scaling (like scipy TNC's fscale)
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
 import jax
-from jaxtyping import PyTree
+from jaxtyping import Array, Float, PyTree
 from lineax.internal import two_norm
+
+Params = PyTree[Float[Array, "P"]]
+TransformedParams = PyTree[Float[Array, "P"]]
+Transformation = Callable[[Params], TransformedParams]
+ConditionedFn = Callable[..., Float[Array, ""]]
 
 
 def condition(
-    fn: Callable[..., Any],
-    lower: Any | None = None,
-    upper: Any | None = None,
+    fn: Callable[..., Float[Array, ""]],
+    lower: Params | None = None,
+    upper: Params | None = None,
     scale_function: bool = False,
-    init_params: Any | None = None,
-    *args,
-    **kwargs,
-) -> tuple[Callable[..., Any], Callable[[PyTree], PyTree], Callable[[PyTree], PyTree]]:
+    init_params: Params | None = None,
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[ConditionedFn, Transformation, Transformation]:
     """Apply parameter transformation and gradient-based output scaling.
 
     Transforms parameters to [0, 1] space using min-max scaling and optionally
@@ -63,18 +70,18 @@ def condition(
 
     # Build transformation functions
     if has_bounds:
-        # Min-max scaling: physical -> [0, 1]
-        def to_opt(params: PyTree) -> PyTree:
+
+        def to_opt(params: Params) -> TransformedParams:
             return jax.tree.map(lambda p, lo, hi: (p - lo) / (hi - lo), params, lower, upper)
 
-        def from_opt(opt_params: PyTree) -> PyTree:
+        def from_opt(opt_params: TransformedParams) -> Params:
             return jax.tree.map(lambda u, lo, hi: u * (hi - lo) + lo, opt_params, lower, upper)
     else:
         # Identity transformation
-        def to_opt(params: PyTree) -> PyTree:
+        def to_opt(params: Params) -> TransformedParams:
             return params
 
-        def from_opt(opt_params: PyTree) -> PyTree:
+        def from_opt(opt_params: TransformedParams) -> Params:
             return opt_params
 
     # Compute fscale from gradient if requested
@@ -84,7 +91,9 @@ def condition(
             raise ValueError("init_params required when scale_function=True")
 
         # Build unscaled wrapped function
-        def wrapped_fn_unscaled(opt_params: PyTree, *a: Any, **kw: Any) -> Any:
+        def wrapped_fn_unscaled(
+            opt_params: TransformedParams, *a: Any, **kw: Any
+        ) -> Float[Array, ""]:
             physical_params = from_opt(opt_params)
             return fn(physical_params, *a, **kw)
 
@@ -96,7 +105,7 @@ def condition(
 
     # Build final wrapped function
     @wraps(fn)
-    def wrapped_fn(opt_params: PyTree, *a: Any, **kw: Any) -> Any:
+    def wrapped_fn(opt_params: TransformedParams, *a: Any, **kw: Any) -> Float[Array, ""]:
         physical_params = from_opt(opt_params)
         return fn(physical_params, *a, **kw) * factor
 

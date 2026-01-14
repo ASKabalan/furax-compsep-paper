@@ -11,7 +11,6 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import optax
-
 from furax_cs.optim.active_set import active_set
 
 jax.config.update("jax_numpy_dtype_promotion", "standard")

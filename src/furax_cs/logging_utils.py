@@ -2,29 +2,29 @@
 
 import sys
 import warnings
+from collections.abc import Generator
 from contextlib import contextmanager
-from pathlib import Path
 
 
 class Colors:
     """ANSI color codes for terminal output."""
 
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    CYAN = "\033[96m"
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
+    BLUE: str = "\033[94m"
+    GREEN: str = "\033[92m"
+    YELLOW: str = "\033[93m"
+    RED: str = "\033[91m"
+    CYAN: str = "\033[96m"
+    RESET: str = "\033[0m"
+    BOLD: str = "\033[1m"
+    DIM: str = "\033[2m"
 
     @classmethod
-    def is_tty(cls):
+    def is_tty(cls) -> bool:
         """Check if stdout is a TTY (supports colors)."""
         return sys.stdout.isatty()
 
     @classmethod
-    def disable(cls):
+    def disable(cls) -> None:
         """Disable all colors."""
         cls.BLUE = ""
         cls.GREEN = ""
@@ -41,172 +41,117 @@ if not Colors.is_tty():
     Colors.disable()
 
 
-def info(message):
+def info(message: str) -> None:
     """Print an informational message.
 
-    Parameters
-    ----------
-    message : str
-        Message to print
+    Args:
+        message: Message to print.
+
+    Example:
+        >>> info("Loading data...")
+        [INFO] Loading data...
     """
     print(f"{Colors.BLUE}[INFO]{Colors.RESET} {message}")
 
 
-def success(message):
+def success(message: str) -> None:
     """Print a success message with checkmark.
 
-    Parameters
-    ----------
-    message : str
-        Message to print
+    Args:
+        message: Message to print.
+
+    Example:
+        >>> success("Data loaded!")
+        ✓ Data loaded!
     """
     print(f"{Colors.GREEN}✓{Colors.RESET} {message}")
 
 
-def warning(message):
+def warning(message: str) -> None:
     """Print a warning message.
 
-    Parameters
-    ----------
-    message : str
-        Warning message to print
+    Args:
+        message: Warning message to print.
+
+    Example:
+        >>> warning("Low memory.")
+        [WARNING] Low memory.
     """
     print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} {message}")
 
 
-def error(message):
+def error(message: str) -> None:
     """Print an error message.
 
-    Parameters
-    ----------
-    message : str
-        Error message to print
+    Args:
+        message: Error message to print.
+
+    Example:
+        >>> error("File not found.")
+        [ERROR] File not found.
     """
     print(f"{Colors.RED}[ERROR]{Colors.RESET} {message}", file=sys.stderr)
 
 
-def hint(message):
+def hint(message: str) -> None:
     """Print a hint message for user guidance.
 
-    Parameters
-    ----------
-    message : str
-        Hint message to print
+    Args:
+        message: Hint message to print.
+
+    Example:
+        >>> hint("Try running with --verbose.")
+        [HINT] Try running with --verbose.
     """
     print(f"{Colors.CYAN}[HINT]{Colors.RESET} {message}")
 
 
-def debug(message):
+def debug(message: str) -> None:
     """Print a debug message (dimmed).
 
-    Parameters
-    ----------
-    message : str
-        Debug message to print
+    Args:
+        message: Debug message to print.
+
+    Example:
+        >>> debug("Variable x = 5")
+        [DEBUG] Variable x = 5
     """
     print(f"{Colors.DIM}[DEBUG] {message}{Colors.RESET}")
 
 
-def banner(message, char="=", width=60):
+def banner(message: str, char: str = "=", width: int = 60) -> None:
     """Print a banner message.
 
-    Parameters
-    ----------
-    message : str
-        Message to display in banner
-    char : str
-        Character to use for banner lines
-    width : int
-        Width of the banner
+    Args:
+        message: Message to display in banner.
+        char: Character to use for banner lines. Defaults to "=".
+        width: Width of the banner. Defaults to 60.
+
+    Example:
+        >>> banner("START")
+        ============================================================
+        START
+        ============================================================
     """
     print(char * width)
     print(message)
     print(char * width)
 
 
-def format_cache_summary(snapshot_store, titles_to_plot):
-    """Format a summary of snapshot cache status.
-
-    Parameters
-    ----------
-    snapshot_store : dict
-        Dictionary of cached snapshot entries
-    titles_to_plot : list
-        List of all run titles to plot
-
-    Returns
-    -------
-    str
-        Formatted summary message
-    """
-    cached = sum(1 for title in titles_to_plot if title in snapshot_store)
-    total = len(titles_to_plot)
-    if cached == total:
-        return f"All {total} runs cached in snapshot"
-    elif cached == 0:
-        return f"No runs cached (will compute all {total})"
-    else:
-        return f"{cached}/{total} runs cached in snapshot ({total - cached} to compute)"
-
-
-def format_folder_summary(results_to_plot):
-    """Format a compact summary of folders to process.
-
-    Parameters
-    ----------
-    results_to_plot : list of list
-        Nested list of result folder paths
-
-    Returns
-    -------
-    str
-        Formatted summary message
-    """
-    total_folders = sum(len(group) for group in results_to_plot)
-    num_groups = len(results_to_plot)
-    return f"Found {num_groups} run group{'s' if num_groups != 1 else ''} ({total_folders} total folders)"
-
-
-def compact_path(path, max_length=50):
-    """Shorten a path for display if it's too long.
-
-    Parameters
-    ----------
-    path : str
-        Path to shorten
-    max_length : int
-        Maximum length before shortening
-
-    Returns
-    -------
-    str
-        Shortened path with ellipsis if needed
-    """
-    if len(path) <= max_length:
-        return path
-    path_obj = Path(path)
-    name = path_obj.name
-    if len(name) <= max_length - 10:
-        return f".../{name}"
-    return f"...{path[-max_length:]}"
-
-
-def format_residual_flags(compute_syst, compute_stat, compute_total):
+def format_residual_flags(compute_syst: bool, compute_stat: bool, compute_total: bool) -> str:
     """Format residual computation flags into a readable message.
 
-    Parameters
-    ----------
-    compute_syst : bool
-        Whether computing systematic residuals
-    compute_stat : bool
-        Whether computing statistical residuals
-    compute_total : bool
-        Whether computing total residuals
+    Args:
+        compute_syst: Whether computing systematic residuals.
+        compute_stat: Whether computing statistical residuals.
+        compute_total: Whether computing total residuals.
 
-    Returns
-    -------
-    str
-        Formatted message describing what will be computed
+    Returns:
+        Formatted message describing what will be computed.
+
+    Example:
+        >>> format_residual_flags(True, False, False)
+        'Computing: systematic residuals'
     """
     components = []
     if compute_syst:
@@ -223,40 +168,18 @@ def format_residual_flags(compute_syst, compute_stat, compute_total):
 
 
 @contextmanager
-def suppress_runtime_warnings():
+def suppress_runtime_warnings() -> Generator[None, None, None]:
     """Context manager to suppress specific runtime warnings.
 
     Suppresses RuntimeWarning about invalid values in logarithm operations,
     which can occur during r estimation when cl_model has zeros.
+
+    Example:
+        >>> with suppress_runtime_warnings():
+        ...     # code that might divide by zero
+        ...     pass
     """
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="invalid value encountered in log")
         warnings.filterwarnings("ignore", message="divide by zero encountered")
         yield
-
-
-def format_r_result(r_best, sigma_r_neg, sigma_r_pos):
-    """Format r estimation result for display.
-
-    Parameters
-    ----------
-    r_best : float or None
-        Best-fit r value
-    sigma_r_neg : float or None
-        Negative error bar
-    sigma_r_pos : float or None
-        Positive error bar
-
-    Returns
-    -------
-    str or None
-        Formatted result string, or None if r estimation not available
-    """
-    if r_best is None:
-        return None
-
-    if sigma_r_neg is not None and sigma_r_pos is not None:
-        avg_sigma = (abs(sigma_r_neg) + sigma_r_pos) / 2
-        return f"r = {r_best:.4f} ± {avg_sigma:.4f}"
-    else:
-        return f"r = {r_best:.4f}"

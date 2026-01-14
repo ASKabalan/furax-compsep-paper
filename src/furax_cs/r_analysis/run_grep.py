@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Union
 
 from ..logging_utils import info
 
@@ -71,7 +72,7 @@ def expand_pattern_with_captures(pattern_tokens: list[str], captures: dict[int, 
     return "_".join(result_tokens)
 
 
-def parse_run_spec(run_spec):
+def parse_run_spec(run_spec: str) -> tuple[str, Union[int, tuple[int, int]]]:
     """Parse a run spec string into filter and index information."""
     if "," not in run_spec:
         return run_spec, 0
@@ -86,7 +87,7 @@ def parse_run_spec(run_spec):
         return filter_part, int(index_part)
 
 
-def parse_filter_kw(kw_string):
+def parse_filter_kw(kw_string: str) -> list[set[str]]:
     """Split run keywords into AND-of-OR groups for matching."""
     groups = kw_string.split("_")
     parsed = []
@@ -99,24 +100,32 @@ def parse_filter_kw(kw_string):
     return parsed
 
 
-def matches_filter(name_parts, filter_groups):
+def matches_filter(name_parts: list[str], filter_groups: list[set[str]]) -> bool:
     """Return True if the keyword groups all match the provided name parts."""
     return all(any(option in name_parts for option in group) for group in filter_groups)
 
 
-def get_root_dir_from_paths(paths: list[str]) -> str:
-    """Extract common root directory from a list of paths (uses the first path)."""
+def get_root_dir_from_paths(paths: list[str], irds: list[str]) -> str:
+    """Extract root directory from paths, relative to input results directories."""
     if not paths:
         return ""
-    # Assuming the first path is representative of where this group lives
     first_path = paths[0].rstrip(os.sep)
+
+    # Try to strip any of the input results directory prefixes
+    for ird in irds:
+        ird = ird.rstrip(os.sep)
+        if first_path.startswith(ird):
+            relative_path = first_path[len(ird) :].lstrip(os.sep)
+            return os.path.dirname(relative_path)
+
+    # Fallback: return dirname of the full path
     return os.path.dirname(first_path)
 
 
 def run_grep(
-    result_folders: str | list[str],
+    result_folders: Union[str, list[str]],
     run_specs: list[str],
-) -> dict[str, tuple[list[str], int | tuple, str]]:
+) -> dict[str, tuple[list[str], Union[int, tuple[int, int]], str]]:
     r"""
     Search for result folders matching the given run specifications.
 
@@ -135,7 +144,7 @@ def run_grep(
 
     Returns
     -------
-    dict[str, tuple[list[str], int | tuple, str]]
+    Dict[str, Tuple[List[str], Union[int, Tuple], str]]
         Dictionary with run_spec (or expanded regex pattern) as key and
         tuple of (matching folders, index_spec, root_dir) as value.
         e.g. {'kmeans_BD200': (['.../kmeans_BD200_...'], 0, '...'), ...}
@@ -175,7 +184,7 @@ def run_grep(
 
             # Add each group as separate entry
             for expanded_name, paths in grouped.items():
-                root = get_root_dir_from_paths(paths)
+                root = get_root_dir_from_paths(paths, result_folders)
                 matches[expanded_name] = (paths, index_spec, root)
         else:
             # Token mode: existing logic
@@ -184,7 +193,7 @@ def run_grep(
             for path, tokens in all_results.items():
                 if matches_filter(tokens, filter_groups):
                     matched_paths.append(path)
-            root = get_root_dir_from_paths(matched_paths)
+            root = get_root_dir_from_paths(matched_paths, result_folders)
             matches[spec] = (matched_paths, index_spec, root)
 
     return matches

@@ -1,14 +1,22 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
 import jax
 import numpy as np
-from furax.obs.stokes import StokesI, StokesIQU, StokesQU
+from furax.obs.stokes import Stokes, StokesI, StokesIQU, StokesQU
+from jaxtyping import (
+    Array,
+)
 
 
-def expand_stokes(stokes_map):
+def expand_stokes(stokes_map: Stokes) -> StokesIQU:
     """Promote a StokesI or StokesQU instance to StokesIQU.
 
     Parameters
     ----------
-    stokes_map : StokesI | StokesQU | StokesIQU
+    stokes_map : Stokes
         Input Stokes data structure produced by the component separation pipeline.
 
     Returns
@@ -25,27 +33,30 @@ def expand_stokes(stokes_map):
         return StokesIQU(stokes_map, zeros, zeros)
     elif isinstance(stokes_map, StokesQU):
         return StokesIQU(zeros, stokes_map.q, stokes_map.u)
+    else:
+        # Fallback or error if passed something unexpected
+        raise TypeError(f"Unsupported Stokes type: {type(stokes_map)}")
 
 
-def filter_constant_param(input_dict, indx):
+def filter_constant_param(input_dict: Mapping[str, Array], indx: int) -> Mapping[str, Array]:
     """Extract a specific entry from a tree of arrays.
 
     Parameters
     ----------
-    input_dict : Mapping[str, ndarray]
+    input_dict : Mapping[str, Array]
         Tree containing clustering results indexed by realization.
     indx : int
         Index to select along the leading dimension of each array.
 
     Returns
     -------
-    Mapping[str, ndarray]
+    Mapping[str, Array]
         Tree with arrays sliced at the requested index.
     """
     return jax.tree.map(lambda x: x[indx], input_dict)
 
 
-def index_run_data(run_data, run_index):
+def index_run_data(run_data: Mapping[str, Array], run_index: int) -> Mapping[str, Array]:
     """Select the requested run across cached result arrays.
 
     Cached quantities whose keys start with ``W_D_FG_`` or ``CL_BB_SUM_`` already
@@ -53,51 +64,54 @@ def index_run_data(run_data, run_index):
 
     Parameters
     ----------
-    run_data : Mapping[str, ndarray]
+    run_data : Mapping[str, Array]
         Output dictionary for a single clustering configuration.
-    run_index : int
-        Index of the noise realization to extract.
+    run_index : int of the noise realization to extract.
 
     Returns
     -------
-    Mapping[str, ndarray]
+    Mapping[str, Array]
         Same structure as ``run_data`` with realizations sliced on demand.
     """
 
-    def should_index(path, value):
+    def should_index(path: tuple[Any, ...], value: Array) -> Array:
         key = path[-1].key if path else None
-        if key and (key.startswith("W_D_FG_") or key.startswith("CL_BB_SUM_")):
+        if key and (
+            isinstance(key, str) and (key.startswith("W_D_FG_") or key.startswith("CL_BB_SUM_"))
+        ):
             return value
         return value[run_index]
 
     return jax.tree_util.tree_map_with_path(should_index, run_data)
 
 
-def sort_results(results, key):
+def sort_results(results: Mapping[str, Array], key: str) -> Mapping[str, Array]:
     """Sort a result tree by an array value.
 
     Parameters
     ----------
-    results : Mapping[str, ndarray]
+    results : Mapping[str, Array]
         Container produced by grid search evaluations.
     key : str
         Key whose values define the ordering.
 
     Returns
     -------
-    Mapping[str, ndarray]
+    Mapping[str, Array]
         Tree with entries reordered consistently.
     """
     indices = np.argsort(results[key])
     return jax.tree.map(lambda x: x[indices], results)
 
 
-def params_to_maps(run_data, previous_mask_size):
+def params_to_maps(
+    run_data: Mapping[str, Array], previous_mask_size: Mapping[str, int]
+) -> tuple[dict[str, Array], dict[str, Array], Mapping[str, int]]:
     """Convert per-cluster parameter arrays to HEALPix maps.
 
     Parameters
     ----------
-    run_data : Mapping[str, ndarray]
+    run_data : Mapping[str, Array]
         Output of a clustering run containing parameters and patch indices.
     previous_mask_size : Mapping[str, int]
         Offsets that keep cluster labels unique across disjoint sky regions.
@@ -120,25 +134,25 @@ def params_to_maps(run_data, previous_mask_size):
     T_d = run_data["temp_dust"]
     B_s = run_data["beta_pl"]
 
-    B_d = B_d[indx][B_d_patches]
-    T_d = T_d[indx][T_d_patches]
-    B_s = B_s[indx][B_s_patches]
+    B_d_map = B_d[indx][B_d_patches]
+    T_d_map = T_d[indx][T_d_patches]
+    B_s_map = B_s[indx][B_s_patches]
 
-    params = {"beta_dust": B_d, "temp_dust": T_d, "beta_pl": B_s}
+    params = {"beta_dust": B_d_map, "temp_dust": T_d_map, "beta_pl": B_s_map}
     patches = {
         "beta_dust_patches": B_d_patches,
         "temp_dust_patches": T_d_patches,
         "beta_pl_patches": B_s_patches,
     }
 
-    def normalize_array(arr):
-        unique_vals, indices = np.unique(arr, return_inverse=True)
+    def normalize_array(arr: Array) -> Array:
+        _, indices = np.unique(arr, return_inverse=True)
         return indices
 
-    patches = jax.tree.map(normalize_array, patches)
-    patches = jax.tree.map(lambda x, p: x + p, patches, previous_mask_size)
-    previous_mask_size = jax.tree.map(
-        lambda x, p: p + np.unique(x).size, patches, previous_mask_size
+    patches_normalized = jax.tree.map(normalize_array, patches)
+    patches_final = jax.tree.map(lambda x, p: x + p, patches_normalized, previous_mask_size)
+    previous_mask_size_updated = jax.tree.map(
+        lambda x, p: p + np.unique(x).size, patches_final, previous_mask_size
     )
 
-    return params, patches, previous_mask_size
+    return params, patches_final, previous_mask_size_updated

@@ -1,27 +1,39 @@
 repos:
-- repo: https://github.com/hadialqattan/pycln
-  rev: "v2.5.0"
-  hooks:
-  - id: pycln
-    args:
-    - --all
-
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.9.6
-  hooks:
-    - id: ruff
-    - id: ruff-format
-
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: 'v5.0.0'
-  hooks:
-  - id: trailing-whitespace
-  - id: end-of-file-fixer
-  - id: check-yaml
-  - id: check-merge-conflict
-
-- repo: https://github.com/PyCQA/bandit
-  rev: '1.8.0'
-  hooks:
-  - id: bandit
-    files: ^jax_healpy/
+  - repo: local
+    hooks:
+      - id: sort_pyproject
+        name: sort_pyproject
+        entry: toml-sort -i --sort-table-keys --sort-inline-tables
+        language: python
+        files: ^pyproject\.toml$
+        additional_dependencies: ["toml-sort==0.23.1"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.14
+    hooks:
+      - id: ruff-format
+        types_or: [ python, pyi, jupyter ]
+      - id: ruff
+        types_or: [ python, pyi, jupyter ]
+        args: [ --fix ]
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.338
+    hooks:
+    - id: pyright
+      additional_dependencies: 
+        - jax
+        - equinox
+        - jaxtyping
+        - optax
+        - numpy
+        - scipy
+        - matplotlib
+        - seaborn
+        - optimistix
+        - lineax
+        - jaxopt
+        - healpy
+        - astropy
+        - tqdm
+        - pytest
+        - types-PyYAML
+        - types-tqdm

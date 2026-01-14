@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import scienceplots  # noqa: F401
-
 from furax_cs.data.instruments import get_instrument
 
 from ..logging_utils import (
@@ -23,7 +22,7 @@ from .validate import run_validate
 out_folder = "plots/"
 
 
-def run_analysis():
+def run_analysis() -> int | None:
     """Entry point for the r_analysis CLI driver.
 
     This function orchestrates the complete analysis pipeline using subcommands:
@@ -98,8 +97,8 @@ def run_analysis():
             flags,
             indiv_flags,
             aggregate_flags,
-            args.max_iterations,
             args.solver,
+            args.max_iterations,
             args.output_format,
             args.font_size,
         )
@@ -122,10 +121,16 @@ def run_analysis():
             args.steps,
             args.noise_ratio,
             args.scales,
+            plot_type=args.plot_type,
+            perturb_beta_dust=args.perturb_beta_dust,
+            perturb_beta_pl=args.perturb_beta_pl,
+            perturb_temp_dust=args.perturb_temp_dust,
+            aggregate=args.aggregate,
+            use_vmap=not args.no_vmap,
         )
 
 
-def main():
+def main() -> None:
     """CLI entry point for the r_analysis tool.
 
     This is the primary entry point registered as the ``r_analysis`` console script

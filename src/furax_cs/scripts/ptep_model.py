@@ -7,19 +7,13 @@ import operator
 from functools import partial
 from time import perf_counter
 
-import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax.random
 import numpy as np
-from furax._instruments.sky import get_noise_sigma_from_instrument
 from furax.obs import negative_log_likelihood, sky_signal
-from furax.obs.landscapes import FrequencyLandscape
-from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_healpy.clustering import get_cutout_from_mask
-from tqdm import tqdm
-
+from furax_cs import generate_noise_operator, multires_clusters
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
     get_mask,
@@ -31,6 +25,8 @@ from furax_cs.data.generate_maps import (
 from furax_cs.data.instruments import get_instrument
 from furax_cs.logging_utils import info, success
 from furax_cs.optim import minimize
+from jax_healpy.clustering import get_cutout_from_mask
+from tqdm import tqdm
 
 jax.config.update("jax_enable_x64", True)
 
@@ -193,46 +189,16 @@ def main():
     masked_fg = get_cutout_from_mask(fg_stokes, indices, axis=1)
     masked_cmb = get_cutout_from_mask(cmb_map_stokes, indices)
 
-    # Instead of clustering, use hp.ud_grade to downgrade to lower resolutions.
-    # We interpret the three ud values as the target nsides for each parameter.
-    # (Make sure these values are integers and valid Healpy nsides.)
-    ud_beta_d = int(args.target_ud_grade[0])
-    ud_temp_d = int(args.target_ud_grade[1])
-    ud_beta_pl = int(args.target_ud_grade[2])
-
-    # Create a dummy full-sky map (of ones) to generate the downgraded patch indices.
-    npix = nside**2 * 12
-    ipix = np.arange(npix)
-
-    def ud_grade(ipix, nside_in, nside_out):
-        if nside_out == 0:
-            return np.zeros_like(ipix)
-        else:
-            lowered = hp.ud_grade(ipix, nside_out=nside_out)
-            return hp.ud_grade(lowered, nside_out=nside_in)
-
-    ud_beta_d_map = ud_grade(ipix, nside, ud_beta_d)
-    ud_temp_d_map = ud_grade(ipix, nside, ud_temp_d)
-    ud_beta_pl_map = ud_grade(ipix, nside, ud_beta_pl)
-
-    # These downgraded maps serve as our patch indices.
-    patch_indices = {
-        "beta_dust_patches": ud_beta_d_map,
-        "temp_dust_patches": ud_temp_d_map,
-        "beta_pl_patches": ud_beta_pl_map,
+    # Use multi-resolution clustering with ud_grade
+    target_ud_grade = {
+        "beta_dust": int(args.target_ud_grade[0]),
+        "temp_dust": int(args.target_ud_grade[1]),
+        "beta_pl": int(args.target_ud_grade[2]),
     }
-    patch_indices = get_cutout_from_mask(patch_indices, indices)
+    patch_indices = multires_clusters(mask, indices, target_ud_grade, nside)
     max_count = {
-        "beta_dust": np.unique(patch_indices["beta_dust_patches"]).size,
-        "temp_dust": np.unique(patch_indices["temp_dust_patches"]).size,
-        "beta_pl": np.unique(patch_indices["beta_pl_patches"]).size,
+        key.replace("_patches", ""): int(jnp.unique(val).size) for key, val in patch_indices.items()
     }
-
-    def normalize_array(arr):
-        unique_vals, indices = np.unique(arr, return_inverse=True)
-        return indices
-
-    patch_indices = jax.tree.map(normalize_array, patch_indices)
 
     # Define the base parameters and bounds
     base_params = {
@@ -253,7 +219,6 @@ def main():
 
     instrument = get_instrument(args.instrument)
     nu = instrument.frequency
-    f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
 
     sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
@@ -269,16 +234,9 @@ def main():
 
     def single_run(noise_id):
         key = jax.random.PRNGKey(noise_id)
-        white_noise = f_landscapes.normal(key) * noise_ratio
-        white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
-        sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
-        noise = white_noise * sigma
-        noised_d = masked_d + noise
-
-        small_n = (sigma * noise_ratio) ** 2
-        small_n = 1.0 if noise_ratio == 0 else small_n
-
-        N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
+        noised_d, N = generate_noise_operator(
+            key, noise_ratio, indices, nside, masked_d, instrument
+        )
 
         final_params, final_state = minimize(
             fn=negative_log_likelihood_fn,

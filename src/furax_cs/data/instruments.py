@@ -7,7 +7,19 @@ from furax._instruments.sky import FGBusterInstrument
 
 
 def get_instrument(instrument_name: str) -> FGBusterInstrument:
-    """Get an instrument from its name."""
+    """Get an instrument configuration by name.
+
+    Args:
+        instrument_name: Name of the instrument (e.g., "LiteBIRD", "Planck").
+            Must correspond to an entry in `instruments.yaml`.
+            Use "default" for the FGBuster default instrument.
+
+    Returns:
+        The instrument configuration object with frequency bands and sensitivities.
+
+    Raises:
+        ValueError: If `instrument_name` is not found in the configuration.
+    """
     current_dir = Path(__file__).parent
     with open(f"{current_dir}/instruments.yaml") as f:
         instruments = yaml.safe_load(f)

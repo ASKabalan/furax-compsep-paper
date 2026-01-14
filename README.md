@@ -31,7 +31,7 @@ pip install jax
 Clone the repository and install in editable mode:
 
 ```bash
-pip install furax-cs[all] # or choose specific extras: plotting, optimization, benchmarks
+pip install furax-cs[all] # or choose specific extras: plotting, benchmarks
 ```
 ---
 
@@ -48,8 +48,8 @@ from furax_cs.data import load_from_cache, get_mask, save_to_cache
 save_to_cache(nside=64, sky="c1d1s1")
 nu, freq_maps = load_from_cache(nside=64, sky="c1d1s1")
 
-# Load a Galactic Mask (e.g., 20% sky coverage)
-mask = get_mask("GAL020", nside=64)
+# Load a Mask (e.g., 59% sky  for example all except the galactic plane)
+mask = get_mask("ALL-GALACTIC", nside=64)
 ```
 
 ---

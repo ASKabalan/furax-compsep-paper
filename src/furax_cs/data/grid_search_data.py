@@ -1,9 +1,13 @@
 from itertools import product
+from typing import Any
 
 import numpy as np
+from jaxtyping import Array, Float
 
 
-def select_best_params(results, best_metric="value", nb_best=4):
+def select_best_params(
+    results: dict[str, Any], best_metric: str = "value", nb_best: int = 4
+) -> tuple[Float[Array, "nb_best 2"], Float[Array, "nb_best"], Float[Array, "nb_best"]]:
     """
     Find the best nb_best combinations of (T_d, B_s) according to the chosen best_metric
     ('value' or 'NLL'). Returns:
@@ -41,18 +45,22 @@ def select_best_params(results, best_metric="value", nb_best=4):
         combos_best_value.append(min_value_for_combo)
         combos_best_nll.append(min_nll_for_combo)
 
-    combos = np.array(combos)
-    combos_best_value = np.array(combos_best_value)
-    combos_best_nll = np.array(combos_best_nll)
+    combos_arr = np.array(combos)
+    combos_best_value_arr = np.array(combos_best_value)
+    combos_best_nll_arr = np.array(combos_best_nll)
 
     # Sort combos by the chosen best_metric
     if best_metric == "value":
-        sorted_idx = np.argsort(combos_best_value)
+        sorted_idx = np.argsort(combos_best_value_arr)
     elif best_metric == "NLL":
-        sorted_idx = np.argsort(combos_best_nll)
+        sorted_idx = np.argsort(combos_best_nll_arr)
     else:
         raise ValueError("best_metric must be 'value' or 'NLL'.")
 
     chosen_idx = sorted_idx[: min(nb_best, len(sorted_idx))]
 
-    return (combos[chosen_idx], combos_best_value[chosen_idx], combos_best_nll[chosen_idx])
+    return (
+        combos_arr[chosen_idx],
+        combos_best_value_arr[chosen_idx],
+        combos_best_nll_arr[chosen_idx],
+    )

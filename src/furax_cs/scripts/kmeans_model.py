@@ -37,8 +37,10 @@ os.environ["EQX_ON_ERROR"] = "nan"
 
 import argparse
 from functools import partial
+from typing import Any
 
 import jax
+from jaxtyping import Array
 from tqdm import tqdm
 
 # =============================================================================
@@ -64,22 +66,12 @@ import jax.random
 import lineax as lx
 import numpy as np
 from furax import Config
-from furax._instruments.sky import (
-    get_noise_sigma_from_instrument,
-)
 from furax.obs import (
     negative_log_likelihood,
     sky_signal,
 )
-from furax.obs.landscapes import FrequencyLandscape
-from furax.obs.operators import NoiseDiagonalOperator
 from furax.obs.stokes import Stokes
-from jax_healpy.clustering import (
-    find_kmeans_clusters,
-    get_cutout_from_mask,
-    normalize_by_first_occurrence,
-)
-
+from furax_cs import generate_noise_operator, kmeans_clusters
 from furax_cs.data.generate_maps import (
     MASK_CHOICES,
     get_mask,
@@ -91,11 +83,12 @@ from furax_cs.data.generate_maps import (
 from furax_cs.data.instruments import get_instrument
 from furax_cs.logging_utils import info, success
 from furax_cs.optim import minimize
+from jax_healpy.clustering import get_cutout_from_mask
 
 jax.config.update("jax_enable_x64", True)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for K-means clustering component separation.
 
@@ -295,7 +288,6 @@ def main():
 
     instrument = get_instrument(args.instrument)
     nu = instrument.frequency
-    f_landscapes = FrequencyLandscape(nside, instrument.frequency, "QU")
 
     sky_signal_fn = partial(sky_signal, dust_nu0=dust_nu0, synchrotron_nu0=synchrotron_nu0)
     negative_log_likelihood_fn = partial(
@@ -327,35 +319,20 @@ def main():
     }
 
     def compute_minimum_variance(
-        T_d_patches,
-        B_d_patches,
-        B_s_patches,
-        planck_mask,
-        indices,
-        use_vmap=False,
-    ):
+        T_d_patches: int,
+        B_d_patches: int,
+        B_s_patches: int,
+        planck_mask: Array,
+        indices: Array,
+        use_vmap: bool = False,
+    ) -> dict[str, Any]:
         n_regions = {
             "temp_dust_patches": T_d_patches,
             "beta_dust_patches": B_d_patches,
             "beta_pl_patches": B_s_patches,
         }
 
-        patch_indices = jax.tree.map(
-            lambda c, mp: find_kmeans_clusters(
-                mask, indices, c, jax.random.key(0), max_centroids=mp, initial_sample_size=1
-            ),
-            n_regions,
-            max_patches,
-        )
-        guess_clusters = get_cutout_from_mask(patch_indices, indices)
-        # Normalize the cluster to make indexing more logical
-        guess_clusters = jax.tree.map(
-            lambda g, c, mp: normalize_by_first_occurrence(g, c, mp).astype(jnp.int64),
-            guess_clusters,
-            n_regions,
-            max_patches,
-        )
-        guess_clusters = jax.tree.map(lambda x: x.astype(jnp.int64), guess_clusters)
+        guess_clusters = kmeans_clusters(jax.random.key(0), mask, indices, n_regions, max_patches)
 
         guess_params = jax.tree.map(lambda v, c: jnp.full((c,), v), base_params, max_count)
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
@@ -363,17 +340,9 @@ def main():
 
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
-            white_noise = f_landscapes.normal(key) * noise_ratio
-            white_noise = get_cutout_from_mask(white_noise, indices, axis=1)
-            instrument = get_instrument(args.instrument)
-            sigma = get_noise_sigma_from_instrument(instrument, nside, stokes_type="QU")
-            noise = white_noise * sigma
-            noised_d = masked_d + noise
-
-            small_n = (sigma * noise_ratio) ** 2
-            small_n = 1.0 if noise_ratio == 0 else small_n
-
-            N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
+            noised_d, N = generate_noise_operator(
+                key, noise_ratio, indices, nside, masked_d, instrument
+            )
 
             final_params, final_state = minimize(
                 fn=negative_log_likelihood_fn,

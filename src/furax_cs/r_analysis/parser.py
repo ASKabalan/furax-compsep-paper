@@ -1,7 +1,7 @@
 import argparse
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the r_analysis tool using subcommands.
 
     Structure:
@@ -250,6 +250,40 @@ ARGUMENT NOTES:
     )
     parser_validate.add_argument(
         "-t", "--titles", type=str, nargs="*", help="List of titles for the plots", default=None
+    )
+    parser_validate.add_argument(
+        "--plot-type",
+        type=str,
+        default="nll-grad",
+        help="Plot type: 'nll-grad' (default), 'nll', 'grad', or 'grad-maps-{idx}' (e.g., grad-maps-0).",
+    )
+    parser_validate.add_argument(
+        "--perturb-beta-dust",
+        type=str,
+        default="all",
+        help="Perturbation spec for beta_dust: 'all' (default), '-1' (skip), '0:30' (slice), '0,1,2' (indices).",
+    )
+    parser_validate.add_argument(
+        "--perturb-beta-pl",
+        type=str,
+        default="all",
+        help="Perturbation spec for beta_pl: 'all' (default), '-1' (skip), '0:30' (slice), '0,1,2' (indices).",
+    )
+    parser_validate.add_argument(
+        "--perturb-temp-dust",
+        type=str,
+        default="all",
+        help="Perturbation spec for temp_dust: 'all' (default), '-1' (skip), '0:30' (slice), '0,1,2' (indices).",
+    )
+    parser_validate.add_argument(
+        "--aggregate",
+        action="store_true",
+        help="Combine all runs on same plot (except grad-maps).",
+    )
+    parser_validate.add_argument(
+        "--no-vmap",
+        action="store_true",
+        help="Use for-loop instead of vmap (slower but uses less memory).",
     )
 
     # ==========================================

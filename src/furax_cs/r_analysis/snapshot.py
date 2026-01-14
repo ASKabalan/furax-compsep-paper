@@ -3,6 +3,7 @@ import json
 import pickle
 import re
 from pathlib import Path
+from typing import Any, Union
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +16,7 @@ SNAPSHOT_MANIFEST_NAME = "manifest.json"
 SNAPSHOT_VERSION = 1
 
 
-def _snapshot_filename_from_title(title):
+def _snapshot_filename_from_title(title: str) -> str:
     """Generate a stable filename slug for a snapshot entry."""
     slug = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_")
     digest = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
@@ -24,7 +25,8 @@ def _snapshot_filename_from_title(title):
     return f"{slug}_{digest}.pkl"
 
 
-def _tree_to_numpy(tree):
+# Over kill helper?
+def _tree_to_numpy(tree: Any) -> Any:
     """Convert JAX arrays to numpy arrays recursively."""
 
     def _convert_leaf(x):
@@ -37,7 +39,8 @@ def _tree_to_numpy(tree):
     return jax.tree.map(_convert_leaf, tree)
 
 
-def _tree_to_jax(tree):
+# Over kill helper?
+def _tree_to_jax(tree: Any) -> Any:
     """Convert numpy arrays to JAX arrays recursively."""
 
     def _convert_leaf(x):
@@ -48,7 +51,9 @@ def _tree_to_jax(tree):
     return jax.tree.map(_convert_leaf, tree)
 
 
-def load_snapshot(snapshot_dir):
+def load_snapshot(
+    snapshot_dir: str,
+) -> tuple[list[tuple[str, Any]], dict[str, Any]]:
     """Load cached analysis payloads from disk snapshots."""
     snapshot_path = Path(snapshot_dir)
     manifest_path = snapshot_path / SNAPSHOT_MANIFEST_NAME
@@ -85,7 +90,12 @@ def load_snapshot(snapshot_dir):
     return entries, manifest
 
 
-def save_snapshot_entry(snapshot_dir, manifest, title, payload):
+def save_snapshot_entry(
+    snapshot_dir: Union[str, Path],
+    manifest: dict[str, Any],
+    title: str,
+    payload: Any,
+) -> dict[str, Any]:
     """Persist a single snapshot payload and update the manifest."""
     snapshot_path = Path(snapshot_dir)
     snapshot_path.mkdir(parents=True, exist_ok=True)
@@ -114,7 +124,7 @@ def save_snapshot_entry(snapshot_dir, manifest, title, payload):
     return manifest
 
 
-def write_snapshot_manifest(snapshot_dir, manifest):
+def write_snapshot_manifest(snapshot_dir: Union[str, Path], manifest: dict[str, Any]) -> None:
     """Write the manifest JSON for stored snapshot entries."""
     snapshot_path = Path(snapshot_dir)
     snapshot_path.mkdir(parents=True, exist_ok=True)
@@ -123,7 +133,9 @@ def write_snapshot_manifest(snapshot_dir, manifest):
         json.dump(manifest, fp, indent=2)
 
 
-def load_and_filter_snapshot(snapshot_path, matched_results):
+def load_and_filter_snapshot(
+    snapshot_path: Union[str, Path] | None, matched_results: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load snapshot and filter matched_results.
 
     Snapshots are indexed by kw (run spec), not title. This is more stable
@@ -172,7 +184,7 @@ def load_and_filter_snapshot(snapshot_path, matched_results):
     return existing_results, to_compute
 
 
-def serialize_snapshot_payload(result):
+def serialize_snapshot_payload(result: tuple[Any, ...]) -> dict[str, Any]:
     """Serialize snapshot payload to numpy arrays for storage.
 
     Parameters
@@ -195,7 +207,7 @@ def serialize_snapshot_payload(result):
     return payload
 
 
-def save_snapshot(snapshot_path, results):
+def save_snapshot(snapshot_path: Union[str, Path], results: dict[str, Any]) -> None:
     """Save computed results to snapshot directory.
 
     Results are indexed by kw (run spec), not title.
@@ -208,10 +220,10 @@ def save_snapshot(snapshot_path, results):
         {kw: (cmb_pytree, cl_pytree, r_pytree, residual_pytree, plotting_data)}
         from compute_all(), keyed by kw
     """
-    snapshot_path = Path(snapshot_path)
+    snapshot_path_obj = Path(snapshot_path)
 
     # Load existing manifest or create new
-    manifest_path = snapshot_path / SNAPSHOT_MANIFEST_NAME
+    manifest_path = snapshot_path_obj / SNAPSHOT_MANIFEST_NAME
     if manifest_path.exists():
         with manifest_path.open("r", encoding="utf-8") as f:
             manifest = json.load(f)
@@ -222,12 +234,20 @@ def save_snapshot(snapshot_path, results):
     for kw, res in results.items():
         payload = serialize_snapshot_payload(res)
         # save_snapshot_entry uses kw as the "title" field in manifest
-        manifest = save_snapshot_entry(snapshot_path, manifest, kw, payload)
+        manifest = save_snapshot_entry(snapshot_path_obj, manifest, kw, payload)
 
-    write_snapshot_manifest(snapshot_path, manifest)
+    write_snapshot_manifest(snapshot_path_obj, manifest)
 
 
-def run_snapshot(matched_results, nside, instrument, snapshot_path, flags, max_iter, solver_name):
+def run_snapshot(
+    matched_results: dict[str, Any],
+    nside: int,
+    instrument: Any,
+    snapshot_path: str,
+    flags: dict[str, bool],
+    max_iter: int,
+    solver_name: str,
+) -> int:
     """Entry point for 'snap' subcommand.
 
     Computes statistics for matched runs and saves to snapshot directory.

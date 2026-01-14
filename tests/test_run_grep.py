@@ -2,7 +2,6 @@ import os
 import tempfile
 
 import pytest
-
 from furax_cs.r_analysis.run_grep import (
     expand_pattern_with_captures,
     is_regex_pattern,
