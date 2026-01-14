@@ -1,13 +1,17 @@
-"""Utilities for loading and managing grid search space configurations."""
+from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Union
 
 import jax.numpy as jnp
 import yaml
-from jaxtyping import Array
+from jaxtyping import (
+    Array,
+    Int,
+)
 
 
-def load_search_space(filepath: str | Path | None = None) -> dict:
+def load_search_space(filepath: Union[str, Path] | None = None) -> dict[str, Int[Array, N]]:
     """Load search space configuration from YAML file.
 
     Parameters
@@ -56,7 +60,7 @@ def load_search_space(filepath: str | Path | None = None) -> dict:
     return search_space
 
 
-def search_space_to_jax(config: dict) -> dict:
+def search_space_to_jax(config: dict[str, Any]) -> dict[str, Int[Array, N]]:
     """Convert search space configuration from YAML to JAX arrays.
 
     Parameters
@@ -69,29 +73,29 @@ def search_space_to_jax(config: dict) -> dict:
     dict
         Dictionary with JAX arrays ready for grid search.
     """
-    search_space = {}
+    search_space: dict[str, Int[Array, N]] = {}
 
     # Convert T_d_patches
     if "T_d_patches" in config:
-        search_space["T_d_patches"] = jnp.array(config["T_d_patches"])
+        search_space["T_d_patches"] = jnp.array(config["T_d_patches"], dtype=jnp.int32)
 
     # Convert B_d_patches - handle both list and range specifications
     if "B_d_patches" in config:
         b_d = config["B_d_patches"]
         if isinstance(b_d, list):
-            search_space["B_d_patches"] = jnp.array(b_d)
+            search_space["B_d_patches"] = jnp.array(b_d, dtype=jnp.int32)
         else:
             # Handle potential dict specification for ranges
-            search_space["B_d_patches"] = jnp.array(b_d)
+            search_space["B_d_patches"] = jnp.array(b_d, dtype=jnp.int32)
 
     # Convert B_s_patches
     if "B_s_patches" in config:
-        search_space["B_s_patches"] = jnp.array(config["B_s_patches"])
+        search_space["B_s_patches"] = jnp.array(config["B_s_patches"], dtype=jnp.int32)
 
     return search_space
 
 
-def dump_default_search_space(output_path: str | Path) -> None:
+def dump_default_search_space(output_path: Union[str, Path]) -> None:
     """Dump the default search space configuration to a YAML file.
 
     This creates a template file that users can customize for their needs.
@@ -129,7 +133,7 @@ def dump_default_search_space(output_path: str | Path) -> None:
     print("You can now edit this file to customize the search space.")
 
 
-def validate_search_space(search_space: dict) -> None:
+def validate_search_space(search_space: dict[str, Int[Array, N]]) -> None:
     """Validate that search space has valid structure and values.
 
     Parameters

@@ -1,84 +1,95 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0", "wheel"]
 
 [project]
-name = "furax-cs"
-version = "0.1.0"
-description = "CMB component separation comparison: FURAX vs FGBuster"
-readme = "README.md"
-requires-python = ">=3.11"
-license = {file = "LICENSE"}
 authors = [
-    {name = "FURAX Team"}
+  {name = "FURAX Team"}
 ]
 dependencies = [
-    "furax",
-    "healpy",
-    "jax-healpy",
-    "jax_hpc_profiler",
-    "jax-grid-search>=0.2.0",
-    "optax",
-    "camb",
-    "numpy",
-    "pysm3",
-    "astropy",
+  "furax",
+  "healpy",
+  "jax-healpy",
+  "jax_hpc_profiler",
+  "jax-grid-search>=0.2.0",
+  "optax",
+  "camb",
+  "numpy",
+  "pysm3",
+  "astropy",
+  "optimistix@git+https://github.com/ASKabalan/optimistix@add-progress",
+  "jaxopt"
 ]
+description = "CMB component separation comparison: FURAX vs FGBuster"
+license = {file = "LICENSE"}
+name = "furax-cs"
+readme = "README.md"
+requires-python = ">=3.11"
+version = "0.1.0"
 
 [project.optional-dependencies]
-plotting = [
-    "matplotlib",
-    "seaborn",
-    "scienceplots",
-]
-optimization = [
-    "jaxopt",
+all = [
+  "furax-cs[plotting,benchmarks,dev]"
 ]
 benchmarks = [
-    "fgbuster @ git+https://github.com/fgbuster/fgbuster",
+  "fgbuster @ git+https://github.com/fgbuster/fgbuster"
 ]
 dev = [
-    "ruff",
-    "pre-commit",
-    "jupyter",
-    "pytest",
+  "ruff",
+  "pre-commit",
+  "jupyter",
+  "pytest"
 ]
-all = [
-    "furax-cs[plotting,optimization,benchmarks,dev]",
+plotting = [
+  "matplotlib",
+  "seaborn",
+  "scienceplots"
 ]
 
 [project.scripts]
 bench-bcp = "furax_cs.scripts.bench_bcp:main"
 bench-clusters = "furax_cs.scripts.bench_clusters:main"
-validation-model = "furax_cs.scripts.validation_model:main"
-noise-model = "furax_cs.scripts.noise_model:main"
 distributed-gridding = "furax_cs.scripts.distributed_gridding:main"
-ptep-model = "furax_cs.scripts.ptep_model:main"
 fgbuster-model = "furax_cs.scripts.fgbuster_model:main"
-kmeans-model = "furax_cs.scripts.kmeans_model:main"
-r_analysis = "furax_cs.r_analysis.main:main"
 generate_data = "furax_cs.data.generate_maps:main"
+kmeans-model = "furax_cs.scripts.kmeans_model:main"
+ptep-model = "furax_cs.scripts.ptep_model:main"
+r_analysis = "furax_cs.r_analysis.main:main"
+
+[tool.pyright]
+exclude = ["**/node_modules", "**/__pycache__", ".git"]
+executionEnvironments = [
+  {root = "src"}
+]
+include = ["src"]
+pythonPlatform = "Linux"
+pythonVersion = "3.11"
+reportGeneralTypeIssues = false
+reportMissingImports = false
+reportUndefinedVariable = false
+
+[tool.ruff]
+fix = true
+include = ["*.py", "*.ipynb"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+  "E203",
+  "E731",
+  "E741",
+  "F722", # conflicts with jaxtyping Array annotations
+  "F821", # Undefined name (jaxtyping dimensions)
+  "UP007", # Use X | Y for type annotations (prefers Union/Optional)
+  "E501",
+  "E402" # module level import not at top of file
+]
+select = ["E", "F", "W", "I", "UP"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = {find = {where = ["src"], include = ["furax_cs*"]}}
+packages = {find = {include = ["furax_cs*"], where = ["src"]}}
 
 [tool.setuptools.package-data]
 "furax_cs.data" = ["*.yaml", "masks/*"]
-
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-fix = true
-include = ["*.py", "*.ipynb"]
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP"]
-ignore = [
-    "E203",
-    "E731",
-    "E741",
-    "F722",  # conflicts with jaxtyping Array annotations
-    "E501",
-    "E402",  # module level import not at top of file
-]

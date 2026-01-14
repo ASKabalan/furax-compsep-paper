@@ -1,10 +1,11 @@
-# IMPORTS
+from __future__ import annotations
 
 import argparse
 import os
 import pickle
 import re
 from pathlib import Path
+from typing import Any, TypeAlias
 
 import camb
 import healpy as hp
@@ -17,43 +18,22 @@ from furax.obs.operators import (
     MixingMatrixOperator,
     SynchrotronOperator,
 )
+from furax.obs.stokes import Stokes
+from jaxtyping import (
+    Array,
+    Bool,
+    Float,
+    Int,
+    PRNGKeyArray,
+    PyTree,  # pyright: ignore
+)
 from pysm3 import units as pysm_units
 from pysm3.models.cmb import CMBLensed
 
-from furax_cs.data.instruments import get_instrument
-from furax_cs.logging_utils import info, success
+from ..logging_utils import error, info, success
+from .instruments import get_instrument
 
-
-def parse_sky_tag(sky):
-    """Parse sky string to separate CMB and foreground tags.
-
-    Parameters
-    ----------
-    sky : str
-        Sky model string (e.g., "c1d0s0", "cr3d0s0").
-
-    Returns
-    -------
-    tuple
-        (cmb_tag, fg_tag). cmb_tag is None if no CMB present.
-    """
-    # Check for custom r pattern (crX)
-    match = re.search(r"cr(\d+)", sky)
-    if match:
-        cmb_tag = match.group(0)
-        fg_tag = sky.replace(cmb_tag, "")
-        return cmb_tag, fg_tag
-
-    # Legacy 2-char parsing
-    tags = [sky[i : i + 2] for i in range(0, len(sky), 2)]
-    cmb_tags = [t for t in tags if t.startswith("c")]
-    if cmb_tags:
-        cmb_tag = cmb_tags[0]
-        fg_tags = [t for t in tags if not t.startswith("c")]
-        fg_tag = "".join(fg_tags)
-        return cmb_tag, fg_tag
-
-    return None, sky
+SkyType: TypeAlias = dict[str, Stokes]
 
 
 class CMBLensedWithTensors(CMBLensed):
@@ -62,43 +42,37 @@ class CMBLensedWithTensors(CMBLensed):
     Uses PySM's taylens algorithm for proper lensing, which correctly generates
     B-modes from E-modes via gravitational lensing deflection.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    r : float
-        Tensor-to-scalar ratio (default: 0.0).
-    cmb_seed : int, optional
-        Random seed for map generation.
-    max_nside : int, optional
-        Maximum nside for the model.
-    apply_delens : bool
-        Whether to apply delensing (default: False).
-    delensing_ells : path, optional
-        Delensing ells file path.
-    map_dist : pysm.MapDistribution, optional
-        Distribution for parallel computing.
-    H0, ombh2, omch2, As, ns : float
-        Cosmological parameters.
-    lmax : int
-        Maximum multipole for power spectra (default: 2500).
+    Args:
+        nside: HEALPix resolution parameter.
+        r: Tensor-to-scalar ratio. Defaults to 0.0.
+        cmb_seed: Random seed for map generation.
+        max_nside: Maximum nside for the model.
+        apply_delens: Whether to apply delensing. Defaults to False.
+        delensing_ells: Delensing ells file path.
+        map_dist: Distribution for parallel computing.
+        H0: Hubble constant. Defaults to 67.5.
+        ombh2: Baryon density. Defaults to 0.022.
+        omch2: CDM density. Defaults to 0.122.
+        As: Scalar amplitude. Defaults to 2e-9.
+        ns: Scalar spectral index. Defaults to 0.965.
+        lmax: Maximum multipole for power spectra. Defaults to 2500.
     """
 
     def __init__(
         self,
-        nside,
-        r=0.0,
-        cmb_seed=None,
-        max_nside=None,
-        apply_delens=False,
-        delensing_ells=None,
-        map_dist=None,
-        H0=67.5,
-        ombh2=0.022,
-        omch2=0.122,
-        As=2e-9,
-        ns=0.965,
-        lmax=2500,
+        nside: int,
+        r: float = 0.0,
+        cmb_seed: int | None = None,
+        max_nside: int | None = None,
+        apply_delens: bool = False,
+        delensing_ells: Path | None = None,
+        map_dist: Any = None,
+        H0: float = 67.5,
+        ombh2: float = 0.022,
+        omch2: float = 0.122,
+        As: float = 2e-9,
+        ns: float = 0.965,
+        lmax: int = 2500,
     ):
         # Generate CAMB spectra with tensors
         pars = camb.CAMBparams()
@@ -155,24 +129,48 @@ class CMBLensedWithTensors(CMBLensed):
         self.map = pysm_units.Quantity(self.run_taylens(), unit=pysm_units.uK_CMB, copy=False)
 
 
-def generate_custom_cmb(r_value, nside, seed=None):
+def parse_sky_tag(sky: str) -> tuple[str | None, str]:
+    """Parse sky string to separate CMB and foreground tags.
+
+    Args:
+        sky: Sky model string (e.g., "c1d0s0", "cr3d0s0").
+
+    Returns:
+        A tuple (cmb_tag, fg_tag). `cmb_tag` is None if no CMB present.
+    """
+    # Check for custom r pattern (crX)
+    match = re.search(r"cr(\d+)", sky)
+    if match:
+        cmb_tag = match.group(0)
+        fg_tag = sky.replace(cmb_tag, "")
+        return cmb_tag, fg_tag
+
+    # Legacy 2-char parsing
+    tags = [sky[i : i + 2] for i in range(0, len(sky), 2)]
+    cmb_tags = [t for t in tags if t.startswith("c")]
+    if cmb_tags:
+        cmb_tag = cmb_tags[0]
+        fg_tags = [t for t in tags if not t.startswith("c")]
+        fg_tag = "".join(fg_tags)
+        return cmb_tag, fg_tag
+
+    return None, sky
+
+
+def generate_custom_cmb(
+    r_value: float, nside: int, seed: int | None = None
+) -> Float[Array, "3 pix"]:
     """Generate a CMB realization with a specific tensor-to-scalar ratio r.
 
     Uses PySM's taylens algorithm for proper lensing, which correctly generates
     B-modes from E-modes via gravitational lensing deflection.
 
-    Parameters
-    ----------
-    r_value : float
-        Tensor-to-scalar ratio.
-    nside : int
-        HEALPix resolution.
-    seed : int, optional
-        Random seed for generation.
+    Args:
+        r_value: Tensor-to-scalar ratio.
+        nside: HEALPix resolution.
+        seed: Random seed for generation.
 
-    Returns
-    -------
-    ndarray
+    Returns:
         CMB map (3, npix) in uK_CMB.
     """
     info(f"generating with r_value {r_value}")
@@ -180,26 +178,24 @@ def generate_custom_cmb(r_value, nside, seed=None):
     return cmb.map.value  # Returns (3, npix) array in uK_CMB
 
 
-def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0", key=None):
+def save_to_cache(
+    nside: int,
+    noise_ratio: float = 0.0,
+    instrument_name: str = "LiteBIRD",
+    sky: str = "c1d0s0",
+    key: PRNGKeyArray | None = None,
+) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
     """Generate and cache frequency maps for component separation.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    noise_ratio : float, optional
-        Noise level ratio (0.0 = no noise, 1.0 = 100% noise) (default: 0.0).
-    instrument_name : str, optional
-        Instrument configuration name (default: "LiteBIRD").
-    sky : str, optional
-        Sky model preset string (e.g., "c1d0s0" for CMB only) (default: "c1d0s0").
-    key : PRNGKeyArray, optional
-        JAX random key for noise generation (default: None, uses key(0)).
+    Args:
+        nside: HEALPix resolution parameter.
+        noise_ratio: Noise level ratio (0.0 = no noise, 1.0 = 100% noise). Defaults to 0.0.
+        instrument_name: Instrument configuration name. Defaults to "LiteBIRD".
+        sky: Sky model preset string (e.g., "c1d0s0" for CMB only). Defaults to "c1d0s0".
+        key: JAX random key for noise generation. Defaults to None.
 
-    Returns
-    -------
-    tuple
-        (frequencies, freq_maps) where frequencies are in GHz and freq_maps
+    Returns:
+        A tuple (frequencies, freq_maps) where frequencies are in GHz and freq_maps
         have shape (n_freq, 3, n_pix) for Stokes I, Q, U.
     """
     if key is None:
@@ -213,6 +209,7 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
     cache_file = os.path.join(cache_dir, f"freq_maps_nside_{nside}_{noise_str}_{sky}.pkl")
 
     # Check if file exists, load if it does, otherwise create and save it
+    r_val = None
     if os.path.exists(cache_file):
         with open(cache_file, "rb") as f:
             freq_maps = pickle.load(f)
@@ -233,16 +230,8 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
             # key is JAX key (uint32 array). Use first element.
             seed = int(key[1]) if key is not None else 0
             custom_cmb_map = generate_custom_cmb(r_val, nside, seed=seed)
-
-        # Generate freq_maps
-        # If custom CMB, we generate FG+Noise with fg_tag, then add custom CMB
-        # Note: get_observation adds noise.
-        # If we just want FG+Noise, we use fg_tag.
-
-        # If fg_tag is empty (just CMB wanted), get_observation might fail or return nothing?
-        # furax instruments usually have foregrounds if tags provided.
-        # If tag is empty, get_observation logic needs checking.
-        # Assuming fg_tag like "d0s0" or similar.
+        else:
+            error(f"No custom r tag detected for sky {sky}.")
 
         # If we have custom CMB, we treat the rest as the "furax" sky
         tag_to_use = fg_tag if custom_cmb_map is not None else sky
@@ -267,6 +256,7 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
             # freq_maps: (n_freq, 3, npix)
             # custom_cmb_map: (3, npix)
             freq_maps += custom_cmb_map[None, ...]
+            assert r_val is not None
             info(f"Added custom CMB with r={r_val} to maps.")
 
         # Save freq_maps to the cache
@@ -276,29 +266,22 @@ def save_to_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s
     return np.array(instrument.frequency), freq_maps
 
 
-def load_from_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0"):
+def load_from_cache(
+    nside: int, noise_ratio: float = 0.0, instrument_name: str = "LiteBIRD", sky: str = "c1d0s0"
+) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
     """Load cached frequency maps from disk.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    noise_ratio : float, optional
-        Noise level ratio (0.0 = no noise, 1.0 = 100% noise) (default: 0.0).
-    instrument_name : str, optional
-        Instrument configuration name (default: "LiteBIRD").
-    sky : str, optional
-        Sky model preset string (default: "c1d0s0").
+    Args:
+        nside: HEALPix resolution parameter.
+        noise_ratio: Noise level ratio (0.0 = no noise, 1.0 = 100% noise). Defaults to 0.0.
+        instrument_name: Instrument configuration name. Defaults to "LiteBIRD".
+        sky: Sky model preset string. Defaults to "c1d0s0".
 
-    Returns
-    -------
-    tuple
-        (frequencies, freq_maps) loaded from cache.
+    Returns:
+        A tuple (frequencies, freq_maps) loaded from cache.
 
-    Raises
-    ------
-    FileNotFoundError
-        If cache file does not exist.
+    Raises:
+        FileNotFoundError: If cache file does not exist.
     """
     # Define cache file path
     instrument = get_instrument(instrument_name)
@@ -320,80 +303,62 @@ def load_from_cache(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d
     return np.array(instrument.frequency), freq_maps
 
 
-def strip_cmb_tag(sky_string):
-    """Removes the 'cX' or 'crX' tag from the sky string."""
-    _, fg_tag = parse_sky_tag(sky_string)
-    return fg_tag
-
-
-def save_fg_map(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0", key=None):
+def save_fg_map(
+    nside: int,
+    noise_ratio: float = 0.0,
+    instrument_name: str = "LiteBIRD",
+    sky: str = "c1d0s0",
+    key: PRNGKeyArray | None = None,
+) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
     """Generate and cache foreground-only frequency maps (CMB excluded).
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    noise_ratio : float, optional
-        Noise level ratio (0.0 = no noise, 1.0 = 100% noise) (default: 0.0).
-    instrument_name : str, optional
-        Instrument configuration name (default: "LiteBIRD").
-    sky : str, optional
-        Sky model preset string, CMB component automatically removed (default: "c1d0s0").
-    key : PRNGKeyArray, optional
-        JAX random key for noise generation (default: None).
+    Args:
+        nside: HEALPix resolution parameter.
+        noise_ratio: Noise level ratio (0.0 = no noise, 1.0 = 100% noise). Defaults to 0.0.
+        instrument_name: Instrument configuration name. Defaults to "LiteBIRD".
+        sky: Sky model preset string, CMB component automatically removed. Defaults to "c1d0s0".
+        key: JAX random key for noise generation. Defaults to None.
 
-    Returns
-    -------
-    tuple
-        (frequencies, freq_maps) containing only foreground contributions.
+    Returns:
+        A tuple (frequencies, freq_maps) containing only foreground contributions.
     """
     info(
         f"Generating fg map for nside {nside}, noise_ratio {noise_ratio}, instrument {instrument_name}"
     )
-    stripped_sky = strip_cmb_tag(sky)
+    _, stripped_sky = parse_sky_tag(sky)
     return save_to_cache(
         nside, noise_ratio=noise_ratio, instrument_name=instrument_name, sky=stripped_sky, key=key
     )
 
 
-def load_fg_map(nside, noise_ratio=0.0, instrument_name="LiteBIRD", sky="c1d0s0"):
+def load_fg_map(
+    nside: int, noise_ratio: float = 0.0, instrument_name: str = "LiteBIRD", sky: str = "c1d0s0"
+) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
     """Load cached foreground-only frequency maps.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    noise_ratio : float, optional
-        Noise level ratio (0.0 = no noise, 1.0 = 100% noise) (default: 0.0).
-    instrument_name : str, optional
-        Instrument configuration name (default: "LiteBIRD").
-    sky : str, optional
-        Sky model preset string, CMB automatically excluded (default: "c1d0s0").
+    Args:
+        nside: HEALPix resolution parameter.
+        noise_ratio: Noise level ratio (0.0 = no noise, 1.0 = 100% noise). Defaults to 0.0.
+        instrument_name: Instrument configuration name. Defaults to "LiteBIRD".
+        sky: Sky model preset string, CMB automatically excluded. Defaults to "c1d0s0".
 
-    Returns
-    -------
-    tuple
-        (frequencies, freq_maps) containing only foreground contributions.
+    Returns:
+        A tuple (frequencies, freq_maps) containing only foreground contributions.
     """
-    stripped_sky = strip_cmb_tag(sky)
+    _, stripped_sky = parse_sky_tag(sky)
     return load_from_cache(
         nside, noise_ratio=noise_ratio, instrument_name=instrument_name, sky=stripped_sky
     )
 
 
-def save_cmb_map(nside, sky="c1d0s0"):
+def save_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
     """Generate and cache CMB-only maps for template generation.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    sky : str, optional
-        Sky model preset string (default: "c1d0s0").
+    Args:
+        nside: HEALPix resolution parameter.
+        sky: Sky model preset string. Defaults to "c1d0s0".
 
-    Returns
-    -------
-    ndarray
+    Returns:
         CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
     """
     info(f"Generating CMB map for nside {nside}, sky {sky}")
@@ -426,25 +391,18 @@ def save_cmb_map(nside, sky="c1d0s0"):
         return freq_maps
 
 
-def load_cmb_map(nside, sky="c1d0s0"):
+def load_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
     """Load cached CMB-only maps.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
-    sky : str, optional
-        Sky model preset string (default: "c1d0s0").
+    Args:
+        nside: HEALPix resolution parameter.
+        sky: Sky model preset string. Defaults to "c1d0s0".
 
-    Returns
-    -------
-    ndarray
+    Returns:
         CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
 
-    Raises
-    ------
-    FileNotFoundError
-        If cache file does not exist.
+    Raises:
+        FileNotFoundError: If cache file does not exist.
     """
     # Define cache file path
     cache_dir = "freq_maps_cache"
@@ -469,28 +427,26 @@ def load_cmb_map(nside, sky="c1d0s0"):
     return freq_maps
 
 
-def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+def get_mixin_matrix_operator(
+    params: PyTree[Float[Array, " P"]],
+    patch_indices: PyTree[Int[Array, " P"]],
+    nu: Float[Array, " Nf"],
+    sky: SkyType,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+) -> tuple[MixingMatrixOperator, MixingMatrixOperator]:
     """Construct mixing matrix operators for CMB and foregrounds.
 
-    Parameters
-    ----------
-    params : dict
-        Spectral parameters (temp_dust, beta_dust, beta_pl).
-    patch_indices : dict
-        Patch assignment indices for each parameter.
-    nu : array_like
-        Frequency array in GHz.
-    sky : dict
-        Sky component dictionary from FURAX.
-    dust_nu0 : float
-        Dust reference frequency in GHz.
-    synchrotron_nu0 : float
-        Synchrotron reference frequency in GHz.
+    Args:
+        params: Spectral parameters (temp_dust, beta_dust, beta_pl).
+        patch_indices: Patch assignment indices for each parameter.
+        nu: Frequency array in GHz.
+        sky: Sky component dictionary from FURAX.
+        dust_nu0: Dust reference frequency in GHz.
+        synchrotron_nu0: Synchrotron reference frequency in GHz.
 
-    Returns
-    -------
-    tuple
-        (MixingMatrixOperator with CMB, MixingMatrixOperator without CMB).
+    Returns:
+        A tuple (MixingMatrixOperator with CMB, MixingMatrixOperator without CMB).
     """
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
@@ -519,28 +475,26 @@ def get_mixin_matrix_operator(params, patch_indices, nu, sky, dust_nu0, synchrot
     )
 
 
-def simulate_D_from_params(params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0):
+def simulate_D_from_params(
+    params: PyTree[Float[Array, " P"]],
+    patch_indices: PyTree[Int[Array, " P"]],
+    nu: Float[Array, " Nf"],
+    sky: SkyType,
+    dust_nu0: float,
+    synchrotron_nu0: float,
+) -> tuple[Stokes, Stokes]:
     """Simulate observed frequency maps given spectral parameters.
 
-    Parameters
-    ----------
-    params : dict
-        Spectral parameters (temp_dust, beta_dust, beta_pl).
-    patch_indices : dict
-        Patch assignment indices for each parameter.
-    nu : array_like
-        Frequency array in GHz.
-    sky : dict
-        Sky component dictionary.
-    dust_nu0 : float
-        Dust reference frequency in GHz.
-    synchrotron_nu0 : float
-        Synchrotron reference frequency in GHz.
+    Args:
+        params: Spectral parameters (temp_dust, beta_dust, beta_pl).
+        patch_indices: Patch assignment indices for each parameter.
+        nu: Frequency array in GHz.
+        sky: Sky component dictionary.
+        dust_nu0: Dust reference frequency in GHz.
+        synchrotron_nu0: Synchrotron reference frequency in GHz.
 
-    Returns
-    -------
-    tuple
-        (d, d_nocmb) where d includes CMB and d_nocmb excludes it.
+    Returns:
+        A tuple (d, d_nocmb) where d includes CMB and d_nocmb excludes it.
     """
     A, A_nocmb = get_mixin_matrix_operator(
         params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
@@ -570,55 +524,42 @@ MASK_CHOICES = [
 def sanitize_mask_name(mask_expr: str) -> str:
     """Convert mask expression to valid folder name.
 
-    Parameters
-    ----------
-    mask_expr : str
-        Mask expression potentially containing + (union) or - (subtract) operators.
+    Args:
+        mask_expr: Mask expression potentially containing + (union) or - (subtract) operators.
 
-    Returns
-    -------
-    str
+    Returns:
         Sanitized folder name with operators replaced by descriptive names.
 
-    Examples
-    --------
-    >>> sanitize_mask_name("GAL020+GAL040")
-    'GAL020_UNION_GAL040'
-    >>> sanitize_mask_name("ALL-GALACTIC")
-    'ALL_SUBTRACT_GALACTIC'
+    Example:
+        >>> sanitize_mask_name("GAL020+GAL040")
+        'GAL020_UNION_GAL040'
+        >>> sanitize_mask_name("ALL-GALACTIC")
+        'ALL_SUBTRACT_GALACTIC'
     """
     sanitized = mask_expr.replace("+", "_UNION_").replace("-", "_SUBTRACT_")
     return sanitized
 
 
-def parse_mask_expression(expr: str, nside: int) -> np.ndarray:
+def parse_mask_expression(expr: str, nside: int) -> Bool[Array, pix]:
     """Parse and evaluate boolean mask expressions.
 
     Supports left-to-right evaluation of expressions with + (union) and - (subtraction)
     operators. Does not support parentheses.
 
-    Parameters
-    ----------
-    expr : str
-        Mask expression with optional boolean operators.
-        Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
-    nside : int
-        HEALPix resolution parameter.
+    Args:
+        expr: Mask expression with optional boolean operators.
+            Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
+        nside: HEALPix resolution parameter.
 
-    Returns
-    -------
-    ndarray
+    Returns:
         Boolean mask array where True indicates observed pixels.
 
-    Raises
-    ------
-    ValueError
-        If expression contains invalid mask names or syntax.
+    Raises:
+        ValueError: If expression contains invalid mask names or syntax.
 
-    Examples
-    --------
-    >>> mask = parse_mask_expression("GAL020+GAL040", nside=64)
-    >>> mask = parse_mask_expression("ALL-GALACTIC", nside=64)
+    Example:
+        >>> mask = parse_mask_expression("GAL020+GAL040", nside=64)
+        >>> mask = parse_mask_expression("ALL-GALACTIC", nside=64)
     """
     # Tokenize the expression while preserving operators
     tokens = []
@@ -707,14 +648,10 @@ def parse_mask_expression(expr: str, nside: int) -> np.ndarray:
 def _get_or_generate_mask_file(nside: int) -> Path:
     """Get path to mask file, generating it from 2048 source if needed.
 
-    Parameters
-    ----------
-    nside : int
-        HEALPix resolution parameter.
+    Args:
+        nside: HEALPix resolution parameter.
 
-    Returns
-    -------
-    Path
+    Returns:
         Path to the mask file.
     """
     mask_dir = Path(__file__).parent / "masks"
@@ -737,39 +674,31 @@ def _get_or_generate_mask_file(nside: int) -> Path:
     return mask_file
 
 
-def get_mask(mask_name="GAL020", nside=64):
+def get_mask(mask_name: str = "GAL020", nside: int = 64) -> Bool[Array, pix]:
     """Load and process galactic masks at specified resolution.
 
-    Parameters
-    ----------
-    mask_name : str, optional
-        Mask identifier (e.g., "GAL020", "GAL040", "GALACTIC") or boolean expression
-        (e.g., "GAL020+GAL040", "ALL-GALACTIC") (default: "GAL020").
-    nside : int, optional
-        HEALPix resolution parameter (default: 64).
+    Args:
+        mask_name: Mask identifier (e.g., "GAL020", "GAL040", "GALACTIC") or boolean expression
+            (e.g., "GAL020+GAL040", "ALL-GALACTIC"). Defaults to "GAL020".
+        nside: HEALPix resolution parameter. Defaults to 64.
 
-    Returns
-    -------
-    ndarray
+    Returns:
         Boolean mask array where True indicates observed pixels.
 
-    Raises
-    ------
-    ValueError
-        If mask_name is invalid.
+    Raises:
+        ValueError: If mask_name is invalid.
 
-    Notes
-    -----
-    Available mask choices: ALL, GALACTIC, GAL020, GAL040, GAL060, and
-    their _U (upper) and _L (lower) hemisphere variants.
+    Notes:
+        Available mask choices: ALL, GALACTIC, GAL020, GAL040, GAL060, and
+        their _U (upper) and _L (lower) hemisphere variants.
 
-    Boolean operations are supported:
-    - Use + for union (logical OR)
-    - Use - for subtraction (logical AND NOT)
-    - Expressions are evaluated left-to-right
-    - Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
+        Boolean operations are supported:
+        - Use + for union (logical OR)
+        - Use - for subtraction (logical AND NOT)
+        - Expressions are evaluated left-to-right
+        - Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
 
-    Masks are automatically generated and cached on first call for each nside.
+        Masks are automatically generated and cached on first call for each nside.
     """
     # Check if mask_name contains boolean operators
     if "+" in mask_name or "-" in mask_name:
@@ -829,25 +758,22 @@ def get_mask(mask_name="GAL020", nside=64):
 
 
 def generate_needed_maps(
-    nside_list=None, noise_ratio_list=None, instrument_name="LiteBIRD", sky_list=None
-):
+    nside_list: list[int] | None = None,
+    noise_ratio_list: list[float] | None = None,
+    instrument_name: str = "LiteBIRD",
+    sky_list: list[str] | None = None,
+) -> None:
     """Batch generate and cache all required frequency maps.
 
-    Parameters
-    ----------
-    nside_list : list of int, optional
-        HEALPix resolutions to generate (default: [4, 8, 32, 64, 128]).
-    noise_ratio_list : list of float, optional
-        Noise ratio configurations (default: [0.0, 1.0]).
-    instrument_name : str, optional
-        Instrument configuration (default: "LiteBIRD").
-    sky_list : list of str, optional
-        Sky model presets (default: ["c1d0s0", "c1d1s1"]).
+    Args:
+        nside_list: HEALPix resolutions to generate. Defaults to [4, 8, 32, 64, 128].
+        noise_ratio_list: Noise ratio configurations. Defaults to [0.0, 1.0].
+        instrument_name: Instrument configuration. Defaults to "LiteBIRD".
+        sky_list: Sky model presets. Defaults to ["c1d0s0", "c1d1s1"].
 
-    Notes
-    -----
-    Generates full frequency maps, foreground-only maps, and CMB-only maps
-    for all combinations of input parameters.
+    Notes:
+        Generates full frequency maps, foreground-only maps, and CMB-only maps
+        for all combinations of input parameters.
     """
     if nside_list is None:
         nside_list = [4, 8, 32, 64, 128]
