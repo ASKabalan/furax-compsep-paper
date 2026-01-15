@@ -5,7 +5,6 @@ assignments used in adaptive component separation. The clustering allows
 different spectral parameters in different sky regions.
 """
 
-
 import jax
 import jax.numpy as jnp
 from jax_healpy.clustering import (

@@ -38,7 +38,7 @@ from functools import partial
 from typing import Any
 
 import jax
-from jaxtyping import Array
+from jaxtyping import Array, Int
 
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
@@ -81,8 +81,7 @@ from furax_cs.data.generate_maps import (
 from furax_cs.data.instruments import get_instrument
 from furax_cs.data.search_space import dump_default_search_space, load_search_space
 from furax_cs.logging_utils import info, success
-from furax_cs.optim import condition
-from furax_cs.optim import optimize as furax_optimize
+from furax_cs.optim import minimize
 from jax_grid_search import DistributedGridSearch
 from jax_healpy.clustering import (
     find_kmeans_clusters,
@@ -278,13 +277,6 @@ def main():
         analytical_gradient=True,
     )
 
-    fn, to_opt, from_opt = condition(
-        negative_log_likelihood_fn,
-        lower=lower_bound if args.cond else None,
-        upper=upper_bound if args.cond else None,
-        factor=3 * nside**2 * 12 if args.cond else 1.0,
-    )
-
     _, freqmaps = load_from_cache(nside, instrument_name=args.instrument, sky=args.tag)
     _, fg_maps = load_fg_map(nside, instrument_name=args.instrument, sky=args.tag)
     cmb_map = load_cmb_map(nside, sky=args.tag)
@@ -319,10 +311,10 @@ def main():
 
     @partial(jax.jit, static_argnums=())
     def compute_minimum_variance(
-        T_d_patches: Array,
-        B_d_patches: Array,
-        B_s_patches: Array,
-        indices: Array,
+        T_d_patches: Int[Array, " batch"],
+        B_d_patches: Int[Array, " batch"],
+        B_s_patches: Int[Array, " batch"],
+        indices: Int[Array, " indices"],
     ) -> dict[str, Any]:
         T_d_patches = T_d_patches.squeeze()
         B_d_patches = B_d_patches.squeeze()
@@ -355,10 +347,6 @@ def main():
         lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
         upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
-        guess_params = to_opt(guess_params)
-        lower_bound_tree = to_opt(lower_bound_tree)
-        upper_bound_tree = to_opt(upper_bound_tree)
-
         def single_run(noise_id):
             key = jax.random.PRNGKey(noise_id)
             white_noise = f_landscapes.normal(key) * noise_ratio
@@ -373,20 +361,21 @@ def main():
 
             N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 
-            final_params, final_state = furax_optimize(
-                fn=fn,
+            final_params, final_state = minimize(
+                fn=negative_log_likelihood_fn,
                 init_params=guess_params,
                 solver_name=args.solver,
                 max_iter=args.max_iter,
+                atol=1e-15,
+                rtol=1e-10,
                 lower_bound=lower_bound_tree,
                 upper_bound=upper_bound_tree,
+                precondition=args.cond,
                 nu=nu,
                 N=N,
                 d=noised_d,
                 patch_indices=guess_clusters,
             )
-
-            final_params = from_opt(final_params)
 
             s = sky_signal_fn(final_params, nu=nu, d=noised_d, N=N, patch_indices=guess_clusters)
             cmb = s["cmb"]

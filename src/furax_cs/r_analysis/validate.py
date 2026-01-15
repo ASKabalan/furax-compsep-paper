@@ -1,6 +1,6 @@
 import os
 from functools import partial
-from typing import Any
+from typing import Any, Optional, Union
 
 import healpy as hp
 import jax
@@ -14,14 +14,15 @@ from furax.obs import negative_log_likelihood
 from furax.obs.stokes import Stokes
 from furax_cs import generate_noise_operator
 from jax_healpy.clustering import get_fullmap_from_cutout
-from jaxtyping import Array, Float, PyTree
+from jaxtyping import Array, Float, Int, PyTree
+from tqdm import tqdm
 
 from ..logging_utils import error, info, success
-from .plotting import PLOT_OUTPUTS, save_or_show
+from .plotting import PLOT_OUTPUTS, get_run_color, save_or_show
 from .utils import index_run_data
 
 
-def parse_perturb_spec(spec: str, n_params: int) -> Array | None:
+def _parse_perturb_spec(spec: str, n_params: int) -> Optional[Array]:
     """Parse perturbation spec: 'all', '-1', '0,1,2,3', or '0:30'.
 
     Returns None if spec is '-1' (skip this param).
@@ -42,8 +43,8 @@ def compute_gradient_validation(
     # Data & Parameters
     final_params: PyTree[Float[Array, " P"]],
     masked_d: Stokes,
-    patch_indices: PyTree[Float[Array, " P"]],
-    mask_indices: Array,
+    patch_indices: PyTree[Int[Array, " P"]],
+    mask_indices: Int[Array, " indices"],
     # Instrument & Config
     instrument: FGBusterInstrument,
     nside: int,
@@ -59,40 +60,44 @@ def compute_gradient_validation(
     # Execution mode
     use_vmap: bool = True,
 ) -> dict[str, Any]:
-    """
-    Compute NLL and gradient norms for perturbed parameters across multiple scales.
+    """Computes NLL and gradient norms for perturbed parameters across multiple scales.
 
-    Parameters
-    ----------
-    final_params : dict
-        The optimized parameters (beta_dust, beta_pl, temp_dust).
-    masked_d : Stokes
-        The input data (masked).
-    patch_indices : dict
-        Patch assignments.
-    mask_indices : Array
-        Indices where mask is 1.
-    instrument : Instrument
-        Instrument object.
-    nside : int
-        Healpix nside.
-    scales : list of float
-        Scales of perturbation to validate.
-    steps_range : int
-        Number of steps +/- to perturb.
-    noise_ratio : float
-        Ratio of noise to add (0.0 for noiseless validation).
-    run_idx : int
-        Run index (used for RNG seeding).
-    perturb_beta_dust : str
-        Perturbation spec for beta_dust: 'all', '-1', '0:30', or '0,1,2'.
-    perturb_beta_pl : str
-        Perturbation spec for beta_pl.
-    perturb_temp_dust : str
-        Perturbation spec for temp_dust.
-    use_vmap : bool
-        If True (default), use vmap for vectorized computation.
-        If False, use for-loop (slower but less memory).
+    Validates the stability of the optimization by perturbing the solution and checking
+    if the Negative Log-Likelihood (NLL) increases and gradients behave as expected.
+
+    Args:
+        final_params: The optimized parameters (beta_dust, beta_pl, temp_dust).
+        masked_d: The input data (masked Stokes parameters).
+        patch_indices: Dictionary containing patch assignments for each parameter.
+        mask_indices: Array of indices where the mask is applied (value 1).
+        instrument: The instrument configuration object.
+        nside: HEALPix nside resolution.
+        scales: List of scaling factors for perturbation (e.g., [1e-1, 1e-2]).
+        steps_range: Number of steps to perturb in positive and negative directions.
+        noise_ratio: Ratio of noise to add (0.0 for noiseless validation). Defaults to 0.0.
+        run_idx: Run index used for random number generation seeding. Defaults to 0.
+        perturb_beta_dust: Spec string for beta_dust perturbation ('all', '-1', '0:3').
+            Defaults to "all".
+        perturb_beta_pl: Spec string for beta_pl perturbation. Defaults to "all".
+        perturb_temp_dust: Spec string for temp_dust perturbation. Defaults to "all".
+        use_vmap: Whether to use jax.vmap for vectorized computation. Defaults to True.
+
+    Returns:
+        A dictionary containing keys 'scales', 'steps', and 'results' (mapping scale -> metrics).
+
+    Example:
+        >>> results = compute_gradient_validation(
+        ...     final_params={"beta_dust": jnp.array([1.54]), ...},
+        ...     masked_d=stokes_data,
+        ...     patch_indices=patches,
+        ...     mask_indices=mask_idx,
+        ...     instrument=planck_instr,
+        ...     nside=64,
+        ...     scales=[1e-3, 1e-4],
+        ...     steps_range=5
+        ... )
+        >>> print(results["scales"])
+        [0.001, 0.0001]
     """
     info(f"is X64 enabled: {jax.config.jax_enable_x64}")
     # 1. Construct Noise Operator & Data
@@ -139,9 +144,9 @@ def compute_gradient_validation(
     n_bp = final_params["beta_pl"].shape[0]
     n_td = final_params["temp_dust"].shape[0]
 
-    idx_bd = parse_perturb_spec(perturb_beta_dust, n_bd)
-    idx_bp = parse_perturb_spec(perturb_beta_pl, n_bp)
-    idx_td = parse_perturb_spec(perturb_temp_dust, n_td)
+    idx_bd = _parse_perturb_spec(perturb_beta_dust, n_bd)
+    idx_bp = _parse_perturb_spec(perturb_beta_pl, n_bp)
+    idx_td = _parse_perturb_spec(perturb_temp_dust, n_td)
 
     # Create masks (1 where perturb, 0 elsewhere)
     mask_bd = np.zeros(n_bd)
@@ -193,7 +198,7 @@ def compute_gradient_validation(
                 n_steps = len(steps)
                 nlls_list = []
                 grads_list = []
-                for i in range(n_steps):
+                for i in tqdm(range(n_steps), desc="  Validating", unit="step"):
                     params_i = jax.tree.map(lambda x: x[i], final_params_perturbed)
                     nlls_list.append(nll(params_i))
                     grads_list.append(grad_nll(params_i))
@@ -216,66 +221,131 @@ def compute_gradient_validation(
     return {"scales": scales, "steps": steps, "results": results}
 
 
-def _get_markers(steps):
-    """Get marker styles based on number of steps."""
+def _plot_lines_on_ax(
+    ax: plt.Axes,
+    validation_results: list[dict[str, Any]],
+    labels: list[str],
+    metric_key: str,
+    is_nll: bool = False,
+    use_legend: bool = True,
+) -> None:
+    """Helper to plot lines on a given axis, handling aggregation and shared minimums."""
+    # Common Setup
+    first_res = validation_results[0]
+    scales = first_res["scales"]
+    steps = first_res["steps"]
+
+    # Visuals: colors by run (using shared palette), all lines dashed with markers
+    n_runs = len(validation_results)
+    colors = [get_run_color(i) for i in range(n_runs)]
+    markers = ["o", "s", "^", "d", "v", "<", ">", "p", "h", "*"]
     use_markers = len(steps) <= 10
-    return {
-        "nll": "o-" if use_markers else "-",
-        "bd": "s-" if use_markers else "-",
-        "bp": "^-" if use_markers else "-",
-        "td": "d-" if use_markers else "-",
-    }
+
+    # Global Minimum Logic for NLL
+    global_min = np.inf
+    if is_nll:
+        all_nlls = []
+        for val_res in validation_results:
+            for scale in scales:
+                all_nlls.append(val_res["results"][scale]["NLL"])
+        global_min = np.min(np.concatenate(all_nlls)) if all_nlls else 0.0
+
+    # Plotting Loop: colors and markers by run, all dashed lines
+    for run_idx, (val_res, label) in enumerate(zip(validation_results, labels)):
+        color = colors[run_idx]
+        marker_char = markers[run_idx % len(markers)] if use_markers else None
+
+        for scale_idx, scale in enumerate(scales):
+            data = val_res["results"][scale]
+            y_values = data[metric_key]
+
+            # Label Generation
+            if is_nll:
+                # Calculate stats relative to global min
+                idx_zero = jnp.argmin(jnp.abs(steps))
+                nll_zero = y_values[idx_zero]
+
+                abs_diff = nll_zero - global_min
+                rel_diff = abs(abs_diff / global_min) if global_min != 0 else 0.0
+
+                # Construct Legend
+                prefix = f"{label} " if label else ""
+
+                final_label = (
+                    f"{prefix}Scale {scale:.1e}\n"
+                    f" Sol:  {nll_zero:.7e}\n"
+                    f" Diff: {abs_diff:.2e}\n"
+                    f" Rel:  {rel_diff:.2e}"
+                )
+            else:
+                prefix = f"{label} " if label else ""
+                final_label = f"{prefix}Scale {scale:.1e}"
+
+            ax.plot(
+                steps,
+                y_values,
+                linestyle="--",
+                marker=marker_char,
+                linewidth=2,
+                color=color,
+                label=final_label,
+                alpha=0.8,
+            )
+
+    # Post-plot decorations
+    if is_nll:
+        ax.axhline(
+            global_min,
+            color="gray",
+            linestyle="--",
+            alpha=0.6,
+            label=f"Global Min: {global_min:.7e}",
+        )
+
+    ax.axvline(0, color="red", linestyle="--", alpha=0.5)
+
+    if use_legend:
+        if is_nll:
+            # Legend outside plot on the right for NLL plots
+            ax.legend(
+                fontsize="small",
+                loc="center left",
+                bbox_to_anchor=(1.02, 0.5),
+                borderaxespad=0,
+                frameon=True,
+            )
+        else:
+            ax.legend(fontsize="small", loc="best")
 
 
 def _plot_nll(
-    validation_results: dict[str, Any] | list[dict[str, Any]],
+    validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    labels: list[str] | None = None,
-    subfolder: str | None = None,
+    labels: Optional[list[str]] = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot NLL only."""
-    # Handle single result or list of results
     if isinstance(validation_results, dict):
         validation_results = [validation_results]
         labels = labels or [""]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(10, 4))
     fig.suptitle(f"NLL Validation {title}", fontsize=16)
 
-    # Colors for scales, linestyles for runs
-    first_res = validation_results[0]
-    scales = first_res["scales"]
-    steps = first_res["steps"]
-    colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
-    linestyles = ["-", "--", ":", "-."]
-    markers = _get_markers(steps)
+    _plot_lines_on_ax(
+        ax,
+        validation_results,
+        labels,
+        metric_key="NLL",
+        is_nll=True,
+    )
 
-    for run_idx, (val_res, label) in enumerate(zip(validation_results, labels)):
-        ls = linestyles[run_idx % len(linestyles)]
-        for scale_idx, scale in enumerate(scales):
-            data = val_res["results"][scale]
-            nlls = data["NLL"]
-            color = colors[scale_idx]
-            run_label = f"{label} {scale:.1e}" if label else f"Scale {scale:.1e}"
-            ax.plot(
-                steps,
-                nlls,
-                markers["nll"],
-                linestyle=ls,
-                linewidth=2,
-                color=color,
-                label=run_label,
-                alpha=0.8,
-            )
-
-    ax.axvline(0, color="red", linestyle="--", alpha=0.5)
     ax.set_xlabel("Perturbation Steps (x Scale)")
     ax.set_ylabel("NLL")
     ax.set_title("Negative Log-Likelihood")
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize="small", loc="best")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 0.75, 1])  # Leave room on right for legend
 
     base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
     os.makedirs(base_dir, exist_ok=True)
@@ -284,11 +354,11 @@ def _plot_nll(
 
 
 def _plot_grad_norms(
-    validation_results: dict[str, Any] | list[dict[str, Any]],
+    validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    labels: list[str] | None = None,
-    subfolder: str | None = None,
+    labels: Optional[list[str]] = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot gradient norms (1x3)."""
     if isinstance(validation_results, dict):
@@ -298,45 +368,26 @@ def _plot_grad_norms(
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     fig.suptitle(f"Gradient Norms {title}", fontsize=16)
 
-    first_res = validation_results[0]
-    scales = first_res["scales"]
-    steps = first_res["steps"]
-    colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
-    linestyles = ["-", "--", ":", "-."]
-    mkrs = _get_markers(steps)
-
     param_configs = [
-        ("grads_beta_dust", "Beta Dust", mkrs["bd"]),
-        ("grads_beta_pl", "Beta PL", mkrs["bp"]),
-        ("grads_temp_dust", "Temp Dust", mkrs["td"]),
+        ("grads_beta_dust", "Beta Dust"),
+        ("grads_beta_pl", "Beta PL"),
+        ("grads_temp_dust", "Temp Dust"),
     ]
 
-    for ax, (key, param_title, marker) in zip(axes, param_configs):
-        for run_idx, (val_res, label) in enumerate(zip(validation_results, labels)):
-            ls = linestyles[run_idx % len(linestyles)]
-            for scale_idx, scale in enumerate(scales):
-                data = val_res["results"][scale]
-                grad_norm = data[key]
-                color = colors[scale_idx]
-                run_label = f"{label} {scale:.1e}" if label else f"Scale {scale:.1e}"
-                ax.plot(
-                    steps,
-                    grad_norm,
-                    marker,
-                    linestyle=ls,
-                    linewidth=2,
-                    color=color,
-                    label=run_label,
-                    alpha=0.8,
-                )
-
-        ax.axvline(0, color="red", linestyle="--", alpha=0.5)
+    for ax, (key, param_title) in zip(axes, param_configs):
+        _plot_lines_on_ax(
+            ax,
+            validation_results,
+            labels,
+            metric_key=key,
+            is_nll=False,
+            use_legend=(ax == axes[0]),  # Only legend on first plot
+        )
         ax.set_xlabel("Perturbation Steps (x Scale)")
         ax.set_ylabel("L2 Norm")
         ax.set_title(f"Gradient: {param_title}")
         ax.grid(True, alpha=0.3)
 
-    axes[0].legend(fontsize="small", loc="best")
     plt.tight_layout()
 
     base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
@@ -353,7 +404,7 @@ def _plot_grad_maps(
     nside: int,
     file_name: str,
     title: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot gradient healpix maps at a specific step index."""
     scales = validation_results["scales"]
@@ -368,7 +419,7 @@ def _plot_grad_maps(
     scale = scales[0]
     grads_raw = results[scale]["grads_raw"]
 
-    fig = plt.figure(figsize=(15, 5))
+    fig = plt.figure(figsize=(15, 4))
     fig.suptitle(f"Gradient Maps {title} (step={actual_step}, scale={scale:.1e})", fontsize=14)
 
     param_configs = [
@@ -400,114 +451,62 @@ def _plot_grad_maps(
 
 
 def _plot_nll_grad(
-    validation_results: dict[str, Any],
+    validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    subfolder: str | None = None,
+    labels: Optional[list[str]] = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """
     Generate a 2x2 plot of NLL and Gradient Norms across scales.
     """
-    scales = validation_results["scales"]
-    steps = validation_results["steps"]
-    results = validation_results["results"]
+    if isinstance(validation_results, dict):
+        validation_results = [validation_results]
+        labels = labels or [""]
 
     # Setup Plotting Grid
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 6))
     fig.suptitle(f"Optimization Verification {title}", fontsize=16)
 
-    # Colors for different scales
-    colors = plt.cm.viridis(np.linspace(0, 0.8, len(scales)))
+    # Plot 1: Negative Log Likelihood
+    _plot_lines_on_ax(
+        axes[0, 0],
+        validation_results,
+        labels,
+        metric_key="NLL",
+        is_nll=True,
+        use_legend=True,
+    )
 
-    # Choose markers based on number of steps (no markers if > 10 steps)
-    use_markers = len(steps) <= 10
-    marker_nll = "o-" if use_markers else "-"
-    marker_bd = "s-" if use_markers else "-"
-    marker_bp = "^-" if use_markers else "-"
-    marker_td = "d-" if use_markers else "-"
+    # Plot 2: Gradient Norm - Beta Dust
+    _plot_lines_on_ax(
+        axes[0, 1],
+        validation_results,
+        labels,
+        metric_key="grads_beta_dust",
+        is_nll=False,
+        use_legend=False,
+    )
 
-    for i, scale in enumerate(scales):
-        data = results[scale]
-        color = colors[i]
+    # Plot 3: Gradient Norm - Beta PL
+    _plot_lines_on_ax(
+        axes[1, 0],
+        validation_results,
+        labels,
+        metric_key="grads_beta_pl",
+        is_nll=False,
+        use_legend=False,
+    )
 
-        # Unpack data
-        nlls = data["NLL"]
-        g_bd = data["grads_beta_dust"]
-        g_bp = data["grads_beta_pl"]
-        g_td = data["grads_temp_dust"]
-
-        # --- Calculate Stats for Legend ---
-        # 1. Identify value at Step 0 (The Solver's Solution)
-        idx_zero = jnp.argmin(jnp.abs(steps))
-        nll_zero = nlls[idx_zero]
-
-        # 2. Identify global Minimum in this scan
-        nll_min = jnp.min(nlls)
-
-        # 3. Calculate Differences
-        abs_diff = nll_zero - nll_min
-        rel_diff = abs(abs_diff / nll_min) if nll_min != 0 else 0.0
-
-        # Create specific label for NLL plot containing the stats
-        # Using newlines to keep the legend box compact width-wise
-        nll_label = (
-            f"Scale {scale:.1e}\n"
-            f" Sol:  {nll_zero:.7e}\n"
-            f" Min:  {nll_min:.7e}\n"
-            f" Diff: {abs_diff:.2e}\n"
-            f" Rel:  {rel_diff:.2e}"
-        )
-        base_label = f"Scale {scale:.1e}"
-        # ----------------------------------
-
-        # Plot 1: Negative Log Likelihood (Uses detailed legend)
-        ax = axes[0, 0]
-        # We plot nlls directly, but the legend explains the gap
-        ax.plot(
-            steps,
-            nlls,
-            marker_nll,
-            linewidth=2,
-            color=color,
-            label=nll_label,
-            alpha=0.8,
-        )
-
-        # Plot 2: Gradient Norm - Beta Dust (Uses simple legend)
-        ax = axes[0, 1]
-        ax.plot(
-            steps,
-            g_bd,
-            marker_bd,
-            linewidth=2,
-            color=color,
-            label=base_label,
-            alpha=0.8,
-        )
-
-        # Plot 3: Gradient Norm - Beta PL
-        ax = axes[1, 0]
-        ax.plot(
-            steps,
-            g_bp,
-            marker_bp,
-            linewidth=2,
-            color=color,
-            label=base_label,
-            alpha=0.8,
-        )
-
-        # Plot 4: Gradient Norm - Temp Dust
-        ax = axes[1, 1]
-        ax.plot(
-            steps,
-            g_td,
-            marker_td,
-            linewidth=2,
-            color=color,
-            label=base_label,
-            alpha=0.8,
-        )
+    # Plot 4: Gradient Norm - Temp Dust
+    _plot_lines_on_ax(
+        axes[1, 1],
+        validation_results,
+        labels,
+        metric_key="grads_temp_dust",
+        is_nll=False,
+        use_legend=False,
+    )
 
     # Common Formatting
     plot_configs = [
@@ -523,21 +522,7 @@ def _plot_nll_grad(
         ax.set_xlabel("Perturbation Steps (x Scale)")
         ax.grid(True, alpha=0.3)
 
-        # Vertical line at 0
-        ax.axvline(
-            0,
-            color="red",
-            linestyle="--",
-            alpha=0.5,
-            # We don't need a label here anymore since it's in the main legend
-        )
-
-        # Add legend
-        # For NLL plot, move legend outside if it's too big, or keep inside best location
-        if ax == axes[0, 0]:
-            ax.legend(fontsize="small", loc="best")
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=[0, 0.03, 0.85, 0.95])  # Leave room on right for NLL legend
 
     # Save
     base_dir = os.path.join(PLOT_OUTPUTS, subfolder) if subfolder else PLOT_OUTPUTS
@@ -547,45 +532,41 @@ def _plot_nll_grad(
 
 
 def plot_gradient_validation(
-    validation_results: dict[str, Any] | list[dict[str, Any]],
+    validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
     plot_type: str = "nll-grad",
-    labels: list[str] | None = None,
-    patches: dict[str, Array] | None = None,
-    mask_indices: Array | None = None,
-    nside: int | None = None,
-    subfolder: str | None = None,
+    labels: Optional[list[str]] = None,
+    patches: Optional[dict[str, Array]] = None,
+    mask_indices: Optional[Array] = None,
+    nside: Optional[int] = None,
+    subfolder: Optional[str] = None,
 ) -> None:
-    """
-    Dispatch to appropriate plotting function based on plot_type.
+    """Dispatches to the appropriate plotting function based on plot_type.
 
-    Parameters
-    ----------
-    validation_results : dict or list of dicts
-        Validation results from compute_gradient_validation.
-    file_name : str
-        Output file name (without extension).
-    title : str
-        Plot title.
-    plot_type : str
-        One of: 'nll-grad', 'nll', 'grad', 'grad-maps-{idx}'.
-    labels : list of str, optional
-        Labels for each result when aggregating multiple runs.
-    patches : dict, optional
-        Patch indices (required for grad-maps).
-    mask_indices : Array, optional
-        Mask indices (required for grad-maps).
-    nside : int, optional
-        HEALPix nside (required for grad-maps).
-    subfolder : str, optional
-        Subfolder for output.
+    Args:
+        validation_results: Validation results (or list thereof) from
+            compute_gradient_validation.
+        file_name: Output file name (without extension).
+        title: Plot title.
+        plot_type: Type of plot to generate. One of: 'nll-grad', 'nll', 'grad',
+            'grad-maps-{idx}'. Defaults to "nll-grad".
+        labels: Optional labels for each result when aggregating multiple runs.
+        patches: Optional patch indices (required for grad-maps).
+        mask_indices: Optional mask indices (required for grad-maps).
+        nside: Optional HEALPix nside (required for grad-maps).
+        subfolder: Optional subfolder for output files.
+
+    Example:
+        >>> plot_gradient_validation(
+        ...     results,
+        ...     file_name="validation_plot",
+        ...     title="Run 0 Gradient Check",
+        ...     plot_type="nll"
+        ... )
     """
     if plot_type == "nll-grad":
-        # Single result only for nll-grad (original behavior)
-        if isinstance(validation_results, list):
-            validation_results = validation_results[0]
-        _plot_nll_grad(validation_results, file_name, title, subfolder)
+        _plot_nll_grad(validation_results, file_name, title, labels, subfolder)
     elif plot_type == "nll":
         _plot_nll(validation_results, file_name, title, labels, subfolder)
     elif plot_type == "grad":
@@ -605,33 +586,59 @@ def plot_gradient_validation(
 
 
 def run_validate(
-    matched_results: dict[str, tuple[list[str], int | tuple[int, int], str]],
+    matched_results: dict[str, tuple[list[str], Union[int, tuple[int, int]], str]],
     names: list[str],
     nside: int,
     instrument: FGBusterInstrument,
     steps: int,
     noise_ratio: float,
     scales: list[float],
-    plot_type: str = "nll-grad",
+    plot_type: list[str] = ["nll-grad"],
     perturb_beta_dust: str = "all",
     perturb_beta_pl: str = "all",
     perturb_temp_dust: str = "all",
     aggregate: bool = False,
     use_vmap: bool = True,
 ) -> None:
-    """Entry point for 'validate' subcommand.
+    """Entry point for 'validate' subcommand to run the full validation pipeline.
 
-    Parameters
-    ----------
-    plot_type : str
-        Plot type: 'nll-grad', 'nll', 'grad', or 'grad-maps-{idx}'.
-    perturb_beta_dust, perturb_beta_pl, perturb_temp_dust : str
-        Perturbation specs: 'all', '-1', '0:30', or '0,1,2'.
-    aggregate : bool
-        If True, combine all runs on same plot (except grad-maps).
-    use_vmap : bool
-        If True (default), use vmap. If False, use for-loop (less memory).
+    Loads results, computes perturbations, and generates validation plots for one or
+    multiple runs.
+
+    Args:
+        matched_results: Dictionary mapping names to folder lists and metadata.
+        names: List of group names to validate.
+        nside: HEALPix nside resolution.
+        instrument: FGBusterInstrument object.
+        steps: Number of steps to perturb in each direction.
+        noise_ratio: Noise ratio to add during validation.
+        scales: List of scales for perturbation.
+        plot_type: List of plot types to generate ('nll-grad', 'nll', etc.).
+            Defaults to ["nll-grad"].
+        perturb_beta_dust: Spec for beta_dust perturbation. Defaults to "all".
+        perturb_beta_pl: Spec for beta_pl perturbation. Defaults to "all".
+        perturb_temp_dust: Spec for temp_dust perturbation. Defaults to "all".
+        aggregate: If True, combines all runs onto a single plot. Defaults to False.
+        use_vmap: Whether to use JAX vmap for vectorized execution. Defaults to True.
+
+    Example:
+        >>> run_validate(
+        ...     matched_results={"run_1": (["path/to/folder"], 0, ".")},
+        ...     names=["run_1"],
+        ...     nside=64,
+        ...     instrument=instr,
+        ...     steps=10,
+        ...     noise_ratio=0.1,
+        ...     scales=[1e-2]
+        ... )
     """
+    # Global aggregation collectors (moved outside loop for single combined plot)
+    all_val_res = []
+    all_labels = []
+    last_patches = None
+    last_indices = None
+    last_nside = nside
+
     for name, (kw, matched_folders) in zip(names, matched_results.items()):
         folders, run_indices, root_dir = matched_folders
 
@@ -646,12 +653,6 @@ def run_validate(
             run_indices_list = list(range(run_indices[0], run_indices[1] + 1))
         else:
             run_indices_list = list(run_indices)  # type: ignore
-
-        # Collect results for aggregation
-        all_val_res = []
-        all_labels = []
-        last_patches = None
-        last_indices = None
 
         for folder in folders:
             results_path = f"{folder}/results.npz"
@@ -711,34 +712,40 @@ def run_validate(
 
                 if aggregate:
                     all_val_res.append(val_res)
-                    all_labels.append(f"{base_name}_s{run_idx}")
+                    all_labels.append(f"{kw}")
                     last_patches = patches
                     last_indices = indices
                 else:
-                    # Plot immediately
-                    file_name = f"{base_name}_seed_{run_idx}"
-                    plot_gradient_validation(
-                        val_res,
-                        file_name=file_name,
-                        title=name,
-                        plot_type=plot_type,
-                        patches=patches,
-                        mask_indices=indices,
-                        nside=nside,
-                        subfolder=plot_subfolder,
-                    )
+                    # Plot immediately for each requested plot type
+                    for pt in plot_type:
+                        file_name = f"{base_name}_seed_{run_idx}_{pt}"
+                        plot_gradient_validation(
+                            val_res,
+                            file_name=file_name,
+                            title=name,
+                            plot_type=pt,
+                            patches=patches,
+                            mask_indices=indices,
+                            nside=nside,
+                            subfolder=plot_subfolder,
+                        )
 
-        # Aggregated plot
-        if aggregate and all_val_res:
-            file_name = f"{kw}_aggregated"
+    # Aggregated plot (all groups combined into single file)
+    if aggregate and all_val_res:
+        combined_title = ", ".join(names)
+        for pt in plot_type:
+            if pt.startswith("grad-maps-"):
+                error(f"Plot type '{pt}' is not compatible with --aggregate, skipping")
+                continue
+            file_name = f"all_aggregated_{pt}"
             plot_gradient_validation(
                 all_val_res,
                 file_name=file_name,
-                title=name,
-                plot_type=plot_type,
+                title=combined_title,
+                plot_type=pt,
                 labels=all_labels,
                 patches=last_patches,
                 mask_indices=last_indices,
-                nside=nside,
-                subfolder=plot_subfolder,
+                nside=last_nside,
+                subfolder=None,
             )

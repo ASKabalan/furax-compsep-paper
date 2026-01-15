@@ -37,3 +37,4 @@ repos:
         - pytest
         - types-PyYAML
         - types-tqdm
+        - matplotlib-stubs

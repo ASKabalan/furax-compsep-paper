@@ -254,7 +254,8 @@ ARGUMENT NOTES:
     parser_validate.add_argument(
         "--plot-type",
         type=str,
-        default="nll-grad",
+        nargs="+",
+        default=["nll-grad"],
         help="Plot type: 'nll-grad' (default), 'nll', 'grad', or 'grad-maps-{idx}' (e.g., grad-maps-0).",
     )
     parser_validate.add_argument(

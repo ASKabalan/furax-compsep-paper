@@ -1,6 +1,9 @@
 """Data generation and instrument configuration for CMB component separation."""
 
 from .generate_maps import (
+    CMBLensedWithTensors,
+    generate_custom_cmb,
+    generate_needed_maps,
     get_mask,
     get_mixin_matrix_operator,
     load_cmb_map,
@@ -37,4 +40,7 @@ __all__ = [
     "dump_default_search_space",
     "validate_search_space",
     "sanitize_mask_name",
+    "generate_custom_cmb",
+    "generate_needed_maps",
+    "CMBLensedWithTensors",
 ]

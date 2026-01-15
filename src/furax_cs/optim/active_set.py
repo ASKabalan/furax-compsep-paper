@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 import jax
 import jax.lax as lax
@@ -20,7 +20,7 @@ from jaxtyping import (
 # --- Helper Logic ---
 
 
-def compute_initial_pivot(
+def _compute_initial_pivot(
     y: PyTree[Float[Array, " P"]],
     lower: PyTree[Float[Array, " P"]],
     upper: PyTree[Float[Array, " P"]],
@@ -63,7 +63,7 @@ def compute_initial_pivot(
     return jtu.tree_map(_leaf_pivot, y, lower, upper, scale, offset)
 
 
-def compute_step_max(
+def _compute_step_max(
     step_limit: Scalar,
     y_int: PyTree[Float[Array, " P"]],
     direction: PyTree[Float[Array, " P"]],
@@ -113,7 +113,7 @@ def compute_step_max(
     return jnp.minimum(step_limit, dist_to_bound)
 
 
-def update_pivot_at_boundary(
+def _update_pivot_at_boundary(
     y_int: PyTree[Float[Array, " P"]],
     direction: PyTree[Float[Array, " P"]],
     pivot: PyTree[Int[Array, " P"]],
@@ -167,7 +167,7 @@ def update_pivot_at_boundary(
     )
 
 
-def release_constraints(
+def _release_constraints(
     pivot: PyTree[Int[Array, " P"]], gradients_int: PyTree[Float[Array, " P"]]
 ) -> PyTree[Int[Array, " P"]]:
     """
@@ -208,8 +208,8 @@ class ActiveSetState(NamedTuple):
 def active_set(
     direction_solver: optax.GradientTransformation,
     linesearch_solver: optax.GradientTransformation,
-    lower: PyTree[Float[Array, " P"]] | None = None,
-    upper: PyTree[Float[Array, " P"]] | None = None,
+    lower: Optional[PyTree[Float[Array, " P"]]] = None,
+    upper: Optional[PyTree[Float[Array, " P"]]] = None,
     rescale_threshold: float = 1.3,
     stepmx_init: float = 10.0,
     verbose: bool = False,
@@ -240,7 +240,7 @@ def active_set(
 
         # Calculate internal Y: y = (x - offset) / scale
         y_int = otu.tree_div(otu.tree_sub(params, offset), xscale)
-        pivot = compute_initial_pivot(y_int, lo, up, xscale, offset)
+        pivot = _compute_initial_pivot(y_int, lo, up, xscale, offset)
 
         return ActiveSetState(
             count=jnp.array(0, dtype=jnp.int32),
@@ -258,10 +258,10 @@ def active_set(
     def update_fn(
         grads: PyTree[Float[Array, " P"]],
         state: ActiveSetState,
-        params: PyTree[Float[Array, " P"]] | None = None,
-        value: Scalar | None = None,
-        grad: PyTree[Float[Array, " P"]] | None = None,
-        value_fn: Callable[[PyTree[Float[Array, " P"]]], Scalar] | None = None,
+        params: Optional[PyTree[Float[Array, " P"]]] = None,
+        value: Optional[Scalar] = None,
+        grad: Optional[PyTree[Float[Array, " P"]]] = None,
+        value_fn: Optional[Callable[[PyTree[Float[Array, " P"]]], Scalar]] = None,
         **kwargs: Any,
     ) -> tuple[PyTree[Float[Array, " P"]], ActiveSetState]:
         if params is None or value_fn is None:
@@ -281,12 +281,11 @@ def active_set(
         # --- 2. Release Active Constraints ---
         # If gradient points inward from a bound, release it (set pivot to 0)
         # TNC does this *before* projection
-        pivot = release_constraints(state.pivot, grads_int)
+        pivot = _release_constraints(state.pivot, grads_int)
 
         # --- 3. Project Gradients (Input Masking) ---
         # If pivot != 0, set gradient to 0 so the solver "thinks" we are optimal there
-        pivot_is_zero = jtu.tree_map(lambda p: p == 0, state.pivot)
-        grads_int_proj = otu.tree_where(pivot_is_zero, grads_int, otu.tree_full_like(grads_int, 0))
+        grads_int_proj = jax.tree.map(lambda p, pk: jnp.where(p == 0, pk, 0.0), pivot, grads_int)
 
         # --- 4. Dynamic Rescaling (TNC Logic) ---
         gnorm = otu.tree_norm(grads_int_proj)
@@ -306,7 +305,8 @@ def active_set(
         # --- FIX 1: Project Direction (Output Masking) ---
         # CRITICAL: Adam has momentum. Even if input grad is 0, output `pk` might not be.
         # We must force pk to 0 on active constraints to stop pushing into the wall.
-        pk = otu.tree_where(pivot_is_zero, pk, otu.tree_full_like(pk, 0))
+        pk = jax.tree.map(lambda p, pk: jnp.where(p == 0, pk, 0.0), state.pivot, pk)
+        # pk = otu.tree_where(pivot_is_zero, pk, otu.tree_full_like(pk, 0))
 
         if verbose:
             jax.debug.print("grads_int: {}", grads_int)
@@ -321,7 +321,7 @@ def active_set(
         ustpmax = state.stepmx / (pk_norm + 1e-20)
 
         # Distance to nearest bound along pk
-        spe = compute_step_max(
+        spe = _compute_step_max(
             ustpmax, y_int, pk, pivot, state.lower, state.upper, state.xscale, state.offset
         )
 
@@ -367,7 +367,7 @@ def active_set(
         # We pass the step size 'spe' implicitly by calculating where we land
         final_pivot = lax.cond(
             hit_wall,
-            lambda: update_pivot_at_boundary(
+            lambda: _update_pivot_at_boundary(
                 y_int, pk, pivot, state.lower, state.upper, state.xscale, state.offset, spe
             ),
             lambda: pivot,  # No change if we didn't hit wall

@@ -28,10 +28,10 @@ The `r_analysis` tool uses a subcommand structure: `snap`, `plot`, `validate`, a
 **Important**: You must specify the subcommand *before* any other arguments.
 
 #### 1. Snapshot (`snap`)
-Compute statistics and save them to a lightweight `.npz` file. Useful for aggregating heavy results from HPC runs.
+Compute statistics and save them to a lightweight `.npz` file. Useful for aggregating heavy results from HPC runs computed with `kmeans-model`, `ptep-model` or `distributed-gridding`.
 
 ```bash
-r_analysis snap -n 64 -r "kmeans" -ird results/ -o snapshots/my_run.npz
+r_analysis snap -n 64 -r "kmeans" -ird results/ -o snapshots
 ```
 
 #### 2. Plotting (`plot`)
@@ -39,7 +39,7 @@ Generate plots from raw results or a pre-computed snapshot.
 
 ```bash
 # Plot everything from a snapshot
-r_analysis plot -n 64 -r ".*" -ird results/ --snapshot snapshots/my_run.npz -a
+r_analysis plot -n 64 -r "kmeans_run1" "kmeans_run2" -ird results/ --snapshot snapshots -a
 
 # Plot specific metrics (e.g., r vs clusters)
 r_analysis plot -n 64 -r "kmeans" -ird results/ -arc

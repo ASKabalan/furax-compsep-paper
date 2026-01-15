@@ -4,8 +4,10 @@ This module provides utilities for generating instrumental noise and
 creating noise covariance operators used in likelihood computations.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
+import jax
+import jax.numpy as jnp
 from furax._instruments.sky import FGBusterInstrument, get_noise_sigma_from_instrument
 from furax.obs.landscapes import FrequencyLandscape
 from furax.obs.operators import NoiseDiagonalOperator
@@ -21,7 +23,7 @@ def generate_noise_operator(
     nside: int,
     masked_d: Stokes,
     instrument: FGBusterInstrument,
-    stokes_type: Literal["QU", "IQU"] | None = None,
+    stokes_type: Optional[Literal["QU", "IQU"]] = None,
 ) -> tuple[Stokes, NoiseDiagonalOperator]:
     """Generate noised data and corresponding noise covariance operator.
 
@@ -96,11 +98,9 @@ def generate_noise_operator(
 
     # Compute noise variance for covariance operator
     # When noise_ratio=0, use 1.0 to avoid singular N
-    if noise_ratio == 0:
-        small_n = 1.0
-    else:
-        small_n = (sigma * noise_ratio) ** 2
-
+    small_n = jax.tree.map(
+        lambda s: jnp.where(noise_ratio == 0, 1.0, (s * noise_ratio) ** 2), sigma
+    )
     # Create diagonal noise covariance operator
     N = NoiseDiagonalOperator(small_n, _in_structure=masked_d.structure)
 

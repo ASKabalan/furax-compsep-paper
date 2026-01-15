@@ -5,7 +5,7 @@ import os
 import pickle
 import re
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Optional, TypeAlias
 
 import camb
 import healpy as hp
@@ -30,7 +30,7 @@ from jaxtyping import (
 from pysm3 import units as pysm_units
 from pysm3.models.cmb import CMBLensed
 
-from ..logging_utils import error, info, success
+from ..logging_utils import info, success
 from .instruments import get_instrument
 
 SkyType: TypeAlias = dict[str, Stokes]
@@ -137,6 +137,11 @@ def parse_sky_tag(sky: str) -> tuple[str | None, str]:
 
     Returns:
         A tuple (cmb_tag, fg_tag). `cmb_tag` is None if no CMB present.
+
+    Example:
+        >>> cmb_tag, fg_tag = parse_sky_tag("c1d1s1")
+        >>> print(cmb_tag, fg_tag)
+        c1 d1s1
     """
     # Check for custom r pattern (crX)
     match = re.search(r"cr(\d+)", sky)
@@ -158,8 +163,8 @@ def parse_sky_tag(sky: str) -> tuple[str | None, str]:
 
 
 def generate_custom_cmb(
-    r_value: float, nside: int, seed: int | None = None
-) -> Float[Array, "3 pix"]:
+    r_value: float, nside: int, seed: Optional[int] = None
+) -> Float[Array, "3 npix"]:
     """Generate a CMB realization with a specific tensor-to-scalar ratio r.
 
     Uses PySM's taylens algorithm for proper lensing, which correctly generates
@@ -172,6 +177,9 @@ def generate_custom_cmb(
 
     Returns:
         CMB map (3, npix) in uK_CMB.
+
+    Example:
+        >>> cmb_map = generate_custom_cmb(r_value=0.01, nside=64, seed=42)
     """
     info(f"generating with r_value {r_value}")
     cmb = CMBLensedWithTensors(nside=nside, r=r_value, cmb_seed=seed)
@@ -183,8 +191,8 @@ def save_to_cache(
     noise_ratio: float = 0.0,
     instrument_name: str = "LiteBIRD",
     sky: str = "c1d0s0",
-    key: PRNGKeyArray | None = None,
-) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
+    key: Optional[PRNGKeyArray] = None,
+) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Generate and cache frequency maps for component separation.
 
     Args:
@@ -197,6 +205,9 @@ def save_to_cache(
     Returns:
         A tuple (frequencies, freq_maps) where frequencies are in GHz and freq_maps
         have shape (n_freq, 3, n_pix) for Stokes I, Q, U.
+
+    Example:
+        >>> freqs, maps = save_to_cache(nside=64, noise_ratio=0.0, sky="c1d0s0")
     """
     if key is None:
         key = jr.PRNGKey(0)
@@ -224,14 +235,14 @@ def save_to_cache(
             info(f"Detected custom r tag: {match.group(0)}")
             r_exp = int(match.group(1))
             r_val = r_exp * 1e-3
-            info(f"Generating custom CMB with AA r={r_val}")
+            info(f"Generating custom CMB with r={r_val}")
             fg_tag = sky.replace(match.group(0), "")
             # Derive seed from key if possible, else fixed
             # key is JAX key (uint32 array). Use first element.
             seed = int(key[1]) if key is not None else 0
             custom_cmb_map = generate_custom_cmb(r_val, nside, seed=seed)
         else:
-            error(f"No custom r tag detected for sky {sky}.")
+            r_val = 0.0  # Unused but here for Pyright
 
         # If we have custom CMB, we treat the rest as the "furax" sky
         tag_to_use = fg_tag if custom_cmb_map is not None else sky
@@ -268,7 +279,7 @@ def save_to_cache(
 
 def load_from_cache(
     nside: int, noise_ratio: float = 0.0, instrument_name: str = "LiteBIRD", sky: str = "c1d0s0"
-) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
+) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Load cached frequency maps from disk.
 
     Args:
@@ -282,6 +293,9 @@ def load_from_cache(
 
     Raises:
         FileNotFoundError: If cache file does not exist.
+
+    Example:
+        >>> freqs, maps = load_from_cache(nside=64, noise_ratio=0.0, sky="c1d0s0")
     """
     # Define cache file path
     instrument = get_instrument(instrument_name)
@@ -308,8 +322,8 @@ def save_fg_map(
     noise_ratio: float = 0.0,
     instrument_name: str = "LiteBIRD",
     sky: str = "c1d0s0",
-    key: PRNGKeyArray | None = None,
-) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
+    key: Optional[PRNGKeyArray] = None,
+) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Generate and cache foreground-only frequency maps (CMB excluded).
 
     Args:
@@ -321,6 +335,9 @@ def save_fg_map(
 
     Returns:
         A tuple (frequencies, freq_maps) containing only foreground contributions.
+
+    Example:
+        >>> freqs, fg_maps = save_fg_map(nside=64, sky="c1d1s1")
     """
     info(
         f"Generating fg map for nside {nside}, noise_ratio {noise_ratio}, instrument {instrument_name}"
@@ -333,7 +350,7 @@ def save_fg_map(
 
 def load_fg_map(
     nside: int, noise_ratio: float = 0.0, instrument_name: str = "LiteBIRD", sky: str = "c1d0s0"
-) -> tuple[Float[Array, freqs], Float[Array, "freqs 3 pix"]]:
+) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Load cached foreground-only frequency maps.
 
     Args:
@@ -344,6 +361,9 @@ def load_fg_map(
 
     Returns:
         A tuple (frequencies, freq_maps) containing only foreground contributions.
+
+    Example:
+        >>> freqs, fg_maps = load_fg_map(nside=64, sky="c1d1s1")
     """
     _, stripped_sky = parse_sky_tag(sky)
     return load_from_cache(
@@ -351,7 +371,7 @@ def load_fg_map(
     )
 
 
-def save_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
+def save_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 npix"]:
     """Generate and cache CMB-only maps for template generation.
 
     Args:
@@ -360,6 +380,9 @@ def save_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
 
     Returns:
         CMB map with shape (3, n_pix) for Stokes I, Q, U, or zeros if no CMB.
+
+    Example:
+        >>> cmb_map = save_cmb_map(nside=64, sky="c1d0s0")
     """
     info(f"Generating CMB map for nside {nside}, sky {sky}")
     # Define cache file path
@@ -391,7 +414,7 @@ def save_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
         return freq_maps
 
 
-def load_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
+def load_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 npix"]:
     """Load cached CMB-only maps.
 
     Args:
@@ -403,6 +426,9 @@ def load_cmb_map(nside: int, sky: str = "c1d0s0") -> Float[Array, "3 pix"]:
 
     Raises:
         FileNotFoundError: If cache file does not exist.
+
+    Example:
+        >>> cmb_map = load_cmb_map(nside=64, sky="c1d0s0")
     """
     # Define cache file path
     cache_dir = "freq_maps_cache"
@@ -447,6 +473,9 @@ def get_mixin_matrix_operator(
 
     Returns:
         A tuple (MixingMatrixOperator with CMB, MixingMatrixOperator without CMB).
+
+    Example:
+        >>> A, A_nocmb = get_mixin_matrix_operator(params, patches, nu, sky, 150.0, 20.0)
     """
     first_element = next(iter(sky.values()))
     size = first_element.shape[-1]
@@ -495,6 +524,9 @@ def simulate_D_from_params(
 
     Returns:
         A tuple (d, d_nocmb) where d includes CMB and d_nocmb excludes it.
+
+    Example:
+        >>> d, d_nocmb = simulate_D_from_params(params, patches, nu, sky, 150.0, 20.0)
     """
     A, A_nocmb = get_mixin_matrix_operator(
         params, patch_indices, nu, sky, dust_nu0, synchrotron_nu0
@@ -540,7 +572,7 @@ def sanitize_mask_name(mask_expr: str) -> str:
     return sanitized
 
 
-def parse_mask_expression(expr: str, nside: int) -> Bool[Array, pix]:
+def parse_mask_expression(expr: str, nside: int) -> Bool[Array, " npix"]:
     """Parse and evaluate boolean mask expressions.
 
     Supports left-to-right evaluation of expressions with + (union) and - (subtraction)
@@ -674,7 +706,7 @@ def _get_or_generate_mask_file(nside: int) -> Path:
     return mask_file
 
 
-def get_mask(mask_name: str = "GAL020", nside: int = 64) -> Bool[Array, pix]:
+def get_mask(mask_name: str = "GAL020", nside: int = 64) -> Bool[Array, " npix"]:
     """Load and process galactic masks at specified resolution.
 
     Args:
@@ -699,6 +731,11 @@ def get_mask(mask_name: str = "GAL020", nside: int = 64) -> Bool[Array, pix]:
         - Examples: "GAL020+GAL040", "ALL-GALACTIC", "GAL020+GAL040-GALACTIC"
 
         Masks are automatically generated and cached on first call for each nside.
+
+    Example:
+        >>> mask = get_mask("GAL020", nside=64)
+        >>> # Using boolean expression:
+        >>> mask_union = get_mask("GAL020+GAL040", nside=64)
     """
     # Check if mask_name contains boolean operators
     if "+" in mask_name or "-" in mask_name:
@@ -774,6 +811,9 @@ def generate_needed_maps(
     Notes:
         Generates full frequency maps, foreground-only maps, and CMB-only maps
         for all combinations of input parameters.
+
+    Example:
+        >>> generate_needed_maps(nside_list=[64], noise_ratio_list=[0.0, 1.0])
     """
     if nside_list is None:
         nside_list = [4, 8, 32, 64, 128]
