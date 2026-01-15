@@ -5,7 +5,6 @@ where pixels sharing the same low-resolution parent pixel are grouped
 together. This is the approach used in the LiteBIRD PTEP methodology.
 """
 
-
 import jax
 import jax.numpy as jnp
 import jax_healpy as jhp

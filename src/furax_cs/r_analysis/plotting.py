@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 import healpy as hp
 import jax
@@ -21,6 +21,37 @@ from .snapshot import load_and_filter_snapshot, serialize_snapshot_payload
 plt.style.use("science")
 
 PLOT_OUTPUTS = "plots/"
+
+# Shared color palette for consistent run colors across all plots
+# These are the default matplotlib tab10 colors
+RUN_COLORS = [
+    "#1f77b4",  # blue
+    "#ff7f0e",  # orange
+    "#2ca02c",  # green
+    "#d62728",  # red
+    "#9467bd",  # purple
+    "#8c564b",  # brown
+    "#e377c2",  # pink
+    "#7f7f7f",  # gray
+    "#bcbd22",  # olive
+    "#17becf",  # cyan
+]
+
+
+def get_run_color(index: int) -> str:
+    """Get color for run by index, cycling through RUN_COLORS.
+
+    Parameters
+    ----------
+    index : int
+        Zero-based index of the run
+
+    Returns
+    -------
+    str
+        Hex color string
+    """
+    return RUN_COLORS[index % len(RUN_COLORS)]
 
 
 def get_symmetric_percentile_limits(
@@ -54,32 +85,6 @@ def get_symmetric_percentile_limits(
     return -abs_max, abs_max
 
 
-def get_run_color(index: int) -> str | tuple[float, float, float, float]:
-    """Get consistent color for run based on position.
-
-    Position-based color assignment:
-    - 1st run: red
-    - 2nd run: blue
-    - 3rd run: green
-    - 4th+ runs: tab10 colormap colors
-
-    Parameters
-    ----------
-    index : int
-        Zero-based index of the run
-
-    Returns
-    -------
-    color
-        Color specification (string or RGB tuple from colormap)
-    """
-    base_colors = ["red", "green", "purple"]
-    if index < len(base_colors):
-        return base_colors[index]
-    else:
-        return plt.cm.tab10(index % 10)
-
-
 def _truncate_name_if_too_long(name: str, max_length: int = 250) -> str:
     """Truncate long names for plot titles and filenames."""
     if len(name) > max_length:
@@ -108,7 +113,7 @@ def set_font_size(size: int) -> None:
     )
 
 
-def save_or_show(filename: str, output_format: str, subfolder: str | None = None) -> None:
+def save_or_show(filename: str, output_format: str, subfolder: Optional[str] = None) -> None:
     """Save figure to file or show inline based on output format.
 
     Parameters
@@ -154,7 +159,7 @@ def plot_params(
     params: dict[str, Float[Array, " npix"]],
     output_format: str,
     plot_vertical: bool = False,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot recovered spectral parameter maps for a single configuration."""
     if plot_vertical:
@@ -195,7 +200,7 @@ def plot_patches(
     patches: dict[str, Int[Array, " npix"]],
     output_format: str,
     plot_vertical: bool = False,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Visualise patch assignments (cluster labels) for each spectral parameter."""
     if plot_vertical:
@@ -248,7 +253,7 @@ def plot_validation_curves(
     updates_history: list[Array],
     value_history: list[Array],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot optimizer update norms and NLL traces for each run."""
     updates_history_arr = np.array(updates_history)
@@ -1047,7 +1052,7 @@ def plot_systematic_residual_maps(
     name: str,
     syst_map: Float[Array, " 3 npix"],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot systematic residual Q/U maps for a single configuration."""
     syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
@@ -1088,7 +1093,7 @@ def plot_statistical_residual_maps(
     name: str,
     stat_maps: list[Float[Array, " 3 npix"]],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot statistical residual Q/U maps for a single configuration."""
     stat_map_first = stat_maps[0]
@@ -1132,7 +1137,7 @@ def plot_cmb_reconstructions(
     cmb_stokes: Stokes,
     cmb_recon: Stokes,
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot reconstructed maps, inputs, and differences for Q/U."""
 
@@ -1207,7 +1212,7 @@ def plot_cl_residuals(
     cl_true: Float[Array, " ell"],
     ell_range: Float[Array, " ell"],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot detailed BB spectrum decomposition for a single configuration."""
     _ = plt.figure(figsize=(10, 8))
@@ -1280,7 +1285,7 @@ def plot_r_estimator(
     r_grid: Float[Array, " r_grid"],
     L_vals: Float[Array, " r_grid"],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Plot one-dimensional likelihood for r with highlighted estimate."""
     plt.figure(figsize=(6, 5))
@@ -1355,7 +1360,7 @@ def plot_indiv_results(
     computed_results: dict[str, Any],
     indiv_flags: dict[str, bool],
     output_format: str,
-    subfolder: str | None = None,
+    subfolder: Optional[str] = None,
 ) -> None:
     """Generate per-run plots according to CLI flags.
 
