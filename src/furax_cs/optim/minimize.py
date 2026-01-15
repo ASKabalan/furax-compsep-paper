@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import partial
 from typing import Any, Union
 
 import equinox as eqx
@@ -149,7 +148,6 @@ def scipy_minimize(
 # =============================================================================
 
 
-@partial(jax.jit, static_argnames=("fn", "solver_name", "max_iter", "precondition"))
 def minimize(
     fn: Callable[..., Scalar],
     init_params: PyTree[Float[Array, " P"]],
@@ -160,6 +158,7 @@ def minimize(
     lower_bound: PyTree[Float[Array, " P"]] | None = None,
     upper_bound: PyTree[Float[Array, " P"]] | None = None,
     precondition: bool = False,
+    solver_options: dict[str, Any] | None = None,
     **fn_kwargs: Any,
 ) -> tuple[PyTree[Float[Array, " P"]], Union[optx.Solution, ScipyMinimizeState]]:
     """
@@ -184,6 +183,8 @@ def minimize(
         Box constraints.
     precondition : bool
         Whether to apply parameter transformation and output scaling.
+    solver_options : dict, optional
+        Additional arguments passed to the solver factory (get_solver).
     **fn_kwargs
         Additional arguments passed to fn.
 
@@ -214,8 +215,14 @@ def minimize(
     else:
         from_opt = lambda x: x
 
+    solver_opts = solver_options if solver_options is not None else {}
     solver, solver_type = get_solver(
-        solver_name, rtol=rtol, atol=atol, lower=lower_bound, upper=upper_bound
+        solver_name,
+        rtol=rtol,
+        atol=atol,
+        lower=lower_bound,
+        upper=upper_bound,
+        **solver_opts,
     )
 
     if solver_type == "optimistix":

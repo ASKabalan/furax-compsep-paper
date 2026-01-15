@@ -277,6 +277,7 @@ def get_solver(
     max_linesearch_steps: int = 200,
     lower: PyTree[Float[Array, " P"]] | None = None,
     upper: PyTree[Float[Array, " P"]] | None = None,
+    **kwargs: Any,
 ) -> tuple[Solver, Literal["optimistix", "scipy"]]:
     """
     Create a solver instance from a name string.
@@ -315,7 +316,9 @@ def get_solver(
     if solver_name == "optax_lbfgs_zoom":
         return optx.BestSoFarMinimiser(
             optx.OptaxMinimiser(
-                lbfgs_zoom(max_linesearch_steps=max_linesearch_steps, lower=lower, upper=upper),
+                lbfgs_zoom(
+                    max_linesearch_steps=max_linesearch_steps, lower=lower, upper=upper, **kwargs
+                ),
                 atol=atol,
                 rtol=rtol,
             )
@@ -324,7 +327,7 @@ def get_solver(
         return optx.BestSoFarMinimiser(
             optx.OptaxMinimiser(
                 lbfgs_backtrack(
-                    max_backtracking_steps=max_linesearch_steps, lower=lower, upper=upper
+                    max_backtracking_steps=max_linesearch_steps, lower=lower, upper=upper, **kwargs
                 ),
                 atol=atol,
                 rtol=rtol,
@@ -332,7 +335,7 @@ def get_solver(
         ), "optimistix"
     elif solver_name == "adam":
         # Chain adam with projection if bounds provided
-        adam_opt = optax.adam(learning_rate=learning_rate)
+        adam_opt = optax.adam(learning_rate=learning_rate, **kwargs)
         if lower is not None and upper is not None:
             adam_opt = combine.chain(adam_opt, apply_projection(lower, upper))
         return optx.BestSoFarMinimiser(
@@ -346,33 +349,33 @@ def get_solver(
         )
         return optx.BestSoFarMinimiser(
             optx.OptaxMinimiser(
-                active_set(direction, linesearch, lower=lower, upper=upper),
+                active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
                 atol=atol,
                 rtol=rtol,
             )
         ), "optimistix"
     # Optimistix BFGS
     elif solver_name == "optimistix_bfgs":
-        return optx.BestSoFarMinimiser(optx.BFGS(rtol=rtol, atol=atol)), "optimistix"
+        return optx.BestSoFarMinimiser(optx.BFGS(rtol=rtol, atol=atol, **kwargs)), "optimistix"
     # Optimistix L-BFGS
     elif solver_name == "optimistix_lbfgs":
-        return optx.BestSoFarMinimiser(optx.LBFGS(rtol=rtol, atol=atol)), "optimistix"
+        return optx.BestSoFarMinimiser(optx.LBFGS(rtol=rtol, atol=atol, **kwargs)), "optimistix"
     # Optimistix NCG (Armijo)
     elif solver_name == "optimistix_ncg_pr":
         return optx.BestSoFarMinimiser(
-            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.polak_ribiere)
+            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.polak_ribiere, **kwargs)
         ), "optimistix"
     elif solver_name == "optimistix_ncg_hs":
         return optx.BestSoFarMinimiser(
-            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.hestenes_stiefel)
+            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.hestenes_stiefel, **kwargs)
         ), "optimistix"
     elif solver_name == "optimistix_ncg_fr":
         return optx.BestSoFarMinimiser(
-            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.fletcher_reeves)
+            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.fletcher_reeves, **kwargs)
         ), "optimistix"
     elif solver_name == "optimistix_ncg_dy":
         return optx.BestSoFarMinimiser(
-            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.dai_yuan)
+            optx.NonlinearCG(rtol=rtol, atol=atol, method=optx.dai_yuan, **kwargs)
         ), "optimistix"
     # Scipy
     elif solver_name == "scipy_tnc":

@@ -413,14 +413,14 @@ def _plot_grad_maps(
 
     # Convert step_idx (can be negative like -3) to array index
     step_array_idx = int(jnp.argmin(jnp.abs(steps - step_idx)))
-    actual_step = steps[step_array_idx]
+    # actual_step = steps[step_array_idx]
 
     # Use first scale
     scale = scales[0]
     grads_raw = results[scale]["grads_raw"]
 
     fig = plt.figure(figsize=(15, 4))
-    fig.suptitle(f"Gradient Maps {title} (step={actual_step}, scale={scale:.1e})", fontsize=14)
+    fig.suptitle(f"Gradient Maps {title} at solution", fontsize=14)
 
     param_configs = [
         ("beta_dust", "beta_dust_patches", "Grad: Beta Dust"),
@@ -434,10 +434,13 @@ def _plot_grad_maps(
         grad_at_pixels = grad_values[patch_idx]
         full_map = get_fullmap_from_cutout(grad_at_pixels, mask_indices, nside)
 
+        if param_key != "temp_dust":
+            continue
+
         hp.mollview(
             full_map,
             title=param_title,
-            sub=(1, 3, i + 1),
+            # sub=(1, 1, i + 1),
             cmap="RdBu_r",
             bgcolor=(0.0,) * 4,
         )

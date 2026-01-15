@@ -228,6 +228,13 @@ EXAMPLES:
         "Only activate this option when using JAX JIT cache (persistent compilation cache) "
         "to avoid recompilation overhead on each run.",
     )
+    parser.add_argument(
+        "-top_k",
+        "--top-k-release",
+        type=float,
+        default=None,
+        help="Fraction of constraints to release in active set solver (e.g., 0.1 for 10%%).",
+    )
     return parser.parse_args()
 
 
@@ -252,6 +259,9 @@ def main():
 
     patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
     config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
+    if args.top_k_release is not None:
+        config += f"_topk{args.top_k_release}"
+
     out_folder = f"{args.output}/kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
 
     # Step 2: Initialize physical and computational parameters
@@ -318,6 +328,10 @@ def main():
         "beta_pl_patches": max_count["beta_pl"],
     }
 
+    solver_options = {}
+    if args.top_k_release is not None:
+        solver_options["max_constraints_to_release"] = args.top_k_release
+
     def compute_minimum_variance(
         T_d_patches: int,
         B_d_patches: int,
@@ -354,6 +368,7 @@ def main():
                 lower_bound=lower_bound_tree,
                 upper_bound=upper_bound_tree,
                 precondition=args.cond,
+                solver_options=solver_options,
                 nu=nu,
                 N=N,
                 d=noised_d,

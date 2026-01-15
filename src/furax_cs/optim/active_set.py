@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import optax
 import optax.tree_utils as otu
+from jax.flatten_util import ravel_pytree
 from jaxtyping import (
     Array,
     Float,
@@ -167,26 +168,76 @@ def _update_pivot_at_boundary(
     )
 
 
+def tree_top_k(tree: PyTree, k: int) -> PyTree:
+    """
+    Finds the indices of the top K largest values across an entire PyTree.
+
+    Returns:
+        A PyTree of the same structure as input, containing boolean masks.
+        True indicates the leaf value at that position is among the global top K.
+    """
+    # 1. Flatten the entire tree into a single 1D array
+    flat_data, unravel_fn = ravel_pytree(tree)
+
+    # 2. Handle edge case where k > total elements
+    n_params = flat_data.shape[0]
+
+    # 3. Find Top-K indices on the flat array
+    # values: the top k values
+    # indices: the flat indices of those values
+    print(f"k is {k}, n_params is {n_params}")
+    _, top_indices = jax.lax.top_k(flat_data, k)
+
+    # 4. Create a flat boolean mask
+    # Initialize all False
+    flat_mask = jnp.zeros(n_params, dtype=bool)
+    # Set the top-k positions to True
+    flat_mask = flat_mask.at[top_indices].set(True)
+
+    # 5. Unravel the flat mask back into the original PyTree structure
+    return unravel_fn(flat_mask)
+
+
 def _release_constraints(
-    pivot: PyTree[Int[Array, " P"]], gradients_int: PyTree[Float[Array, " P"]]
+    pivot: PyTree[Int[Array, " P"]],
+    gradients_int: PyTree[Float[Array, " P"]],
+    max_release_k: int,
 ) -> PyTree[Int[Array, " P"]]:
     """
     Release constraints if the negative gradient points into the feasible region.
     TNC checks: if pivot=-1 (at lower) and -grad > 0 (descent direction is up), release.
+
+    This version uses a "score" (pivot * grad) and only releases the top-k
+    constraints with the highest positive score (strongest desire to release).
     """
 
-    def _release(p: Int[Array, " P"], g: Float[Array, " P"]) -> Int[Array, " P"]:
+    def _compute_score(p: Int[Array, " P"], g: Float[Array, " P"]) -> Float[Array, " P"]:
         # descent direction is -g
-        # if at lower bound (-1), we want -g > 0 (move up) => g < 0
-        should_free_lower = (p == -1) & (g < 0)
-        # if at upper bound (1), we want -g < 0 (move down) => g > 0
-        should_free_upper = (p == 1) & (g > 0)
+        # Score = pivot * gradient
+        # If at lower bound (p=-1), we release if -g > 0 => g < 0. Score = (-1)*(-ve) = +ve
+        # If at upper bound (p=1),  we release if -g < 0 => g > 0. Score = (1)*(+ve)  = +ve
 
-        new_p = p
-        new_p = jnp.where(should_free_lower | should_free_upper, 0, new_p)
-        return new_p
+        # We only care about active constraints (abs(p) == 1)
+        # We mask out non-active constraints (0 or 2) with -inf
+        score = p * g
+        return jnp.where(jnp.abs(p) == 1, score, -jnp.inf)
 
-    return jtu.tree_map(_release, pivot, gradients_int)
+    # 1. Calculate scores for all parameters
+    scores = jtu.tree_map(_compute_score, pivot, gradients_int)
+
+    # 2. Find the mask for the Top-K scores globally
+    top_k_mask = tree_top_k(scores, max_release_k)
+
+    # 3. Determine actual release mask:
+    #    - Must be in Top K
+    #    - Must have a positive score (gradient actually points inward)
+    def _apply_release(
+        p: Int[Array, " P"], is_top_k: Bool[Array, " P"], s: Float[Array, " P"]
+    ) -> Int[Array, " P"]:
+        should_release = is_top_k & (s > 0)
+        return jnp.where(should_release, 0, p)
+
+    return jtu.tree_map(_apply_release, pivot, top_k_mask, scores)
 
 
 # --- Active Set Component ---
@@ -201,6 +252,7 @@ class ActiveSetState(NamedTuple):
     upper: PyTree[Float[Array, " P"]]
     fscale: Scalar
     stepmx: Scalar
+    max_release_k: Scalar
     direction_state: optax.OptState
     linesearch_state: optax.OptState
 
@@ -212,11 +264,25 @@ def active_set(
     upper: Optional[PyTree[Float[Array, " P"]]] = None,
     rescale_threshold: float = 1.3,
     stepmx_init: float = 10.0,
+    max_constraints_to_release: Optional[Union[int, float]] = None,
     verbose: bool = False,
 ) -> optax.GradientTransformation:
     def init_fn(params: PyTree[Float[Array, " P"]]) -> ActiveSetState:
         lo = lower if lower is not None else otu.tree_full_like(params, -jnp.inf)
         up = upper if upper is not None else otu.tree_full_like(params, jnp.inf)
+
+        leaves = jtu.tree_leaves(params)
+        total_params = sum(leaf.size for leaf in leaves)
+
+        if max_constraints_to_release is None:
+            # Default: 10% of params
+            k_val = max(1, total_params // 10)
+        elif isinstance(max_constraints_to_release, float):
+            k_val = max(1, int(total_params * max_constraints_to_release))
+        else:
+            k_val = max_constraints_to_release
+
+        print(f"key active_set: max_constraints_to_release={k_val} / {total_params} params")
 
         # Init Scale & Offset logic from TNC
         def _init_scale(
@@ -251,6 +317,7 @@ def active_set(
             upper=up,
             fscale=jnp.array(1.0),
             stepmx=jnp.array(stepmx_init),
+            max_release_k=k_val,
             direction_state=direction_solver.init(params),
             linesearch_state=linesearch_solver.init(params),
         )
@@ -281,7 +348,8 @@ def active_set(
         # --- 2. Release Active Constraints ---
         # If gradient points inward from a bound, release it (set pivot to 0)
         # TNC does this *before* projection
-        pivot = _release_constraints(state.pivot, grads_int)
+        print(f"max release k: {state.max_release_k}")
+        pivot = _release_constraints(state.pivot, grads_int, state.max_release_k)
 
         # --- 3. Project Gradients (Input Masking) ---
         # If pivot != 0, set gradient to 0 so the solver "thinks" we are optimal there
@@ -390,6 +458,7 @@ def active_set(
             upper=state.upper,
             fscale=new_fscale,
             stepmx=state.stepmx,
+            max_release_k=state.max_release_k,
             direction_state=new_dir_state,
             linesearch_state=new_ls_state,
         )
