@@ -280,7 +280,7 @@ def active_set(
         elif isinstance(max_constraints_to_release, float):
             k_val = max(1, int(total_params * max_constraints_to_release))
         else:
-            k_val = max_constraints_to_release
+            k_val = min(max_constraints_to_release, total_params)
 
         print(f"key active_set: max_constraints_to_release={k_val} / {total_params} params")
 
