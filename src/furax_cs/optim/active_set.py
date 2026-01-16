@@ -12,6 +12,7 @@ import optax.tree_utils as otu
 from jax.flatten_util import ravel_pytree
 from jaxtyping import (
     Array,
+    Bool,
     Float,
     Int,
     PyTree,  # pyright: ignore
@@ -202,7 +203,7 @@ def _release_constraints(
     pivot: PyTree[Int[Array, " P"]],
     gradients_int: PyTree[Float[Array, " P"]],
     max_release_k: int,
-) -> PyTree[Int[Array, " P"]]:
+) -> tuple[PyTree[Int[Array, " P"]], Bool[Array, ""]]:
     """
     Release constraints if the negative gradient points into the feasible region.
     TNC checks: if pivot=-1 (at lower) and -grad > 0 (descent direction is up), release.
@@ -225,6 +226,10 @@ def _release_constraints(
     # 1. Calculate scores for all parameters
     scores = jtu.tree_map(_compute_score, pivot, gradients_int)
 
+    # Check if any constraint wants to be released
+    flat_scores, _ = ravel_pytree(scores)
+    constraints_released = jnp.any(flat_scores > 0)
+
     # 2. Find the mask for the Top-K scores globally
     top_k_mask = tree_top_k(scores, max_release_k)
 
@@ -237,7 +242,7 @@ def _release_constraints(
         should_release = is_top_k & (s > 0)
         return jnp.where(should_release, 0, p)
 
-    return jtu.tree_map(_apply_release, pivot, top_k_mask, scores)
+    return jtu.tree_map(_apply_release, pivot, top_k_mask, scores), constraints_released
 
 
 # --- Active Set Component ---
@@ -274,6 +279,7 @@ class ActiveSetState(NamedTuple):
     max_release_k: Scalar
     direction_state: optax.OptState
     linesearch_state: optax.OptState
+    constraints_released: Bool[Array, ""]
 
 
 def active_set(
@@ -340,6 +346,7 @@ def active_set(
             max_release_k=k_val,
             direction_state=direction_solver.init(params),
             linesearch_state=linesearch_solver.init(params),
+            constraints_released=jnp.array(False),
         )
 
     def update_fn(
@@ -369,7 +376,9 @@ def active_set(
         # If gradient points inward from a bound, release it (set pivot to 0)
         # TNC does this *before* projection
         print(f"max release k: {state.max_release_k}")
-        pivot = _release_constraints(state.pivot, grads_int, state.max_release_k)
+        pivot, constraints_released = _release_constraints(
+            state.pivot, grads_int, state.max_release_k
+        )
 
         # --- 3. Project Gradients (Input Masking) ---
         # If pivot != 0, set gradient to 0 so the solver "thinks" we are optimal there
@@ -487,6 +496,7 @@ def active_set(
             max_release_k=state.max_release_k,
             direction_state=new_dir_state,
             linesearch_state=new_ls_state,
+            constraints_released=constraints_released,
         )
 
         return updates_phys, new_state

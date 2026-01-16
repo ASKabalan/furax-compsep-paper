@@ -11,7 +11,7 @@ mask="ALL-GALACTIC"
 
 # Common arguments for all runs
 # We use the same parameters as in validate_k.sh for consistency
-COMMON_ARGS="-n 64 -ns 1 -nr $noise -pc 10000 500 500 -tag $tag -m $mask -i LiteBIRD -sp 1.54 20.0 -3.0 -mi 2000 -o $OUTPUT_DIR"
+COMMON_ARGS="-n 64 -ns 1 -nr $noise -pc 30000 1500 1500 -tag $tag -m $mask -i LiteBIRD -sp 1.54 20.0 -3.0 -mi 2000 -o $OUTPUT_DIR"
 
 # =============================================================================
 # FURAX Runs (Active Set, L-BFGS, SciPy TNC)

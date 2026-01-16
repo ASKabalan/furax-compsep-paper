@@ -9,7 +9,7 @@ sky="c1d1s1"
 tag=$sky
 mask="ALL-GALACTIC" # Assuming ALL-GALACTIC for FGBuster too, or revert to specific masks if needed
 
-COMMON_ARGS="-n 64 -ns 1 -nr $noise -pc 10000 500 500 -tag $tag -m $mask -i LiteBIRD -sp 1.54 20.0 -3.0 -mi 2000 -o $OUTPUT_DIR"
+COMMON_ARGS="-n 64 -ns 1 -nr $noise -pc 30000 1500 1500 -tag $tag -m $mask -i LiteBIRD -sp 1.54 20.0 -3.0 -mi 2000 -o $OUTPUT_DIR"
 
 run_name="fgbuster_${tag}_${noise}"
 job_name="FG_BUST"
@@ -18,7 +18,7 @@ echo "Submitting $run_name"
 # Note: Using fgbuster-model script name. Ensure it exists in pyproject.toml / scripts.
 jid=$(sbatch $SBATCH_ARGS --job-name=\"$job_name\" \
      $SLURM_SCRIPT $OUTPUT_DIR fgbuster-model $COMMON_ARGS)
-job_ids+=(\"$jid\")
+job_ids+=("$jid")
 
 
 # =============================================================================
@@ -37,7 +37,7 @@ sbatch --dependency=afterany:$deps \
        $SBATCH_ARGS \
        --job-name=FG_validate \
        $SLURM_SCRIPT $OUTPUT_DIR r_analysis validate \
-       -r \"fgbuster\" \
+       -r fgbuster \
        -ird $OUTPUT_DIR \
        --noise-ratio $noise \
        --no-tex \
@@ -48,7 +48,7 @@ snap_id=$(sbatch --dependency=afterany:$deps \
        $SBATCH_ARGS \
        --job-name=FG_snap \
        $SLURM_SCRIPT $OUTPUT_DIR r_analysis snap \
-       -r \"fgbuster\" \
+       -r fgbuster \
        -ird $OUTPUT_DIR \
        --no-tex \
        -s scipy_tnc \
@@ -62,7 +62,7 @@ sbatch --dependency=afterany:$snap_id \
         $SBATCH_ARGS \
         --job-name=FG_plot \
         $SLURM_SCRIPT $OUTPUT_DIR r_analysis plot \
-        -r \"fgbuster\" \
+        -r fgbuster \
         -ird $OUTPUT_DIR \
         -a \
         --snapshot $OUTPUT_DIR/SNAPSHOT_FG \

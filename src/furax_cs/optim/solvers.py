@@ -19,6 +19,27 @@ from .active_set import active_set
 Solver: TypeAlias = Union[optx.BestSoFarMinimiser, str]
 
 
+class ActiveSetMinimiser(optx.OptaxMinimiser):
+    def terminate(
+        self,
+        fn: Fn[Y, Scalar, Aux],
+        y: Y,
+        args: PyTree,
+        options: dict[str, Any],
+        state: _OptaxState,
+        tags: frozenset[object],
+    ) -> tuple[Bool[Array, ""], RESULTS]:
+        del fn, args, options
+        terminate = jnp.where(state.opt_state.constraints_released, False, state.terminate)
+        jax.debug.print(
+            "Constraints released: {}, continue optimization: {} terminate from state: {}",
+            state.opt_state.constraints_released,
+            terminate,
+            state.terminate,
+        )
+        return terminate, optx.RESULTS.successful
+
+
 def lbfgs_zoom(
     learning_rate: optax.ScalarOrSchedule | None = None,
     memory_size: int = 10,
@@ -376,7 +397,7 @@ def get_solver(
         ), "optimistix"
     elif solver_name == "adabelief":
         lr = kwargs.pop("learning_rate", learning_rate)
-        opt = optax.adabelief(learning_rate=lr, **kwargs)
+        opt = optax.adabelief(learning_rate=lr)
         if lower is not None and upper is not None:
             opt = combine.chain(opt, apply_projection(lower, upper))
         return optx.BestSoFarMinimiser(optx.OptaxMinimiser(opt, atol=atol, rtol=rtol)), "optimistix"
@@ -408,7 +429,7 @@ def get_solver(
             )
 
         return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
+            ActiveSetMinimiser(
                 active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
                 atol=atol,
                 rtol=rtol,
@@ -436,7 +457,7 @@ def get_solver(
             )
 
         return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
+            ActiveSetMinimiser(
                 active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
                 atol=atol,
                 rtol=rtol,
@@ -463,7 +484,7 @@ def get_solver(
             )
 
         return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
+            ActiveSetMinimiser(
                 active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
                 atol=atol,
                 rtol=rtol,
@@ -489,7 +510,7 @@ def get_solver(
             )
 
         return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
+            ActiveSetMinimiser(
                 active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
                 atol=atol,
                 rtol=rtol,
