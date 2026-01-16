@@ -156,6 +156,13 @@ EXAMPLES:
         "Only activate this option when using JAX JIT cache (persistent compilation cache) "
         "to avoid recompilation overhead on each run.",
     )
+    parser.add_argument(
+        "-top_k",
+        "--top-k-release",
+        type=float,
+        default=None,
+        help="Fraction of constraints to release in active set solver (e.g., 0.1 for 10%%).",
+    )
     return parser.parse_args()
 
 
@@ -165,6 +172,8 @@ def main():
     # Define the output folder and create it if necessary
     ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
     config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
+    if args.top_k_release is not None:
+        config += f"_topk{args.top_k_release}"
     out_folder = f"{args.output}/ptep_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
 
     # Set up parameters
@@ -232,6 +241,10 @@ def main():
     lower_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), lower_bound, max_count)
     upper_bound_tree = jax.tree.map(lambda v, c: jnp.full((c,), v), upper_bound, max_count)
 
+    solver_options = {}
+    if args.top_k_release is not None:
+        solver_options["max_constraints_to_release"] = args.top_k_release
+
     def single_run(noise_id):
         key = jax.random.PRNGKey(noise_id)
         noised_d, N = generate_noise_operator(
@@ -248,6 +261,7 @@ def main():
             lower_bound=lower_bound_tree,
             upper_bound=upper_bound_tree,
             precondition=args.cond,
+            solver_options=solver_options,
             nu=nu,
             N=N,
             d=noised_d,
