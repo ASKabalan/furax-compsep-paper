@@ -427,20 +427,18 @@ def _plot_grad_maps(
         ("beta_pl", "beta_pl_patches", "Grad: Beta PL"),
         ("temp_dust", "temp_dust_patches", "Grad: Temp Dust"),
     ]
+    saved_maps = {}
 
     for i, (param_key, patch_key, param_title) in enumerate(param_configs):
         grad_values = grads_raw[param_key][step_array_idx]
         patch_idx = patches[patch_key]
         grad_at_pixels = grad_values[patch_idx]
         full_map = get_fullmap_from_cutout(grad_at_pixels, mask_indices, nside)
-
-        if param_key != "temp_dust":
-            continue
-
+        saved_maps[param_key] = full_map
         hp.mollview(
             full_map,
             title=param_title,
-            # sub=(1, 1, i + 1),
+            sub=(1, 3, i + 1),
             cmap="RdBu_r",
             bgcolor=(0.0,) * 4,
         )
@@ -451,6 +449,10 @@ def _plot_grad_maps(
     os.makedirs(base_dir, exist_ok=True)
     save_or_show(file_name, "png", subfolder=subfolder)
     success(f"Gradient maps saved to {file_name}.png")
+
+    npz_path = os.path.join(base_dir, f"{file_name}.npz")
+    np.savez(npz_path, **saved_maps)
+    success(f"Gradient maps data saved to {npz_path}")
 
 
 def _plot_nll_grad(
