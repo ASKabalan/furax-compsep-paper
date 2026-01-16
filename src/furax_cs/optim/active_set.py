@@ -19,6 +19,8 @@ from jaxtyping import (
     Scalar,
 )
 
+from ..logging_utils import info
+
 # --- Helper Logic ---
 
 
@@ -186,7 +188,6 @@ def tree_top_k(tree: PyTree, k: int) -> PyTree:
     # 3. Find Top-K indices on the flat array
     # values: the top k values
     # indices: the flat indices of those values
-    print(f"k is {k}, n_params is {n_params}")
     _, top_indices = jax.lax.top_k(flat_data, k)
 
     # 4. Create a flat boolean mask
@@ -308,7 +309,7 @@ def active_set(
             k_val = min(max_constraints_to_release, total_params)
             k_val = max(1, k_val)
 
-        print(f"key active_set: max_constraints_to_release={k_val} / {total_params} params")
+        info(f"key active_set: max_constraints_to_release={k_val} / {total_params} params")
 
         # Init Scale & Offset logic from TNC
         def _init_scale(
@@ -375,7 +376,6 @@ def active_set(
         # --- 2. Release Active Constraints ---
         # If gradient points inward from a bound, release it (set pivot to 0)
         # TNC does this *before* projection
-        print(f"max release k: {state.max_release_k}")
         pivot, constraints_released = _release_constraints(
             state.pivot, grads_int, state.max_release_k
         )

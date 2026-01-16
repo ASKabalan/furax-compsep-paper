@@ -31,12 +31,6 @@ class ActiveSetMinimiser(optx.OptaxMinimiser):
     ) -> tuple[Bool[Array, ""], RESULTS]:
         del fn, args, options
         terminate = jnp.where(state.opt_state.constraints_released, False, state.terminate)
-        jax.debug.print(
-            "Constraints released: {}, continue optimization: {} terminate from state: {}",
-            state.opt_state.constraints_released,
-            terminate,
-            state.terminate,
-        )
         return terminate, optx.RESULTS.successful
 
 
@@ -335,7 +329,6 @@ def get_solver(
         One of "optimistix", "scipy".
     """
     # Resolve aliases
-    print(f"options are: {kwargs}")
     # Optax solvers (with optional box projection)
     if solver_name == "optax_lbfgs":
         linesearch_type = kwargs.pop("linesearch", "zoom")
@@ -414,7 +407,6 @@ def get_solver(
         linesearch_type = kwargs.pop("linesearch", "backtracking")
 
         direction = optax.adam(learning_rate=lr)
-        print(f"linesearch_type = {linesearch_type}")
         if linesearch_type == "backtracking":
             linesearch = _linesearch.scale_by_backtracking_linesearch(
                 max_backtracking_steps=max_linesearch_steps
@@ -466,7 +458,6 @@ def get_solver(
     elif solver_name == "active_set_adabelief":
         lr = kwargs.pop("learning_rate", 1.0)
         linesearch_type = kwargs.pop("linesearch", "backtracking")
-        print(f"linesearch_type = {linesearch_type}")
 
         direction = optax.adabelief(learning_rate=lr)
 

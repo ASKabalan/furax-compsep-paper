@@ -384,7 +384,7 @@ def main():
                 solver_name=args.solver,
                 max_iter=args.max_iter,
                 atol=1e-15,
-                rtol=1e-10,
+                rtol=1e-14,
                 lower_bound=lower_bound_tree,
                 upper_bound=upper_bound_tree,
                 precondition=args.cond,

@@ -138,7 +138,6 @@ def save_or_show(filename: str, output_format: str, subfolder: str | None = None
             os.makedirs(base_dir, exist_ok=True)
 
         filepath = os.path.join(base_dir, f"{filename}.{ext}")
-        print(f"finally saving to {filepath}")
         plt.savefig(filepath, dpi=dpi, bbox_inches="tight")
         plt.close()
         success(f"Saved: {filepath}")
