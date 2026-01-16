@@ -314,11 +314,7 @@ def get_solver(
         One of "optimistix", "scipy".
     """
     # Resolve aliases
-    if solver_name == "zoom":
-        solver_name = "optax_lbfgs"
-    elif solver_name == "backtrack":
-        solver_name = "optax_lbfgs"
-
+    print(f"options are: {kwargs}")
     # Optax solvers (with optional box projection)
     if solver_name == "optax_lbfgs":
         linesearch_type = kwargs.pop("linesearch", "zoom")
@@ -397,7 +393,7 @@ def get_solver(
         linesearch_type = kwargs.pop("linesearch", "backtracking")
 
         direction = optax.adam(learning_rate=lr)
-
+        print(f"linesearch_type = {linesearch_type}")
         if linesearch_type == "backtracking":
             linesearch = _linesearch.scale_by_backtracking_linesearch(
                 max_backtracking_steps=max_linesearch_steps
@@ -449,6 +445,7 @@ def get_solver(
     elif solver_name == "active_set_adabelief":
         lr = kwargs.pop("learning_rate", 1.0)
         linesearch_type = kwargs.pop("linesearch", "backtracking")
+        print(f"linesearch_type = {linesearch_type}")
 
         direction = optax.adabelief(learning_rate=lr)
 

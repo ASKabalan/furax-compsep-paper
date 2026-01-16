@@ -411,6 +411,7 @@ def main():
                 "beta_dust": final_params["beta_dust"],
                 "temp_dust": final_params["temp_dust"],
                 "beta_pl": final_params["beta_pl"],
+                "iter_num": final_state.iter_num,
             }
 
         if use_vmap:
@@ -455,6 +456,7 @@ def main():
             info(f"min beta_dust: {min_bd} max beta_dust: {max_bd}")
             info(f"min temp_dust: {min_td} max temp_dust: {max_td}")
             info(f"min beta_pl: {min_bs} max beta_pl: {max_bs}")
+            info(f"Number of iterations: {results['iter_num'].mean()}")
             info(f"Objective function evaluation took {end_time - start_time:.2f} seconds")
             # Add a new axis to the results so it matches the shape of grid search results
             os.makedirs(out_folder, exist_ok=True)
