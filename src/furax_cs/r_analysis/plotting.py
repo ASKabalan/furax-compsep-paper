@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 import healpy as hp
 import jax
@@ -113,7 +113,7 @@ def set_font_size(size: int) -> None:
     )
 
 
-def save_or_show(filename: str, output_format: str, subfolder: Optional[str] = None) -> None:
+def save_or_show(filename: str, output_format: str, subfolder: str | None = None) -> None:
     """Save figure to file or show inline based on output format.
 
     Parameters
@@ -159,7 +159,7 @@ def plot_params(
     params: dict[str, Float[Array, " npix"]],
     output_format: str,
     plot_vertical: bool = False,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot recovered spectral parameter maps for a single configuration."""
     if plot_vertical:
@@ -200,7 +200,7 @@ def plot_patches(
     patches: dict[str, Int[Array, " npix"]],
     output_format: str,
     plot_vertical: bool = False,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Visualise patch assignments (cluster labels) for each spectral parameter."""
     if plot_vertical:
@@ -253,7 +253,7 @@ def plot_validation_curves(
     updates_history: list[Array],
     value_history: list[Array],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot optimizer update norms and NLL traces for each run."""
     updates_history_arr = np.array(updates_history)
@@ -1052,7 +1052,7 @@ def plot_systematic_residual_maps(
     name: str,
     syst_map: Float[Array, " 3 npix"],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot systematic residual Q/U maps for a single configuration."""
     syst_q = np.where(syst_map[1] == hp.UNSEEN, np.nan, syst_map[1])
@@ -1093,7 +1093,7 @@ def plot_statistical_residual_maps(
     name: str,
     stat_maps: list[Float[Array, " 3 npix"]],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot statistical residual Q/U maps for a single configuration."""
     stat_map_first = stat_maps[0]
@@ -1137,7 +1137,7 @@ def plot_cmb_reconstructions(
     cmb_stokes: Stokes,
     cmb_recon: Stokes,
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot reconstructed maps, inputs, and differences for Q/U."""
 
@@ -1212,7 +1212,7 @@ def plot_cl_residuals(
     cl_true: Float[Array, " ell"],
     ell_range: Float[Array, " ell"],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot detailed BB spectrum decomposition for a single configuration."""
     _ = plt.figure(figsize=(10, 8))
@@ -1285,7 +1285,7 @@ def plot_r_estimator(
     r_grid: Float[Array, " r_grid"],
     L_vals: Float[Array, " r_grid"],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot one-dimensional likelihood for r with highlighted estimate."""
     plt.figure(figsize=(6, 5))
@@ -1360,7 +1360,7 @@ def plot_indiv_results(
     computed_results: dict[str, Any],
     indiv_flags: dict[str, bool],
     output_format: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Generate per-run plots according to CLI flags.
 

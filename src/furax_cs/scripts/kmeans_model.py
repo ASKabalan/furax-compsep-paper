@@ -202,8 +202,8 @@ EXAMPLES:
         "-s",
         "--solver",
         type=str,
-        default="optax_lbfgs_zoom",
-        help="Solver for optimization. Options: optax_lbfgs_zoom, optax_lbfgs_backtrack, "
+        default="optax_lbfgs",
+        help="Solver for optimization. Options: optax_lbfgs, optax_lbfgs, "
         "optimistix_bfgs_wolfe, optimistix_lbfgs_wolfe, optimistix_ncg_hs_wolfe, "
         "scipy_tnc, zoom (alias), backtrack (alias), adam",
     )
@@ -235,6 +235,20 @@ EXAMPLES:
         default=None,
         help="Fraction of constraints to release in active set solver (e.g., 0.1 for 10%%).",
     )
+    parser.add_argument(
+        "-ls",
+        "--linesearch",
+        type=str,
+        default="backtracking",
+        choices=["backtracking", "zoom"],
+        help="Linesearch strategy for active_set and optax_lbfgs solvers.",
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Override the default output folder name.",
+    )
     return parser.parse_args()
 
 
@@ -257,12 +271,17 @@ def main():
     # Step 1: Parse arguments and setup output directory
     args = parse_args()
 
-    patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
-    config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
-    if args.top_k_release is not None:
-        config += f"_topk{args.top_k_release}"
+    if args.name is not None:
+        out_folder = f"{args.output}/{args.name}"
+    else:
+        patches = f"BD{args.patch_count[0]}_TD{args.patch_count[1]}_BS{args.patch_count[2]}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
+        config = (
+            f"{args.solver}_cond{args.cond}_ls{args.linesearch}_noise{int(args.noise_ratio * 100)}"
+        )
+        if args.top_k_release is not None:
+            config += f"_topk{args.top_k_release}"
 
-    out_folder = f"{args.output}/kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
+        out_folder = f"{args.output}/kmeans_{args.tag}_{patches}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
 
     # Step 2: Initialize physical and computational parameters
     nside = args.nside
@@ -331,6 +350,7 @@ def main():
     solver_options = {}
     if args.top_k_release is not None:
         solver_options["max_constraints_to_release"] = args.top_k_release
+    solver_options["linesearch"] = args.linesearch
 
     def compute_minimum_variance(
         T_d_patches: int,

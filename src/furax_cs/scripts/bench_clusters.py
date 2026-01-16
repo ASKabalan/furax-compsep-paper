@@ -252,7 +252,7 @@ def parse_args() -> argparse.Namespace:
         "--jax-solver",
         type=str,
         default="SKIP",
-        help="JAX solver name (e.g., optax_lbfgs_zoom, optimistix_bfgs, scipy_tnc)",
+        help="JAX solver name (e.g., optax_lbfgs, optimistix_bfgs, scipy_tnc)",
     )
     parser.add_argument(
         "--fgbuster-solver",

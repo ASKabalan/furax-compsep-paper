@@ -137,7 +137,7 @@ def compute_single_folder(
     flags: dict[str, bool],
     full_results: dict[str, Array] | None = None,
     max_iter: int = 100,
-    solver_name: str = "optax_lbfgs_zoom",
+    solver_name: str = "optax_lbfgs",
 ) -> dict[str, Any] | None:
     """Process a single result folder for a specific run index.
 
@@ -149,7 +149,7 @@ def compute_single_folder(
         flags: Computation flags from `get_compute_flags`.
         full_results: Pre-loaded results.npz contents to avoid reloading. Defaults to None.
         max_iter: Maximum iterations for W computation if not cached. Defaults to 100.
-        solver_name: Solver name for W computation. Defaults to "optax_lbfgs_zoom".
+        solver_name: Solver name for W computation. Defaults to "optax_lbfgs".
 
     Returns:
         Dictionary with computed data for this folder/index, or None if failed.

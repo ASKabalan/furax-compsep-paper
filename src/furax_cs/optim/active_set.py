@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 import jax
 import jax.lax as lax
@@ -241,6 +241,25 @@ def _release_constraints(
 
 
 # --- Active Set Component ---
+def _rescale_adam_state(state: optax.OptState, scale_factor: Scalar) -> optax.OptState:
+    """
+    Recursively searches for Adam/AdaBelief states and rescales moments.
+    Robustly handles optax.chain (tuples) and leaf states (NamedTuples).
+    """
+    # 1. Identify Adam/AdaBelief State (Target)
+    if hasattr(state, "mu") and hasattr(state, "nu"):
+        return state._replace(
+            mu=otu.tree_scale(scale_factor, state.mu), nu=otu.tree_scale(scale_factor**2, state.nu)
+        )
+
+    # 2. Recurse into Containers (optax.chain uses plain tuples)
+    # CRITICAL FIX: We must exclude NamedTuples (like EmptyState) from this check.
+    # Plain tuples do not have `_fields`; NamedTuples do.
+    elif isinstance(state, (tuple | list)) and not hasattr(state, "_fields"):
+        return type(state)(_rescale_adam_state(s, scale_factor) for s in state)
+
+    # 3. Leave everything else alone (EmptyState, ScheduleState, etc.)
+    return state
 
 
 class ActiveSetState(NamedTuple):
@@ -260,11 +279,11 @@ class ActiveSetState(NamedTuple):
 def active_set(
     direction_solver: optax.GradientTransformation,
     linesearch_solver: optax.GradientTransformation,
-    lower: Optional[PyTree[Float[Array, " P"]]] = None,
-    upper: Optional[PyTree[Float[Array, " P"]]] = None,
+    lower: PyTree[Float[Array, " P"]] | None = None,
+    upper: PyTree[Float[Array, " P"]] | None = None,
     rescale_threshold: float = 1.3,
     stepmx_init: float = 10.0,
-    max_constraints_to_release: Optional[Union[int, float]] = None,
+    max_constraints_to_release: Union[int, float] | None = None,
     verbose: bool = False,
 ) -> optax.GradientTransformation:
     def init_fn(params: PyTree[Float[Array, " P"]]) -> ActiveSetState:
@@ -281,6 +300,7 @@ def active_set(
             k_val = max(1, int(total_params * max_constraints_to_release))
         else:
             k_val = min(max_constraints_to_release, total_params)
+            k_val = max(1, k_val)
 
         print(f"key active_set: max_constraints_to_release={k_val} / {total_params} params")
 
@@ -325,10 +345,10 @@ def active_set(
     def update_fn(
         grads: PyTree[Float[Array, " P"]],
         state: ActiveSetState,
-        params: Optional[PyTree[Float[Array, " P"]]] = None,
-        value: Optional[Scalar] = None,
-        grad: Optional[PyTree[Float[Array, " P"]]] = None,
-        value_fn: Optional[Callable[[PyTree[Float[Array, " P"]]], Scalar]] = None,
+        params: PyTree[Float[Array, " P"]] | None = None,
+        value: Scalar | None = None,
+        grad: PyTree[Float[Array, " P"]] | None = None,
+        value_fn: Callable[[PyTree[Float[Array, " P"]]], Scalar] | None = None,
         **kwargs: Any,
     ) -> tuple[PyTree[Float[Array, " P"]], ActiveSetState]:
         if params is None or value_fn is None:
@@ -366,9 +386,15 @@ def active_set(
         )
         new_fscale = jnp.where(should_rescale, state.fscale / safe_gnorm, state.fscale)
 
+        current_dir_state = otu.tree_where(
+            should_rescale,
+            _rescale_adam_state(state.direction_state, 1.0 / safe_gnorm),
+            state.direction_state,
+        )
+
         # --- 5. Compute Direction (pk) ---
         # Use inner solver (Adam/LBFGS). Note: We pass internal gradients.
-        pk, new_dir_state = direction_solver.update(grads_int_proj, state.direction_state, params)
+        pk, new_dir_state = direction_solver.update(grads_int_proj, current_dir_state, params)
 
         # --- FIX 1: Project Direction (Output Masking) ---
         # CRITICAL: Adam has momentum. Even if input grad is 0, output `pk` might not be.

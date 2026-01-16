@@ -1,6 +1,6 @@
 import os
 from functools import partial
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import healpy as hp
 import jax
@@ -22,7 +22,7 @@ from .plotting import PLOT_OUTPUTS, get_run_color, save_or_show
 from .utils import index_run_data
 
 
-def _parse_perturb_spec(spec: str, n_params: int) -> Optional[Array]:
+def _parse_perturb_spec(spec: str, n_params: int) -> Array | None:
     """Parse perturbation spec: 'all', '-1', '0,1,2,3', or '0:30'.
 
     Returns None if spec is '-1' (skip this param).
@@ -322,8 +322,8 @@ def _plot_nll(
     validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    labels: Optional[list[str]] = None,
-    subfolder: Optional[str] = None,
+    labels: list[str] | None = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot NLL only."""
     if isinstance(validation_results, dict):
@@ -357,8 +357,8 @@ def _plot_grad_norms(
     validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    labels: Optional[list[str]] = None,
-    subfolder: Optional[str] = None,
+    labels: list[str] | None = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot gradient norms (1x3)."""
     if isinstance(validation_results, dict):
@@ -404,7 +404,7 @@ def _plot_grad_maps(
     nside: int,
     file_name: str,
     title: str,
-    subfolder: Optional[str] = None,
+    subfolder: str | None = None,
 ) -> None:
     """Plot gradient healpix maps at a specific step index."""
     scales = validation_results["scales"]
@@ -457,8 +457,8 @@ def _plot_nll_grad(
     validation_results: Union[dict[str, Any], list[dict[str, Any]]],
     file_name: str,
     title: str,
-    labels: Optional[list[str]] = None,
-    subfolder: Optional[str] = None,
+    labels: list[str] | None = None,
+    subfolder: str | None = None,
 ) -> None:
     """
     Generate a 2x2 plot of NLL and Gradient Norms across scales.
@@ -539,11 +539,11 @@ def plot_gradient_validation(
     file_name: str,
     title: str,
     plot_type: str = "nll-grad",
-    labels: Optional[list[str]] = None,
-    patches: Optional[dict[str, Array]] = None,
-    mask_indices: Optional[Array] = None,
-    nside: Optional[int] = None,
-    subfolder: Optional[str] = None,
+    labels: list[str] | None = None,
+    patches: dict[str, Array] | None = None,
+    mask_indices: Array | None = None,
+    nside: int | None = None,
+    subfolder: str | None = None,
 ) -> None:
     """Dispatches to the appropriate plotting function based on plot_type.
 

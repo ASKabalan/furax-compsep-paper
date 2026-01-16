@@ -5,7 +5,7 @@ import os
 import pickle
 import re
 from pathlib import Path
-from typing import Any, Optional, TypeAlias
+from typing import Any, TypeAlias
 
 import camb
 import healpy as hp
@@ -163,7 +163,7 @@ def parse_sky_tag(sky: str) -> tuple[str | None, str]:
 
 
 def generate_custom_cmb(
-    r_value: float, nside: int, seed: Optional[int] = None
+    r_value: float, nside: int, seed: int | None = None
 ) -> Float[Array, "3 npix"]:
     """Generate a CMB realization with a specific tensor-to-scalar ratio r.
 
@@ -191,7 +191,7 @@ def save_to_cache(
     noise_ratio: float = 0.0,
     instrument_name: str = "LiteBIRD",
     sky: str = "c1d0s0",
-    key: Optional[PRNGKeyArray] = None,
+    key: PRNGKeyArray | None = None,
 ) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Generate and cache frequency maps for component separation.
 
@@ -322,7 +322,7 @@ def save_fg_map(
     noise_ratio: float = 0.0,
     instrument_name: str = "LiteBIRD",
     sky: str = "c1d0s0",
-    key: Optional[PRNGKeyArray] = None,
+    key: PRNGKeyArray | None = None,
 ) -> tuple[Float[Array, " freqs"], Float[Array, " freqs 3 npix"]]:
     """Generate and cache foreground-only frequency maps (CMB excluded).
 

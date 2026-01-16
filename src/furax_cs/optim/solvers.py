@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, Union
+from typing import Any, Literal, TypeAlias, Union
 
 import jax
 import jax.numpy as jnp
@@ -246,10 +246,16 @@ def apply_projection(
 
 SOLVER_NAMES = Literal[
     # Optax L-BFGS (jax_grid_search compatible)
-    "optax_lbfgs_zoom",
-    "optax_lbfgs_backtrack",
+    "optax_lbfgs",
+    "optax_lbfgs",
     "adam",
+    "sgd",
+    "adabelief",
+    "adaw",
     "active_set",
+    "active_set_sgd",
+    "active_set_adabelief",
+    "active_set_adaw",
     # Optimistix BFGS
     "optimistix_bfgs",
     # Optimistix L-BFGS
@@ -261,12 +267,13 @@ SOLVER_NAMES = Literal[
     "optimistix_ncg_dy",
     # Scipy
     "scipy_tnc",
+    "scipy_cobyqa",
     # Legacy aliases
     "zoom",
     "backtrack",
 ]
 
-SELFCONDITIONED_SOLVERS = {"active_set", "scipy_tnc"}
+SELFCONDITIONED_SOLVERS = {"active_set", "active_set_sgd", "scipy_tnc", "scipy_cobyqa"}
 
 
 def get_solver(
@@ -308,45 +315,182 @@ def get_solver(
     """
     # Resolve aliases
     if solver_name == "zoom":
-        solver_name = "optax_lbfgs_zoom"
+        solver_name = "optax_lbfgs"
     elif solver_name == "backtrack":
-        solver_name = "optax_lbfgs_backtrack"
+        solver_name = "optax_lbfgs"
 
     # Optax solvers (with optional box projection)
-    if solver_name == "optax_lbfgs_zoom":
-        return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
-                lbfgs_zoom(
-                    max_linesearch_steps=max_linesearch_steps, lower=lower, upper=upper, **kwargs
-                ),
-                atol=atol,
-                rtol=rtol,
+    if solver_name == "optax_lbfgs":
+        linesearch_type = kwargs.pop("linesearch", "zoom")
+        if linesearch_type == "zoom":
+            return optx.BestSoFarMinimiser(
+                optx.OptaxMinimiser(
+                    lbfgs_zoom(
+                        max_linesearch_steps=max_linesearch_steps,
+                        lower=lower,
+                        upper=upper,
+                        **kwargs,
+                    ),
+                    atol=atol,
+                    rtol=rtol,
+                )
+            ), "optimistix"
+        elif linesearch_type == "backtracking":
+            return optx.BestSoFarMinimiser(
+                optx.OptaxMinimiser(
+                    lbfgs_backtrack(
+                        max_backtracking_steps=max_linesearch_steps,
+                        lower=lower,
+                        upper=upper,
+                        **kwargs,
+                    ),
+                    atol=atol,
+                    rtol=rtol,
+                )
+            ), "optimistix"
+        else:
+            raise ValueError(
+                f"Unknown linesearch type: {linesearch_type}. Use 'backtracking' or 'zoom'."
             )
-        ), "optimistix"
-    elif solver_name == "optax_lbfgs_backtrack":
-        return optx.BestSoFarMinimiser(
-            optx.OptaxMinimiser(
-                lbfgs_backtrack(
-                    max_backtracking_steps=max_linesearch_steps, lower=lower, upper=upper, **kwargs
-                ),
-                atol=atol,
-                rtol=rtol,
-            )
-        ), "optimistix"
     elif solver_name == "adam":
         # Chain adam with projection if bounds provided
-        adam_opt = optax.adam(learning_rate=learning_rate, **kwargs)
+        # learning_rate from kwargs takes precedence over function parameter
+        lr = kwargs.pop("learning_rate", learning_rate)
+        adam_opt = optax.adam(learning_rate=lr, **kwargs)
         if lower is not None and upper is not None:
             adam_opt = combine.chain(adam_opt, apply_projection(lower, upper))
         return optx.BestSoFarMinimiser(
             optx.OptaxMinimiser(adam_opt, atol=atol, rtol=rtol)
         ), "optimistix"
-    elif solver_name == "active_set":
-        # Default configuration for active set: Adam + Backtracking
-        direction = optax.adam(learning_rate=learning_rate)
+    elif solver_name == "sgd":
+        # Chain sgd with projection if bounds provided
+        # learning_rate from kwargs takes precedence (default 1.0 for linesearch use)
+        lr = kwargs.pop("learning_rate", 1.0)
+        direction = optax.sgd(learning_rate=lr)
+        # Keep your line search
         linesearch = _linesearch.scale_by_backtracking_linesearch(
             max_backtracking_steps=max_linesearch_steps
         )
+        if lower is not None and upper is not None:
+            sgd_opt = combine.chain(direction, linesearch, apply_projection(lower, upper))
+        else:
+            sgd_opt = combine.chain(direction, linesearch)
+        return optx.BestSoFarMinimiser(
+            optx.OptaxMinimiser(sgd_opt, atol=atol, rtol=rtol)
+        ), "optimistix"
+    elif solver_name == "adabelief":
+        lr = kwargs.pop("learning_rate", learning_rate)
+        opt = optax.adabelief(learning_rate=lr, **kwargs)
+        if lower is not None and upper is not None:
+            opt = combine.chain(opt, apply_projection(lower, upper))
+        return optx.BestSoFarMinimiser(optx.OptaxMinimiser(opt, atol=atol, rtol=rtol)), "optimistix"
+    elif solver_name == "adaw" or solver_name == "adamw":
+        lr = kwargs.pop("learning_rate", learning_rate)
+        opt = optax.adamw(learning_rate=lr, **kwargs)
+        if lower is not None and upper is not None:
+            opt = combine.chain(opt, apply_projection(lower, upper))
+        return optx.BestSoFarMinimiser(optx.OptaxMinimiser(opt, atol=atol, rtol=rtol)), "optimistix"
+    elif solver_name == "active_set":
+        # Default configuration for active set: Adam + configurable linesearch
+        # Extract learning_rate and linesearch options
+        lr = kwargs.pop("learning_rate", 1.0)
+        linesearch_type = kwargs.pop("linesearch", "backtracking")
+
+        direction = optax.adam(learning_rate=lr)
+
+        if linesearch_type == "backtracking":
+            linesearch = _linesearch.scale_by_backtracking_linesearch(
+                max_backtracking_steps=max_linesearch_steps
+            )
+        elif linesearch_type == "zoom":
+            linesearch = _linesearch.scale_by_zoom_linesearch(
+                max_linesearch_steps=max_linesearch_steps
+            )
+        else:
+            raise ValueError(
+                f"Unknown linesearch type: {linesearch_type}. Use 'backtracking' or 'zoom'."
+            )
+
+        return optx.BestSoFarMinimiser(
+            optx.OptaxMinimiser(
+                active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
+                atol=atol,
+                rtol=rtol,
+            )
+        ), "optimistix"
+    elif solver_name == "active_set_sgd":
+        # Default configuration for active set SGD: SGD + configurable linesearch
+        # Extract learning_rate and linesearch options
+        lr = kwargs.pop("learning_rate", 1.0)
+        linesearch_type = kwargs.pop("linesearch", "backtracking")
+
+        direction = optax.sgd(learning_rate=lr)
+
+        if linesearch_type == "backtracking":
+            linesearch = _linesearch.scale_by_backtracking_linesearch(
+                max_backtracking_steps=max_linesearch_steps
+            )
+        elif linesearch_type == "zoom":
+            linesearch = _linesearch.scale_by_zoom_linesearch(
+                max_linesearch_steps=max_linesearch_steps
+            )
+        else:
+            raise ValueError(
+                f"Unknown linesearch type: {linesearch_type}. Use 'backtracking' or 'zoom'."
+            )
+
+        return optx.BestSoFarMinimiser(
+            optx.OptaxMinimiser(
+                active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
+                atol=atol,
+                rtol=rtol,
+            )
+        ), "optimistix"
+    elif solver_name == "active_set_adabelief":
+        lr = kwargs.pop("learning_rate", 1.0)
+        linesearch_type = kwargs.pop("linesearch", "backtracking")
+
+        direction = optax.adabelief(learning_rate=lr)
+
+        if linesearch_type == "backtracking":
+            linesearch = _linesearch.scale_by_backtracking_linesearch(
+                max_backtracking_steps=max_linesearch_steps
+            )
+        elif linesearch_type == "zoom":
+            linesearch = _linesearch.scale_by_zoom_linesearch(
+                max_linesearch_steps=max_linesearch_steps
+            )
+        else:
+            raise ValueError(
+                f"Unknown linesearch type: {linesearch_type}. Use 'backtracking' or 'zoom'."
+            )
+
+        return optx.BestSoFarMinimiser(
+            optx.OptaxMinimiser(
+                active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
+                atol=atol,
+                rtol=rtol,
+            )
+        ), "optimistix"
+    elif solver_name == "active_set_adaw":
+        lr = kwargs.pop("learning_rate", 1.0)
+        linesearch_type = kwargs.pop("linesearch", "backtracking")
+
+        direction = optax.adamw(learning_rate=lr)
+
+        if linesearch_type == "backtracking":
+            linesearch = _linesearch.scale_by_backtracking_linesearch(
+                max_backtracking_steps=max_linesearch_steps
+            )
+        elif linesearch_type == "zoom":
+            linesearch = _linesearch.scale_by_zoom_linesearch(
+                max_linesearch_steps=max_linesearch_steps
+            )
+        else:
+            raise ValueError(
+                f"Unknown linesearch type: {linesearch_type}. Use 'backtracking' or 'zoom'."
+            )
+
         return optx.BestSoFarMinimiser(
             optx.OptaxMinimiser(
                 active_set(direction, linesearch, lower=lower, upper=upper, **kwargs),
@@ -381,6 +525,8 @@ def get_solver(
     elif solver_name == "scipy_tnc":
         # Note: ScipyMinimize needs fn passed at creation, handled in optimize()
         return "scipy_tnc", "scipy"
+    elif solver_name == "scipy_cobyqa":
+        return "scipy_cobyqa", "scipy"
 
     else:
         raise ValueError(f"Unknown solver: {solver_name}. Available: {list(SOLVER_NAMES.__args__)}")
