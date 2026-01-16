@@ -163,6 +163,12 @@ EXAMPLES:
         default=None,
         help="Fraction of constraints to release in active set solver (e.g., 0.1 for 10%%).",
     )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Override the default output folder name.",
+    )
     return parser.parse_args()
 
 
@@ -170,11 +176,14 @@ def main():
     args = parse_args()
 
     # Define the output folder and create it if necessary
-    ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
-    config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
-    if args.top_k_release is not None:
-        config += f"_topk{args.top_k_release}"
-    out_folder = f"{args.output}/ptep_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
+    if args.name is not None:
+        out_folder = f"{args.output}/{args.name}"
+    else:
+        ud_grades = f"BD{int(args.target_ud_grade[0])}_TD{int(args.target_ud_grade[1])}_BS{int(args.target_ud_grade[2])}_SP{args.starting_params[0]}_{args.starting_params[1]}_{args.starting_params[2]}"
+        config = f"{args.solver}_cond{args.cond}_noise{int(args.noise_ratio * 100)}"
+        if args.top_k_release is not None:
+            config += f"_topk{args.top_k_release}"
+        out_folder = f"{args.output}/ptep_{args.tag}_{ud_grades}_{args.instrument}_{sanitize_mask_name(args.mask)}_{config}"
 
     # Set up parameters
     nside = args.nside

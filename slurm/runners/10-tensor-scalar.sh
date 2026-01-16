@@ -21,6 +21,7 @@ for TAG in cr3d1s1 cr4d1s1; do
     # Loop over masks
     for MASK in GAL020 GAL040 GAL060; do
         JOB_NAME="KM_${TAG}_${MASK}"
+        NAME="kmeans_${TAG}_BD${B_DUST}_TD${T_DUST}_BS${B_SYNC}_${MASK}"
         
         jid=$(sbatch $BATCH_PARAMS --job-name=$JOB_NAME \
             $SLURM_SCRIPT $OUTPUT_DIR \
@@ -28,7 +29,7 @@ for TAG in cr3d1s1 cr4d1s1; do
             -pc $B_DUST $T_DUST $B_SYNC \
             -tag $TAG -m $MASK -i LiteBIRD \
             -s active_set_adabelief -top_k 0.4 \
-            -o $OUTPUT_DIR)
+            --name $NAME -o $OUTPUT_DIR)
         
         job_ids+=("$jid")
     done

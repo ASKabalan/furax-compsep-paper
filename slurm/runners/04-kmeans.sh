@@ -59,13 +59,14 @@ for config in "${CONFIGS[@]}"; do
 
         # Submit jobs for 3 masks
         for MASK in GAL020 GAL040 GAL060; do
+             NAME="kmeans_c1d1s1_BD${B_DUST}_TD${T_DUST}_BS${B_SYNC}_${MASK}"
              jid=$(sbatch $BATCH_PARAMS --job-name=${JOB_NAME}_${MASK} \
                 $SLURM_SCRIPT $OUTPUT_DIR \
                 kmeans-model -n 64 -ns 10 -nr 1.0 \
                 -pc $B_DUST $T_DUST $B_SYNC \
                 -tag c1d1s1 -m $MASK -i LiteBIRD \
                 -s active_set_adabelief -top_k 0.4 \
-                -o $OUTPUT_DIR)
+                --name $NAME -o $OUTPUT_DIR)
              current_job_ids+=("$jid")
         done
     done
