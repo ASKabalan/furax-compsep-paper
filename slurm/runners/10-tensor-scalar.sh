@@ -28,7 +28,7 @@ for TAG in cr3d1s1 cr4d1s1; do
             kmeans-model -n 64 -ns 10 -nr 1.0 \
             -pc $B_DUST $T_DUST $B_SYNC \
             -tag $TAG -m $MASK -i LiteBIRD \
-            -s active_set_adabelief -top_k 0.4 \
+            -s active_set_adabelief -top_k 0.4 -mi 2000 \
             --name $NAME -o $OUTPUT_DIR)
         
         job_ids+=("$jid")
@@ -46,7 +46,7 @@ sbatch --dependency=afterany:$deps \
     --job-name=ANA_TENSOR_3 \
     $SLURM_SCRIPT $OUTPUT_DIR \
     r_analysis snap -r "kmeans_cr3d1s1_BD${B_DUST}_TD${T_DUST}_BS${B_SYNC}" -ird $OUTPUT_DIR \
-    -mi 2000 -s active_set_adabelief -n 64 -i LiteBIRD
+    -mi 2000 -s optax_lbfgs -n 64 -i LiteBIRD
 
 # Analysis for cr4d1s1
 sbatch --dependency=afterany:$deps \
@@ -54,4 +54,4 @@ sbatch --dependency=afterany:$deps \
     --job-name=ANA_TENSOR_4 \
     $SLURM_SCRIPT $OUTPUT_DIR \
     r_analysis snap -r "kmeans_cr4d1s1_BD${B_DUST}_TD${T_DUST}_BS${B_SYNC}" -ird $OUTPUT_DIR \
-    -mi 2000 -s active_set_adabelief -n 64 -i LiteBIRD
+    -mi 2000 -s optax_lbfgs -n 64 -i LiteBIRD

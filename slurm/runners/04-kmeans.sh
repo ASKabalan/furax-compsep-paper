@@ -65,7 +65,7 @@ for config in "${CONFIGS[@]}"; do
                 kmeans-model -n 64 -ns 10 -nr 1.0 \
                 -pc $B_DUST $T_DUST $B_SYNC \
                 -tag c1d1s1 -m $MASK -i LiteBIRD \
-                -s active_set_adabelief -top_k 0.4 \
+                -s active_set_adabelief -top_k 0.4 -mi 2000 \
                 --name $NAME -o $OUTPUT_DIR)
              current_job_ids+=("$jid")
         done
@@ -84,6 +84,6 @@ for config in "${CONFIGS[@]}"; do
         --job-name=ANA_${OUTPUT_BASE} \
         $SLURM_SCRIPT $OUTPUT_DIR \
         r_analysis snap -r "$REGEX" -ird $OUTPUT_DIR \
-        -mi 2000 -s active_set_adabelief -n 64 -i LiteBIRD
+        -mi 2000 -s optax_lbfgs -n 64 -i LiteBIRD
 done
 
