@@ -293,6 +293,7 @@ def main():
             "beta_dust": final_params["beta_dust"],
             "temp_dust": final_params["temp_dust"],
             "beta_pl": final_params["beta_pl"],
+            "iter_num": final_state.iter_num,
         }
 
     # Save results and mask
@@ -310,6 +311,13 @@ def main():
             results = jax.tree.map(lambda *xs: jnp.stack(xs), *results_list)
         jax.tree.map(lambda x: x.block_until_ready(), results)
         end_time = perf_counter()
+        min_bd, max_bd = results["beta_dust"].min(), results["beta_dust"].max()
+        min_td, max_td = results["temp_dust"].min(), results["temp_dust"].max()
+        min_bs, max_bs = results["beta_pl"].min(), results["beta_pl"].max()
+        info(f"min beta_dust: {min_bd} max beta_dust: {max_bd}")
+        info(f"min temp_dust: {min_td} max temp_dust: {max_td}")
+        info(f"min beta_pl: {min_bs} max beta_pl: {max_bs}")
+        info(f"Number of iterations: {results['iter_num'].mean()}")
         info(f"Component separation took {end_time - start_time:.2f} seconds")
 
         results["beta_dust_patches"] = patch_indices["beta_dust_patches"]
